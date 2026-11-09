@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="코드 문법 토큰을 하나씩 치는 개발자용 타자연습 게임. 주간 랭킹.">
+<meta name="theme-color" content="#0a0d12">
+<title>TYPE//CODE — 코드 문법 타자연습</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<script type="module" src="/js/main.js"></script>
+</head>
+<body>
+<div class="app" id="app">
+  <header>
+    <div class="logo">TYPE<span>//</span>CODE</div>
+    <div class="controls">
+      <select id="languageSelect" aria-label="언어 선택"></select>
+      <div class="segmented" role="group" aria-label="제한 시간">
+        <button type="button" data-seconds="30">30s</button>
+        <button type="button" data-seconds="60">60s</button>
+        <button type="button" data-seconds="120">120s</button>
+      </div>
+      <button type="button" id="soundToggle" aria-pressed="true">SND ON</button>
+      <button type="button" id="restartButton" title="Esc">재시작</button>
+    </div>
+  </header>
+
+  <div class="timer-bar" aria-hidden="true"><div class="timer-fill" id="timerFill"></div></div>
+
+  <div class="stats">
+    <div class="stat time" id="timeStat"><div class="label">TIME</div><div class="value" id="timeValue">60</div></div>
+    <div class="stat"><div class="label">WPM</div><div class="value" id="wpmValue">0</div></div>
+    <div class="stat"><div class="label">ACC</div><div class="value" id="accuracyValue">100%</div></div>
+    <div class="stat"><div class="label">COMBO</div><div class="value" id="comboValue">0</div></div>
+    <div class="stat mult" id="multiplierStat"><div class="label">MULT</div><div class="value" id="multiplierValue">×1.0</div></div>
+    <div class="stat"><div class="label">SCORE</div><div class="value" id="scoreValue">0</div></div>
+  </div>
+
+  <section class="stage" id="stage" data-tier="0" aria-label="입력 영역">
+    <div class="tabbar"><span class="file" id="fileName">main.js</span><span id="tokenCounter">token #1</span></div>
+    <div class="track">
+      <div class="history" id="historyView" aria-hidden="true"></div>
+      <div class="kind" id="kindLabel">keyword</div>
+      <div class="current" id="currentView"></div>
+      <div class="combo-meter" aria-hidden="true">
+        <div class="combo-track"><div class="combo-fill" id="comboFill"></div></div>
+        <span class="combo-hint" id="comboHint"></span>
+      </div>
+      <div class="queue" id="queueView" aria-hidden="true"></div>
+    </div>
+    <div class="overlay" id="focusOverlay">여기를 클릭(탭)해서 시작 준비<br><span>첫 키 입력부터 타이머가 돕니다</span></div>
+    <textarea id="hiddenInput" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="타자 입력"></textarea>
+  </section>
+
+  <div class="console" id="consoleView" aria-live="polite"></div>
+
+  <section class="board" aria-label="주간 랭킹">
+    <div class="board-head"><h2 id="boardTitle">WEEKLY TOP 10</h2><span class="badge" id="boardBadge">…</span></div>
+    <div id="boardBody"><p class="empty">랭킹 불러오는 중…</p></div>
+  </section>
+
+  <p class="hint">
+    문법 토큰을 하나씩 입력 · 다 맞게 치면 자동으로 다음 토큰 · 틀린 글자는 빨갛게 남고 <kbd>Backspace</kbd>로 지움 (<kbd>Ctrl</kbd>+<kbd>Backspace</kbd> 토큰 전체) · <kbd>Esc</kbd> 재시작<br>
+    오타 없이 끝낸 토큰이 이어지면 콤보 · 10+ ×1.5 · 30+ ×2.0 · 틀린 토큰은 다시 출제 · 랭킹은 매주 월요일 00시(KST) 새로 집계
+  </p>
+</div>
+
+<div class="modal" id="resultModal" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
+    <h3 id="resultTitle">BUILD FINISHED</h3>
+    <p class="sub" id="resultSub"></p>
+    <div class="result-grid">
+      <div class="stat"><div class="label">SCORE</div><div class="value" id="resultScore">0</div></div>
+      <div class="stat"><div class="label">WPM</div><div class="value" id="resultWpm">0</div></div>
+      <div class="stat"><div class="label">ACC</div><div class="value" id="resultAccuracy">0%</div></div>
+      <div class="stat"><div class="label">MAX COMBO</div><div class="value" id="resultCombo">0</div></div>
+    </div>
+    <div class="result-section">
+      <div class="section-head"><span>WPM 추이</span><span id="wpmChartPeak"></span></div>
+      <svg class="chart" id="wpmChart" viewBox="0 0 300 64" preserveAspectRatio="none" aria-hidden="true"></svg>
+    </div>
+    <div class="result-section">
+      <div class="section-head"><span>자주 틀린 토큰</span></div>
+      <div class="chips" id="weakTokens"></div>
+    </div>
+    <form id="saveForm">
+      <label for="playerName">랭킹에 남길 이름</label>
+      <input id="playerName" maxlength="16" placeholder="anonymous" autocomplete="off">
+      <p class="status" id="saveStatus" role="status"></p>
+      <div class="actions">
+        <button type="button" id="retryButton">다시 하기</button>
+        <button type="submit" class="primary" id="saveButton">랭킹 등록</button>
+      </div>
+    </form>
+  </div>
+</div>
+</body>
+</html>
