@@ -1,14 +1,16 @@
 import { createHmac, randomBytes, timingSafeEqual, createHash } from 'node:crypto';
 import { list, put } from '@vercel/blob';
+// 클라이언트와 같은 모듈을 그대로 가져와 규칙·상수가 어긋나지 않게 한다.
+import { LANGUAGE_KEYS } from '../public/js/tokens.js';
+import { DURATIONS, SCORING, MAX_MULTIPLIER, calculateWordsPerMinute, calculateAccuracy } from '../public/js/engine.js';
+import { getWeekLabel } from '../public/js/week.js';
 
-export const LANGUAGES = ['javascript', 'python', 'java', 'c', 'go', 'rust', 'sql'];
-export const DURATIONS = [30, 60, 120];
+export { DURATIONS, getWeekLabel };
+export const LANGUAGES = LANGUAGE_KEYS;
 export const BOARD_SIZE = 10;
 const MAX_SUBMIT_DELAY_MS = 10 * 60 * 1000;
 const START_TOLERANCE_MS = 3000;
 const MAX_CHARS_PER_SECOND = 25;
-const MAX_MULTIPLIER = 2;
-const BASE_POINTS = 10;
 const BOARD_PREFIX = 'lb';
 
 export class HttpError extends Error {
@@ -42,16 +44,6 @@ export async function readJsonBody(request) {
   } catch {
     throw new HttpError(400, 'invalid_json', '요청 본문이 JSON이 아닙니다');
   }
-}
-
-// KST 기준 ISO 주차 라벨(예: 2026-W46). 주가 바뀌면 새 prefix에 쓰므로 초기화 배치가 없다.
-export function getWeekLabel(timestamp = Date.now()) {
-  const kstDate = new Date(timestamp + 9 * 3600 * 1000);
-  const isoDay = kstDate.getUTCDay() || 7;
-  const thursday = new Date(Date.UTC(kstDate.getUTCFullYear(), kstDate.getUTCMonth(), kstDate.getUTCDate() + 4 - isoDay));
-  const yearStart = Date.UTC(thursday.getUTCFullYear(), 0, 1);
-  const weekNumber = Math.ceil(((thursday - yearStart) / 86400000 + 1) / 7);
-  return `${thursday.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
 }
 
 // 서명 키: 별도 비밀값이 있으면 사용, 없으면 서버에만 있는 Blob 토큰에서 파생한다.
@@ -112,15 +104,14 @@ export function validateSubmission(session, body, now = Date.now()) {
   if (correctKeystrokes > session.durationSeconds * MAX_CHARS_PER_SECOND) {
     throw new HttpError(422, 'implausible_speed', '입력 속도가 비정상적입니다');
   }
-  if (score > correctKeystrokes * BASE_POINTS * MAX_MULTIPLIER) {
+  if (score > correctKeystrokes * SCORING.basePoints * MAX_MULTIPLIER) {
     throw new HttpError(422, 'implausible_score', '점수가 입력량과 맞지 않습니다');
   }
-  const totalKeystrokes = correctKeystrokes + wrongKeystrokes;
   return {
     score,
     maxCombo,
-    wpm: Math.round(correctKeystrokes / 5 / (session.durationSeconds / 60)),
-    accuracy: totalKeystrokes === 0 ? 0 : Math.round((correctKeystrokes / totalKeystrokes) * 1000) / 10
+    wpm: calculateWordsPerMinute(correctKeystrokes, session.durationSeconds),
+    accuracy: calculateAccuracy(correctKeystrokes, wrongKeystrokes)
   };
 }
 
