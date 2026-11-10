@@ -67,13 +67,13 @@ function handlePracticeEvent(type, payload) {
       ui.log('sys', `run started · ${LANGUAGES[settings.languageKey].label} · ${settings.durationSeconds}s`);
       break;
     case 'keystroke':
-      sound.play('key');
+      sound.play('key', { character: run.lastCharacter });
       break;
     case 'backspace':
       sound.play('erase');
       break;
     case 'mistake':
-      sound.play('keyWrong');
+      sound.play('keyWrong', { character: payload.typed });
       sound.play('error');
       pulseClass(ui.elements.stage, 'shake', 200);
       if (payload.comboLost >= 5) ui.log('warn', `combo ${payload.comboLost} dropped`);
@@ -94,7 +94,7 @@ function handlePracticeEvent(type, payload) {
 }
 
 function handlePracticeToken({ clean, combo, tier, tierUp, milestone }) {
-  sound.play('key');
+  sound.play('key', { character: run.lastCharacter });
   bgm.setIntensity(tier);
   if (tierUp) {
     sound.play('tierUp', { tier });
@@ -127,13 +127,13 @@ function handleArcadeEvent(type, payload) {
       sound.play('lock');
       break;
     case 'keystroke':
-      sound.play('key');
+      sound.play('key', { character: run.lastCharacter });
       break;
     case 'backspace':
       sound.play('erase');
       break;
     case 'mistake':
-      sound.play('keyWrong');
+      sound.play('keyWrong', { character: payload.typed });
       sound.play('error');
       pulseClass(ui.elements.arcadeStage, 'shake', 200);
       ui.log('err', payload.target
@@ -141,7 +141,7 @@ function handleArcadeEvent(type, payload) {
         : `TargetNotFound: '${visible(payload.typed)}'로 시작하는 낱말이 없습니다`);
       break;
     case 'throw':
-      sound.play('key');
+      sound.play('key', { character: run.lastCharacter });
       sound.play(battery ? 'splash' : payload.weapon === 'laptop' ? 'throwLaptop' : 'throwPhone');
       if (payload.tier > run.lastTier) {
         sound.play('tierUp', { tier: payload.tier });
@@ -454,6 +454,7 @@ function warnIme() {
 }
 
 function applyCharacter(character) {
+  run.lastCharacter = character;
   startMusic();
   const engine = run.engine;
   if (isArcade()) {

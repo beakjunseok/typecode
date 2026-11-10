@@ -4,6 +4,26 @@
 const PENTATONIC_STEPS = [0, 2, 4, 7, 9];
 // 키 소리(청축·적축) 크기 배율: 다른 효과음보다 자주 나오지만 손맛이 묻히지 않게 키운다
 const KEY_VOLUME = 1.8;
+// 키 소리 공간감: 짧은 방 울림(책상 위 키보드)과 좌우 위치. 울림 길이는 짧게 잡아 잔향이 타이핑을 뭉개지 않게 한다
+const ROOM_SECONDS = 0.32;
+const KEY_PAN_WIDTH = 0.55;
+const KEYBOARD_ROWS = ['`1234567890-=', 'qwertyuiop[]\\', "asdfghjkl;'", 'zxcvbnm,./'];
+const SHIFTED_ROWS = ['~!@#$%^&*()_+', 'QWERTYUIOP{}|', 'ASDFGHJKL:"', 'ZXCVBNM<>?'];
+
+// 글자 → 좌우 위치(-1 왼쪽 ~ 1 오른쪽). 실제 키보드 열 위치를 따른다. 행 길이 합 상수라 O(1)
+export function keyPan(character) {
+  if (typeof character !== 'string' || character.length !== 1 || character === ' ') return 0;
+  for (const rows of [KEYBOARD_ROWS, SHIFTED_ROWS]) {
+    for (let row = 0; row < rows.length; row++) {
+      const column = rows[row].indexOf(character);
+      if (column === -1) continue;
+      const offset = row * 0.25;
+      const position = Math.min(1, (column + offset) / (KEYBOARD_ROWS[0].length - 1));
+      return (position * 2 - 1) * KEY_PAN_WIDTH;
+    }
+  }
+  return 0;
+}
 const COMBO_BASE_FREQUENCY = 523.25; // C5
 const BELL_PARTIALS = [
   { ratio: 1, gain: 1, decay: 1 },
@@ -43,10 +63,68 @@ export class SoundEngine {
       this.context = context;
       this.master = master;
       this.noiseBuffer = this.createNoiseBuffer(context, 0.5);
+      this.room = this.createRoom(context, master);
       return context;
     } catch (error) {
       return null;
     }
+  }
+
+  // 짧은 방 울림 버스(Convolver). 지원하지 않는 브라우저면 null → 울림 없이 동작
+  createRoom(context, destination) {
+    if (typeof context.createConvolver !== 'function') return null;
+    try {
+      const convolver = context.createConvolver();
+      convolver.buffer = this.createRoomImpulse(context, ROOM_SECONDS);
+      const returnGain = context.createGain();
+      returnGain.gain.value = 1;
+      convolver.connect(returnGain);
+      returnGain.connect(destination);
+      return convolver;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  // 스테레오 임펄스: 좌우가 조금씩 다른 초기 반사 몇 개 + 지수 감쇠 잡음(고역은 빨리 사라지게 1차 저역통과). 길이 n 샘플, O(n)
+  createRoomImpulse(context, seconds) {
+    const length = Math.max(1, Math.floor(context.sampleRate * seconds));
+    const impulse = context.createBuffer(2, length, context.sampleRate);
+    const reflections = [[0.006, 0.5], [0.013, 0.35], [0.021, 0.25], [0.034, 0.18]];
+    for (let channel = 0; channel < 2; channel++) {
+      const samples = impulse.getChannelData(channel);
+      let smoothed = 0;
+      for (let index = 0; index < length; index++) {
+        const progress = index / length;
+        smoothed += ((Math.random() * 2 - 1) - smoothed) * (0.55 - progress * 0.4);
+        samples[index] = smoothed * Math.pow(1 - progress, 3) * 0.35;
+      }
+      for (const [delay, gain] of reflections) {
+        const index = Math.floor((delay + channel * 0.0023) * context.sampleRate);
+        if (index < length) samples[index] += gain * (channel ? -1 : 1);
+      }
+    }
+    return impulse;
+  }
+
+  // 키 한 번의 소리 버스: 좌우 위치(pan) + 방 울림 보내기(wet). 모든 레이어가 이 버스로 모인다
+  keyBus(context, { pan = 0, wet = 0.15 } = {}) {
+    const input = context.createGain();
+    let output = input;
+    if (typeof context.createStereoPanner === 'function') {
+      const panner = context.createStereoPanner();
+      panner.pan.value = pan;
+      input.connect(panner);
+      output = panner;
+    }
+    output.connect(this.master);
+    if (this.room && wet > 0) {
+      const send = context.createGain();
+      send.gain.value = wet;
+      output.connect(send);
+      send.connect(this.room);
+    }
+    return input;
   }
 
   createNoiseBuffer(context, seconds) {
@@ -69,21 +147,21 @@ export class SoundEngine {
     }
   }
 
-  envelope(context, startTime, peak, attack, decay) {
+  envelope(context, startTime, peak, attack, decay, destination = this.master) {
     const gain = context.createGain();
     gain.gain.setValueAtTime(0.0001, startTime);
     gain.gain.exponentialRampToValueAtTime(peak, startTime + attack);
     gain.gain.exponentialRampToValueAtTime(0.0001, startTime + attack + decay);
-    gain.connect(this.master);
+    gain.connect(destination);
     return gain;
   }
 
-  tone(context, { frequency, startTime, peak, decay, waveform = 'sine', attack = 0.004, filter = null, sweepTo = null }) {
+  tone(context, { frequency, startTime, peak, decay, waveform = 'sine', attack = 0.004, filter = null, sweepTo = null, destination }) {
     const oscillator = context.createOscillator();
     oscillator.type = waveform;
     oscillator.frequency.setValueAtTime(frequency, startTime);
     if (sweepTo) oscillator.frequency.exponentialRampToValueAtTime(sweepTo, startTime + attack + decay);
-    const output = this.envelope(context, startTime, peak, attack, decay);
+    const output = this.envelope(context, startTime, peak, attack, decay, destination);
     if (filter) {
       const biquad = context.createBiquadFilter();
       biquad.type = filter.type;
@@ -97,7 +175,7 @@ export class SoundEngine {
     oscillator.stop(startTime + attack + decay + 0.02);
   }
 
-  noise(context, { startTime, peak, decay, filterType, frequency, q = 1, attack = 0.002, sweepTo = null }) {
+  noise(context, { startTime, peak, decay, filterType, frequency, q = 1, attack = 0.002, sweepTo = null, destination }) {
     const source = context.createBufferSource();
     source.buffer = this.noiseBuffer;
     const filter = context.createBiquadFilter();
@@ -106,7 +184,7 @@ export class SoundEngine {
     if (sweepTo) filter.frequency.exponentialRampToValueAtTime(sweepTo, startTime + attack + decay);
     filter.Q.value = q;
     source.connect(filter);
-    filter.connect(this.envelope(context, startTime, peak, attack, decay));
+    filter.connect(this.envelope(context, startTime, peak, attack, decay, destination));
     source.start(startTime, Math.random() * 0.3);
     source.stop(startTime + attack + decay + 0.02);
   }
@@ -128,34 +206,46 @@ function comboFrequency(combo) {
 }
 
 const SOUNDS = {
-  // 맞는 키: 청축(클리키). 높고 쨍한 '찰칵' → 가벼운 바닥 소리 → 올라올 때 작은 '찰칵' 한 번 더.
-  // 매 타마다 음높이·세기를 ±8% 흔들어 같은 소리 반복을 피한다. 노드 7개, O(1)
-  key(engine, context, time) {
+  // 맞는 키: 청축(클리키). 높고 쨍한 '찰칵' + 클릭 스프링의 아주 짧은 '칭'(청량감) → 가벼운 바닥 소리 → 올라올 때 '찰칵'.
+  // 키 위치대로 좌우에 놓고 짧은 방 울림을 살짝 섞는다. 매 타 ±8% 흔들기. 노드 약 20개, O(1)
+  key(engine, context, time, { character } = {}) {
     const vary = () => 0.92 + Math.random() * 0.16;
     const loud = KEY_VOLUME;
-    engine.noise(context, { startTime: time, peak: 0.1 * loud * vary(), attack: 0.0004, decay: 0.005, filterType: 'bandpass', frequency: 6800 * vary(), q: 2.6 });
-    engine.tone(context, { frequency: 5200 * vary(), startTime: time, peak: 0.03 * loud, attack: 0.0004, decay: 0.0035, waveform: 'square' });
+    const destination = engine.keyBus(context, { pan: keyPan(character), wet: 0.12 });
+    const layer = options => ({ destination, attack: 0.0004, ...options });
+    engine.noise(context, layer({ startTime: time, peak: 0.1 * loud * vary(), decay: 0.005, filterType: 'bandpass', frequency: 6800 * vary(), q: 2.6 }));
+    engine.tone(context, layer({ frequency: 5200 * vary(), startTime: time, peak: 0.03 * loud, decay: 0.0035, waveform: 'square' }));
+    engine.tone(context, layer({ frequency: 8400 * vary(), startTime: time + 0.001, peak: 0.016 * loud, decay: 0.035 }));
+    engine.noise(context, layer({ startTime: time, peak: 0.025 * loud, decay: 0.012, filterType: 'highpass', frequency: 9500 }));
     const bottom = time + 0.01;
-    engine.noise(context, { startTime: bottom, peak: 0.04 * loud, attack: 0.0008, decay: 0.014, filterType: 'bandpass', frequency: 2800 * vary(), q: 1 });
-    engine.tone(context, { frequency: 420 * vary(), sweepTo: 300, startTime: bottom, peak: 0.03 * loud, attack: 0.0008, decay: 0.02 });
+    engine.noise(context, layer({ startTime: bottom, peak: 0.04 * loud, attack: 0.0008, decay: 0.014, filterType: 'bandpass', frequency: 2800 * vary(), q: 1 }));
+    engine.tone(context, layer({ frequency: 420 * vary(), sweepTo: 300, startTime: bottom, peak: 0.03 * loud, attack: 0.0008, decay: 0.02 }));
     const release = time + 0.07 + Math.random() * 0.025;
-    engine.noise(context, { startTime: release, peak: 0.05 * loud * vary(), attack: 0.0004, decay: 0.004, filterType: 'bandpass', frequency: 6000 * vary(), q: 2.4 });
-    engine.tone(context, { frequency: 4600 * vary(), startTime: release, peak: 0.014 * loud, attack: 0.0004, decay: 0.003, waveform: 'square' });
+    engine.noise(context, layer({ startTime: release, peak: 0.05 * loud * vary(), decay: 0.004, filterType: 'bandpass', frequency: 6000 * vary(), q: 2.4 }));
+    engine.tone(context, layer({ frequency: 4600 * vary(), startTime: release, peak: 0.014 * loud, decay: 0.003, waveform: 'square' }));
+    engine.tone(context, layer({ frequency: 7800 * vary(), startTime: release + 0.001, peak: 0.008 * loud, decay: 0.025 }));
   },
-  // 틀린 키: 적축(리니어). 클릭 없이 짧고 부드러운 '톡' — 키캡 플라스틱이 바닥에 닿는 중저역만 30ms 이내로.
-  // 저음을 길게 끌면 문 두드리는 소리가 되므로 울림은 짧게 자른다. 노드 3개, O(1)
-  keyWrong(engine, context, time) {
+  // 틀린 키: 적축(리니어). 클릭 없이 '도각' — 축이 바닥 하우징에 닿는 플라스틱 소리 + 짧은 몸통 울림,
+  // 올라올 때 윗 하우징에 닿는 '각'. 방 울림을 청축보다 많이 섞어 입체감을 준다. 저음은 짧게 잘라 노크처럼 안 들리게. O(1)
+  keyWrong(engine, context, time, { character } = {}) {
     const vary = () => 0.93 + Math.random() * 0.14;
     const loud = KEY_VOLUME;
-    engine.noise(context, { startTime: time, peak: 0.08 * loud * vary(), attack: 0.0015, decay: 0.018, filterType: 'lowpass', frequency: 1300 * vary(), q: 0.6 });
-    engine.tone(context, { frequency: 330 * vary(), sweepTo: 240, startTime: time, peak: 0.04 * loud, attack: 0.0015, decay: 0.022, waveform: 'triangle' });
-    engine.noise(context, { startTime: time + 0.065 + Math.random() * 0.02, peak: 0.018 * loud, attack: 0.0015, decay: 0.012, filterType: 'lowpass', frequency: 1500, q: 0.6 });
+    const destination = engine.keyBus(context, { pan: keyPan(character), wet: 0.28 });
+    const layer = options => ({ destination, attack: 0.0012, ...options });
+    engine.noise(context, layer({ startTime: time, peak: 0.075 * loud * vary(), decay: 0.02, filterType: 'bandpass', frequency: 950 * vary(), q: 1.2 }));
+    engine.tone(context, layer({ frequency: 540 * vary(), sweepTo: 440, startTime: time, peak: 0.03 * loud, decay: 0.03, waveform: 'triangle' }));
+    engine.tone(context, layer({ frequency: 200 * vary(), sweepTo: 160, startTime: time, peak: 0.045 * loud, decay: 0.035 }));
+    engine.noise(context, layer({ startTime: time, peak: 0.02 * loud, decay: 0.008, filterType: 'bandpass', frequency: 2600 * vary(), q: 1 }));
+    const release = time + 0.07 + Math.random() * 0.02;
+    engine.noise(context, layer({ startTime: release, peak: 0.032 * loud * vary(), decay: 0.012, filterType: 'bandpass', frequency: 1450 * vary(), q: 1.4 }));
+    engine.tone(context, layer({ frequency: 720 * vary(), startTime: release, peak: 0.012 * loud, decay: 0.014, waveform: 'triangle' }));
   },
-  // 지우기: 같은 키보드의 넓은 키(Backspace) — 더 낮고 묵직하게, 스태빌라이저 '덜컥'
+  // 지우기: 오른쪽 위 넓은 키(Backspace) — 낮고 묵직하게, 스태빌라이저 '덜컥'
   erase(engine, context, time) {
-    engine.tone(context, { frequency: 120, sweepTo: 70, startTime: time, peak: 0.1, attack: 0.001, decay: 0.06 });
-    engine.noise(context, { startTime: time, peak: 0.07, attack: 0.001, decay: 0.03, filterType: 'lowpass', frequency: 800, q: 0.7 });
-    engine.noise(context, { startTime: time + 0.012, peak: 0.025, attack: 0.001, decay: 0.015, filterType: 'bandpass', frequency: 1500, q: 1.5 });
+    const destination = engine.keyBus(context, { pan: KEY_PAN_WIDTH, wet: 0.2 });
+    engine.tone(context, { destination, frequency: 120, sweepTo: 70, startTime: time, peak: 0.1, attack: 0.001, decay: 0.06 });
+    engine.noise(context, { destination, startTime: time, peak: 0.07, attack: 0.001, decay: 0.03, filterType: 'lowpass', frequency: 800, q: 0.7 });
+    engine.noise(context, { destination, startTime: time + 0.012, peak: 0.025, attack: 0.001, decay: 0.015, filterType: 'bandpass', frequency: 1500, q: 1.5 });
   },
   // 토큰 완성: 콤보가 오를수록 펜타토닉 음계를 따라 올라간다
   token(engine, context, time, { combo = 1 }) {
