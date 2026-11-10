@@ -42,6 +42,18 @@
 블랙 RGB 키보드(US 배열). 다음에 칠 키에 주황 점, 대문자·기호는 반대손 Shift 표시, 오타가 남아 있으면 Backspace 안내,
 키캡 하단 색 = 담당 손가락, 누른 키는 초록(맞음)/빨강(틀림)으로 번쩍. `KBD` 버튼으로 끄고 켠다.
 
+## 키 소리
+| 상황 | 소리 | 방식 |
+|---|---|---|
+| 맞는 키 | 청축(클리키): 높은 '찰칵' + 스프링 '칭' → 바닥 소리 → 올라올 때 '찰칵' | Web Audio 합성 |
+| 틀린 키 | 적축(리니어): 누름 → 70~105ms 뒤 올라옴 | **실제 녹음** 12+12개 중 직전과 다른 것, ±18 cents·±2 dB 변화 |
+| Backspace | 넓은 키 누름·올라옴 | 실제 녹음 3+3개 |
+
+- 키 위치대로 좌우 배치(q는 왼쪽, p는 오른쪽), 짧은 방 울림. 키 소리는 BGM과 다른 출력(전용 limiter)으로 보내 BGM에 묻히지 않는다.
+- 녹음은 `public/sounds/linear.wav` 한 파일(32 kHz stereo, 319 KB)에 묶어 첫 입력 뒤에 한 번 받는다. 받기 전이나 실패 시에는 합성음으로 대신한다.
+- 출처: [gabrimatic/switchtone](https://github.com/gabrimatic/switchtone) `Resources/Sounds/linear` (MIT) ← Sony Keyboard Sound Dataset (MIT, Copyright 2020 Sony Corporation). 전문: `public/sounds/LICENSES.txt`.
+  다시 만들기: `python3 scripts/build-key-samples.py <switchtone>/Resources/Sounds/linear` (ffmpeg 필요)
+
 ## BGM (Web Audio 실시간 합성 — 음원 파일·저작권 없음)
 | 모드 | 곡 | 반응 |
 |---|---|---|
@@ -80,7 +92,8 @@ public/                  정적 클라이언트 (빌드 없음, ES Modules)
   js/tokens.js           토큰 사전 공개 창구: 종류·색·출제 비율, 가중치 풀 생성
   js/tokens.generated.js 자동 생성된 언어별 토큰 목록 (직접 수정 금지)
   js/week.js             KST ISO 주차 계산 (클라이언트·서버 공용)
-  js/audio.js            효과음 합성 엔진
+  js/audio.js            효과음 엔진(합성 + 적축 녹음 스프라이트 재생)
+  js/key-samples.js      적축 스프라이트 오프셋(scripts/build-key-samples.py가 생성)
   js/effects.js          파티클·흔들림
   js/ui.js               렌더링 전담
   js/api.js              서버 호출 + 로컬 랭킹 폴백
