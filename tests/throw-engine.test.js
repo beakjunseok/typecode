@@ -227,19 +227,19 @@ test('시간이 지나면 빠른 로봇·탱크 로봇이 등장한다', () => {
   assert.deepEqual([...seen].sort(), ['basic', 'fast', 'tank']);
 });
 
-test('배터리 아이템: 생명이 깎였을 때만 나오고 1 회복 (최대치 초과 없음)', () => {
+test('충전기 아이템: 생명이 깎였을 때만 나오고 1 회복 (최대치 초과 없음)', () => {
   const { engine } = createEngine({ random: () => 0.1 });
   const clock = { now: 0 };
   engine.start(0);
   engine.nextSpawnAt = Infinity;
   assert.equal(engine.chooseItemType(), 'laptop', '생명이 가득하면 노트북');
   engine.lives = 2;
-  assert.equal(engine.chooseItemType(), 'battery');
-  const battery = engine.spawnItem(1, 'battery');
-  typeText(engine, clock, battery.token.text);
+  assert.equal(engine.chooseItemType(), 'charger');
+  const charger = engine.spawnItem(1, 'charger');
+  typeText(engine, clock, charger.token.text);
   advance(engine, clock, 0.3);
   assert.equal(engine.lives, 3);
-  assert.equal(engine.laptopRemaining(), 0, '배터리는 노트북 모드를 켜지 않음');
+  assert.equal(engine.laptopRemaining(), 0, '충전기는 노트북 모드를 켜지 않음');
 });
 
 test('난이도: Lv.4는 Lv.1보다 로봇이 빠르다', () => {
@@ -247,4 +247,12 @@ test('난이도: Lv.4는 Lv.1보다 로봇이 빠르다', () => {
   const fast = new ThrowEngine({ tokenPool: POOL, level: 4 });
   assert.ok(fast.speedMultiplier() > slow.speedMultiplier() * 1.9);
   assert.equal(new ThrowEngine({ tokenPool: POOL, level: 9 }).level, 2, '잘못된 레벨은 기본값');
+});
+
+test('세로 모바일 설정: 레인 3개, 토큰 14자 이하', () => {
+  const engine = new ThrowEngine({ tokenPool: getTokenPool('java'), lanes: 3, maxTokenLength: 14, random: seeded(2) });
+  engine.start(0);
+  for (let index = 0; index < 30; index++) engine.spawnRobot();
+  assert.ok(engine.robots.every(robot => robot.lane >= 0 && robot.lane < 3));
+  assert.ok(engine.tokenPool.every(token => token.text.length <= 14));
 });

@@ -3,7 +3,7 @@ import {
   sanitizeName, sessionAlreadySubmitted, storeEntry, toPublicEntry, validateSubmission, verifySessionToken, withErrorHandling
 } from './_lib.js';
 
-// 이번 주 TOP 10 (?mode=practice|throw|rescue). 엣지에서 5초 캐시해 list 호출 수를 줄인다.
+// 이번 주 TOP 10 (?mode=practice|throw|battery). 엣지에서 5초 캐시해 list 호출 수를 줄인다.
 export const GET = withErrorHandling(async request => {
   const mode = resolveMode(new URL(request.url).searchParams.get('mode') ?? undefined);
   const week = getWeekLabel();

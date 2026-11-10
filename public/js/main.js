@@ -1,12 +1,12 @@
 // 진입점: 모드(연습 · 휴대폰 던지기 · 에러 구조 SOS)를 고르고, 엔진 이벤트를 화면·효과음·키보드·서버 호출에 연결한다.
 import { TypingEngine, DURATIONS } from './engine.js';
 import { LANGUAGES, getTokenPool } from './tokens.js';
-import { getRescueTokenPool } from './error-tokens.js';
 import { ThrowEngine, ROBOT_TYPES } from './throw-engine.js';
-import { RescueEngine } from './rescue-engine.js';
+import { BatteryEngine } from './battery-engine.js';
 import { DIFFICULTY_LEVELS } from './target-game.js';
 import { ThrowRenderer } from './throw-view.js';
-import { RescueRenderer } from './rescue-view.js';
+import { BatteryRenderer } from './battery-view.js';
+import { createInputDiffer, INPUT_SENTINEL } from './input.js';
 import { SoundEngine } from './audio.js';
 import { BgmEngine } from './bgm.js';
 import { emitSparks, pulseClass } from './effects.js';
@@ -16,19 +16,23 @@ import { createUi, TIER_COLORS } from './ui.js';
 import { getWeekLabel } from './week.js';
 
 const TICK_INTERVAL_MS = 100;
-const INPUT_SENTINEL = ' ';
+const NARROW_WIDTH = 520;
+const IME_WARNING_INTERVAL_MS = 4000;
 
 const MODE_CONFIG = Object.freeze({
   practice: { label: '연습', arcade: false },
   throw: {
     label: '휴대폰 던지기', arcade: true, title: 'phone-throw.exe', resultTitle: 'GAME OVER',
-    hint: '로봇 머리 위 토큰을 다 치면 휴대폰 발사', createEngine: options => new ThrowEngine(options),
-    tokenPool: getTokenPool, Renderer: ThrowRenderer
+    hint: '로봇 발밑 낱말을 다 치면 휴대폰 발사', Renderer: ThrowRenderer,
+    // 좁은 세로 화면: 레인 3개, 토큰 14자 이하(라벨이 열 너비를 넘지 않게)
+    createEngine: options => new ThrowEngine({
+      ...options, lanes: options.narrow ? 3 : 4, maxTokenLength: options.narrow ? 14 : 22
+    })
   },
-  rescue: {
-    label: '에러 구조 SOS', arcade: true, title: 'error-rescue.sh', resultTitle: 'INCIDENT REPORT',
-    hint: '가라앉는 프로세스의 에러를 쳐서 패치 튜브 투하', createEngine: options => new RescueEngine(options),
-    tokenPool: getRescueTokenPool, Renderer: RescueRenderer
+  battery: {
+    label: '배터리 구조 SOS', arcade: true, title: 'battery-rescue.sh', resultTitle: 'BATTERY REPORT',
+    hint: '지나가는 셀 낱말로 충전 · 방전봇 탑 낱말로 공격', Renderer: BatteryRenderer,
+    createEngine: options => new BatteryEngine({ ...options, maxTokenLength: options.narrow ? 14 : 18 })
   }
 });
 
@@ -37,14 +41,15 @@ const sound = new SoundEngine();
 const bgm = new BgmEngine(sound);
 const keyboard = createKeyboard(ui.elements.keyboardSection);
 const renderers = {};
+const savedMode = preferences.get('mode', 'practice') === 'rescue' ? 'battery' : preferences.get('mode', 'practice');
 const settings = {
-  mode: MODE_CONFIG[preferences.get('mode', 'practice')] ? preferences.get('mode', 'practice') : 'practice',
+  mode: MODE_CONFIG[savedMode] ? savedMode : 'practice',
   languageKey: LANGUAGES[preferences.get('lang', 'javascript')] ? preferences.get('lang', 'javascript') : 'javascript',
   durationSeconds: DURATIONS.includes(preferences.get('duration', 60)) ? preferences.get('duration', 60) : 60,
   level: DIFFICULTY_LEVELS[preferences.get('level', 2)] ? Number(preferences.get('level', 2)) : 2,
   keyboardVisible: preferences.get('keyboard', true) !== false
 };
-const run = { engine: null, generation: 0, sessionPromise: null, submitted: false, tickId: null, frameId: null, highlightId: null, lastTier: 0, powerActive: false };
+const run = { engine: null, generation: 0, sessionPromise: null, submitted: false, tickId: null, frameId: null, highlightId: null, lastTier: 0, powerActive: false, lastImeWarning: 0 };
 const now = () => performance.now();
 const modeConfig = () => MODE_CONFIG[settings.mode];
 const isArcade = () => modeConfig().arcade;
@@ -106,7 +111,7 @@ function handlePracticeToken({ clean, combo, tier, tierUp, milestone }) {
 function handleArcadeEvent(type, payload) {
   const renderer = renderers[settings.mode];
   renderer?.onEvent(type, payload, run.engine);
-  const rescue = settings.mode === 'rescue';
+  const battery = settings.mode === 'battery';
   switch (type) {
     case 'start':
       run.sessionPromise = startSession(run.generation);
@@ -114,8 +119,7 @@ function handleArcadeEvent(type, payload) {
       ui.log('sys', `${modeConfig().label} started · ${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[settings.level].label}`);
       break;
     case 'spawn':
-      if (rescue) sound.play('spawnVictim');
-      else sound.play('spawnRobot', { type: payload.robot.type });
+      sound.play('spawnRobot', { type: payload.robot.type });
       break;
     case 'lock':
       sound.play('lock');
@@ -131,10 +135,10 @@ function handleArcadeEvent(type, payload) {
       pulseClass(ui.elements.arcadeStage, 'shake', 200);
       ui.log('err', payload.target
         ? `SyntaxError: unexpected '${visible(payload.typed)}' in '${payload.target.token.text}' — expected '${visible(payload.expected)}'`
-        : `TargetNotFound: '${visible(payload.typed)}'로 시작하는 목표가 없습니다`);
+        : `TargetNotFound: '${visible(payload.typed)}'로 시작하는 낱말이 없습니다`);
       break;
     case 'throw':
-      sound.play(rescue ? 'splash' : payload.weapon === 'laptop' ? 'throwLaptop' : 'throwPhone');
+      sound.play(battery ? 'splash' : payload.weapon === 'laptop' ? 'throwLaptop' : 'throwPhone');
       if (payload.tier > run.lastTier) {
         sound.play('tierUp', { tier: payload.tier });
         pulseClass(ui.elements.arcadeStage, 'tier-flash', 600);
@@ -143,28 +147,47 @@ function handleArcadeEvent(type, payload) {
       run.lastTier = payload.tier;
       break;
     case 'hit':
-      sound.play(rescue ? 'splash' : 'hit');
+      sound.play('hit');
       break;
     case 'kill':
-      sound.play(rescue ? 'rescued' : 'explode');
-      ui.log('ok', rescue
-        ? `recovered PID ${payload.victim.pid} (+${payload.bounty})`
-        : `${ROBOT_TYPES[payload.robot.type].label} 처치 (+${payload.bounty})`);
+      sound.play('explode');
+      ui.log('ok', `${ROBOT_TYPES[payload.robot.type].label} 처치 (+${payload.bounty})`);
       break;
     case 'item-spawn':
       sound.play('itemSpawn');
-      ui.log('info', rescue ? '⏪ 롤백 상자가 떠내려옵니다' : payload.item.item === 'battery' ? '🔋 배터리 상자 등장' : '💻 노트북 상자 등장');
+      if (!battery) ui.log('info', payload.item.item === 'charger' ? '🔌 충전기 상자 등장' : '💻 노트북 상자 등장');
       break;
     case 'item':
-      sound.play(rescue ? 'rollback' : 'powerUp');
-      pulseClass(ui.elements.arcadeStage, 'tier-flash', 600);
-      ui.log('ok', rescue ? 'git revert 성공 — 모든 프로세스 부상, 5초 정지'
-        : payload.item.item === 'battery' ? `에너지 충전 — HP ${payload.lives}` : '노트북 장착 — 8초간 위력 ×3');
+      sound.play(battery && payload.item.item === 'heat' ? 'explode' : 'powerUp');
+      ui.log('ok', battery ? `${BATTERY_ITEM_LOG[payload.item.item]}`
+        : payload.item.item === 'charger' ? `에너지 충전 — HP ${payload.lives}` : '노트북 장착 — 8초간 위력 ×3');
+      break;
+    case 'drain':
+      sound.play('hit');
+      ui.log('ok', '방전봇 탑 −0.5칸');
+      break;
+    case 'rival-take':
+      sound.play('error');
+      ui.log('warn', `방전봇이 ${BATTERY_ITEM_NAMES[payload.item.item]}을(를) 가져갔습니다`);
+      break;
+    case 'rival-attack':
+      sound.play('lifeLost');
+      pulseClass(ui.elements.arcadeStage, 'shake', 260);
+      ui.log('err', '방전봇 공격 — 내 탑 −0.5칸');
+      break;
+    case 'target-lost':
+      if (payload.reason === 'stolen') ui.log('warn', '치던 낱말을 방전봇이 먼저 쳤습니다!');
+      break;
+    case 'stage-clear':
+      sound.play('newRecord');
+      pulseClass(ui.elements.arcadeStage, 'tier-flash', 800);
+      ui.log('ok', `STAGE ${payload.stage} CLEAR — ${payload.how === 'charged' ? '100% 충전 구조' : '방전봇 침몰'} (+${payload.bonus})`);
       break;
     case 'damage':
-      sound.play(rescue ? 'sink' : 'lifeLost');
+      sound.play(battery ? 'sink' : 'lifeLost');
       pulseClass(ui.elements.arcadeStage, 'shake', 300);
-      ui.log('err', rescue ? `PID ${payload.cause.victim.pid} 유실 — SLA ${payload.lives}` : `로봇이 책상 도달 — HP ${payload.lives}`);
+      ui.log('err', battery ? (payload.cause.how === 'sunk' ? '배터리 0% — 방전의 바다에 빠졌습니다' : '방전봇이 먼저 100% 충전했습니다')
+        : `로봇이 책상 도달 — HP ${payload.lives}`);
       run.lastTier = 0;
       break;
     case 'finish':
@@ -174,6 +197,12 @@ function handleArcadeEvent(type, payload) {
       break;
   }
 }
+
+const BATTERY_ITEM_NAMES = { cell: '배터리 셀', powerbank: '보조배터리', eco: '저전력 모드', heat: '발열 폭탄', blackout: '화면 꺼짐' };
+const BATTERY_ITEM_LOG = {
+  cell: '배터리 셀 획득 — +0.5칸', powerbank: '보조배터리 드론 — +1칸', eco: '저전력 모드 — 4초간 방전 감속',
+  heat: '발열 폭탄 — 방전봇 4초간 급방전', blackout: '화면 꺼짐 — 방전봇 3초 정지'
+};
 
 // ---------- 세션 · 제출 ----------
 function startSession(generation) {
@@ -255,9 +284,9 @@ async function refreshBoard() {
 // ---------- 결과 ----------
 function arcadeSubtitle(summary) {
   const base = `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[summary.level].label} · 생존 ${summary.survivedSeconds}s`;
-  if (summary.mode === 'rescue') {
-    const { process, coredump, cluster } = summary.rescued;
-    return `${base} · 구조 ${summary.totalRescued} (프로세스 ${process} · 코어덤프 ${coredump} · 클러스터 ${cluster}) · 유실 ${summary.lost}`;
+  if (summary.mode === 'battery') {
+    const cause = summary.outcome === 'rival-charged' ? '방전봇 선충전' : '방전';
+    return `${base} · 클리어 ${summary.stagesCleared}스테이지 · 공격 ${summary.drains} · 아이템 ${summary.itemsCollected} · 뺏김 ${summary.stolen} · 패배: ${cause}`;
   }
   const { basic, fast, tank } = summary.kills;
   return `${base} · 처치 ${summary.totalKills} (기본 ${basic} · 빠른 ${fast} · 헤비 ${tank}) · 아이템 ${summary.itemsCollected}`;
@@ -312,6 +341,7 @@ function startFrameLoop() {
     if (engine.status === 'running') {
       renderStats();
       updateArcadeMusic(snapshot);
+      renderInputBar();
     }
     run.frameId = requestAnimationFrame(loop);
   };
@@ -323,9 +353,9 @@ function updateArcadeMusic(snapshot) {
   const powerActive = snapshot.powerRemaining > 0;
   if (run.powerActive && !powerActive) sound.play('powerDown');
   run.powerActive = powerActive;
-  if (settings.mode === 'rescue') {
-    const danger = snapshot.lives <= 1 ? 2 : snapshot.lives === 2 ? 1 : 0;
-    bgm.setIntensity(danger, { tempoBoost: snapshot.lives <= 1 ? 1.12 : 1, power: powerActive });
+  if (settings.mode === 'battery') {
+    const danger = snapshot.myCells < 1.5 ? 2 : snapshot.myCells < 2.5 ? 1 : 0;
+    bgm.setIntensity(Math.max(danger, snapshot.tierProgress.index), { tempoBoost: snapshot.myCells < 1.5 ? 1.08 : 1, power: powerActive });
   } else {
     bgm.setIntensity(snapshot.lives <= 1 ? Math.max(snapshot.tierProgress.index, 1) : snapshot.tierProgress.index, { power: powerActive });
   }
@@ -344,7 +374,10 @@ function createEngine() {
     });
   }
   const config = modeConfig();
-  return config.createEngine({ tokenPool: config.tokenPool(settings.languageKey), level: settings.level, onEvent: handleArcadeEvent });
+  return config.createEngine({
+    tokenPool: getTokenPool(settings.languageKey), level: settings.level, onEvent: handleArcadeEvent,
+    narrow: ui.elements.arcadeCanvas.getBoundingClientRect().width < NARROW_WIDTH || window.innerWidth < NARROW_WIDTH
+  });
 }
 
 function resetGame() {
@@ -361,6 +394,7 @@ function resetGame() {
   ui.hideResult();
   if (isArcade()) {
     const config = modeConfig();
+    fitArcadeCanvas();
     renderers[settings.mode] ??= new config.Renderer(ui.elements.arcadeCanvas);
     ui.elements.arcadeTitle.textContent = config.title;
     ui.elements.arcadeHint.textContent = `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[settings.level].label}`;
@@ -371,6 +405,7 @@ function resetGame() {
     updateKeyboardHint();
   }
   renderStats();
+  renderInputBar();
   updateFocusState();
 }
 
@@ -388,14 +423,27 @@ function updateKeyboardHint() {
 function applyKeyboardVisibility() {
   keyboard.setVisible(settings.keyboardVisible && !isArcade());
   ui.elements.keyboardToggle.hidden = isArcade();
-  ui.elements.keyboardToggle.textContent = settings.keyboardVisible ? 'KBD ON' : 'KBD OFF';
+  ui.elements.keyboardToggle.textContent = settings.keyboardVisible ? '⌨ KBD' : '⌨ OFF';
+  ui.elements.keyboardToggle.classList.toggle('off', !settings.keyboardVisible);
   ui.elements.keyboardToggle.setAttribute('aria-pressed', String(settings.keyboardVisible));
 }
 
 // ---------- 입력 ----------
-// 숨은 textarea에 센티널 한 글자를 남겨 두어, 모바일 키보드에서도 Backspace가 input 이벤트로 들어오게 한다.
+// 숨은 textarea의 값 변화를 글자·지우기로 바꾼다(input.js). 모바일 조합 입력·스와이프·자동수정도 같은 규칙.
+const inputDiffer = createInputDiffer({
+  onCharacter: character => applyCharacter(character),
+  onBackspace: () => applyBackspace(false),
+  onIgnored: () => warnIme()
+});
+
 function resetInputBuffer() {
-  ui.elements.hiddenInput.value = INPUT_SENTINEL;
+  ui.elements.hiddenInput.value = inputDiffer.reset();
+}
+
+function warnIme() {
+  if (Date.now() - run.lastImeWarning < IME_WARNING_INTERVAL_MS) return;
+  run.lastImeWarning = Date.now();
+  ui.log('warn', '한글 등 영문 외 입력은 무시됩니다 — 키보드를 영문으로 바꿔 주세요');
 }
 
 function applyCharacter(character) {
@@ -404,6 +452,7 @@ function applyCharacter(character) {
   if (isArcade()) {
     engine.input(character, now());
     renderStats();
+    renderInputBar();
     return;
   }
   const tokenNumberBefore = engine.tokenNumber;
@@ -419,7 +468,10 @@ function applyCharacter(character) {
 function applyBackspace(wholeToken) {
   const engine = run.engine;
   if (!engine.backspace(now(), { wholeToken }).accepted) return;
-  if (isArcade()) return;
+  if (isArcade()) {
+    renderInputBar();
+    return;
+  }
   keyboard.press('Backspace', true);
   ui.renderToken(engine, { full: false });
   updateKeyboardHint();
@@ -441,18 +493,49 @@ function handleKeyDown(event) {
 }
 
 function handleInput(event) {
-  if (event.isComposing) return;
-  if (event.inputType?.startsWith('delete')) {
-    applyBackspace(event.inputType === 'deleteWordBackward');
-  } else if (event.data) {
-    [...event.data].forEach(applyCharacter);
-  }
-  resetInputBuffer();
+  inputDiffer.sync(ui.elements.hiddenInput.value);
+  // 조합 중에는 값을 건드리면 IME가 깨지므로, 조합이 끝났을 때만 센티널로 되돌린다
+  if (!event.isComposing) resetInputBuffer();
 }
 
 function handleCompositionEnd() {
+  inputDiffer.sync(ui.elements.hiddenInput.value);
   resetInputBuffer();
-  ui.log('warn', 'IME 입력 감지 — 한/영 전환을 확인하세요');
+}
+
+// 아케이드 하단 입력창: 원작의 입력칸처럼 지금 치는 낱말과 진행 상황을 보여준다
+function renderInputBar() {
+  const bar = ui.elements.inputBar;
+  if (!bar) return;
+  const engine = run.engine;
+  if (!isArcade() || !engine) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  const target = engine.target;
+  const typed = engine.typed.join('');
+  const correctLength = target ? [...typed].findIndex((character, index) => character !== target.token.text[index]) : -1;
+  const goodPart = correctLength === -1 ? typed : typed.slice(0, correctLength);
+  const badPart = correctLength === -1 ? '' : typed.slice(correctLength);
+  ui.elements.inputTyped.textContent = goodPart;
+  ui.elements.inputWrong.textContent = badPart;
+  ui.elements.inputRest.textContent = target ? target.token.text.slice(typed.length) : '';
+  ui.elements.inputTarget.textContent = target ? '' : engine.status === 'finished' ? 'game over' : '낱말의 첫 글자를 치세요';
+}
+
+// 게임 화면 높이: 모바일 키보드가 올라오면(visualViewport 축소) 그만큼 줄여서 입력창이 키보드 바로 위에 오게 한다.
+function fitArcadeCanvas() {
+  if (!isArcade()) return;
+  const canvas = ui.elements.arcadeCanvas;
+  const viewport = window.visualViewport;
+  const viewportHeight = viewport ? viewport.height : window.innerHeight;
+  const top = canvas.getBoundingClientRect().top + (viewport ? 0 : 0);
+  const reserved = (ui.elements.inputBar?.offsetHeight || 40) + 12;
+  const available = Math.round(viewportHeight - Math.max(0, top) - reserved);
+  const narrow = window.innerWidth < NARROW_WIDTH;
+  const height = Math.max(narrow ? 300 : 360, Math.min(narrow ? 640 : 560, available));
+  if (Math.abs(canvas.clientHeight - height) > 2) canvas.style.height = `${height}px`;
 }
 
 function focusTypingArea() {
@@ -460,6 +543,13 @@ function focusTypingArea() {
   if (run.engine.status === 'finished') return;
   resetInputBuffer();
   ui.elements.hiddenInput.focus({ preventScroll: true });
+  // 모바일: 키보드가 올라온 뒤 게임 화면이 보이도록 스크롤하고 높이를 다시 맞춘다
+  if (isArcade()) {
+    setTimeout(() => {
+      ui.elements.arcadeStage.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      fitArcadeCanvas();
+    }, 350);
+  }
 }
 
 function updateFocusState() {
@@ -484,9 +574,12 @@ function applyMode() {
   ui.elements.levelSelect.hidden = !arcade;
   document.getElementById('practiceHint').hidden = arcade;
   document.getElementById('throwHint').hidden = settings.mode !== 'throw';
-  document.getElementById('rescueHint').hidden = settings.mode !== 'rescue';
+  document.getElementById('batteryHint').hidden = settings.mode !== 'battery';
+  document.body.dataset.mode = settings.mode;
   document.getElementById('arcadeOverlayHint').textContent = arcade ? `${modeConfig().hint} · 첫 글자를 치면 시작` : '';
   applyKeyboardVisibility();
+  renderInputBar();
+  requestAnimationFrame(fitArcadeCanvas);
 }
 
 function switchMode(mode) {
@@ -532,7 +625,8 @@ function bindSettings() {
   });
   sound.setEnabled(preferences.get('sound', true));
   const renderSoundToggle = () => {
-    ui.elements.soundToggle.textContent = sound.enabled ? 'SND ON' : 'SND OFF';
+    ui.elements.soundToggle.textContent = sound.enabled ? '🔊' : '🔇';
+    ui.elements.soundToggle.classList.toggle('off', !sound.enabled);
     ui.elements.soundToggle.setAttribute('aria-pressed', String(sound.enabled));
   };
   renderSoundToggle();
@@ -543,7 +637,8 @@ function bindSettings() {
   });
   bgm.setEnabled(preferences.get('bgm', true));
   const renderBgmToggle = () => {
-    ui.elements.bgmToggle.textContent = bgm.enabled ? 'BGM ON' : 'BGM OFF';
+    ui.elements.bgmToggle.textContent = bgm.enabled ? '♫ BGM' : '♫ OFF';
+    ui.elements.bgmToggle.classList.toggle('off', !bgm.enabled);
     ui.elements.bgmToggle.setAttribute('aria-pressed', String(bgm.enabled));
   };
   renderBgmToggle();
@@ -579,6 +674,9 @@ function bindEvents() {
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && document.activeElement !== elements.hiddenInput) restart();
   });
+  window.visualViewport?.addEventListener('resize', fitArcadeCanvas);
+  window.addEventListener('resize', fitArcadeCanvas);
+  elements.inputBar?.addEventListener('click', focusTypingArea);
 }
 
 bindSettings();

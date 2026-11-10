@@ -15,11 +15,13 @@
 <body>
 <div class="app" id="app">
   <header>
-    <div class="logo">TYPE<span>//</span>CODE</div>
-    <div class="segmented mode-tabs" role="tablist" aria-label="게임 모드">
-      <button type="button" data-mode="practice" role="tab">연습</button>
-      <button type="button" data-mode="throw" role="tab">📱 휴대폰 던지기</button>
-      <button type="button" data-mode="rescue" role="tab">🛟 에러 구조 SOS</button>
+    <div class="brand-row">
+      <div class="logo">TYPE<span>//</span>CODE</div>
+      <div class="segmented mode-tabs" role="tablist" aria-label="게임 모드">
+        <button type="button" data-mode="practice" role="tab">⌨ 연습</button>
+        <button type="button" data-mode="throw" role="tab">📱 휴대폰 던지기</button>
+        <button type="button" data-mode="battery" role="tab">🔋 배터리 구조</button>
+      </div>
     </div>
     <div class="controls">
       <select id="languageSelect" aria-label="언어 선택"></select>
@@ -29,10 +31,12 @@
         <button type="button" data-seconds="60">60s</button>
         <button type="button" data-seconds="120">120s</button>
       </div>
-      <button type="button" id="soundToggle" aria-pressed="true">SND ON</button>
-      <button type="button" id="bgmToggle" aria-pressed="true">BGM ON</button>
-      <button type="button" id="keyboardToggle" aria-pressed="true">KBD ON</button>
-      <button type="button" id="restartButton" title="Esc">재시작</button>
+      <div class="icon-buttons">
+        <button type="button" class="icon" id="soundToggle" aria-pressed="true" title="효과음">🔊</button>
+        <button type="button" class="icon" id="bgmToggle" aria-pressed="true" title="배경음악">♫ BGM</button>
+        <button type="button" class="icon" id="keyboardToggle" aria-pressed="true" title="화면 키보드">⌨ KBD</button>
+        <button type="button" class="icon" id="restartButton" title="재시작 (Esc)">↻</button>
+      </div>
     </div>
   </header>
 
@@ -65,6 +69,9 @@
   <section class="stage arcade" id="arcadeStage" aria-label="게임 화면" hidden>
     <div class="tabbar"><span class="file" id="arcadeTitle">phone-throw.exe</span><span id="arcadeHint"></span></div>
     <canvas id="arcadeCanvas" class="arcade-canvas"></canvas>
+    <div class="input-bar" id="inputBar" hidden aria-live="off">
+      <span class="prompt">&gt;</span><span class="typed" id="inputTyped"></span><span class="wrong" id="inputWrong"></span><span class="caret"></span><span class="rest" id="inputRest"></span><span class="target-hint" id="inputTarget"></span>
+    </div>
     <div class="overlay" id="arcadeOverlay">여기를 클릭(탭)해서 시작 준비<br><span id="arcadeOverlayHint">첫 글자를 치면 게임이 시작됩니다</span></div>
   </section>
 
@@ -84,12 +91,13 @@
     오타 없이 끝낸 토큰이 이어지면 콤보 · 10+ ×1.5 · 30+ ×2.0 · 틀린 토큰은 다시 출제 · 랭킹은 매주 월요일 00시(KST) 새로 집계
   </p>
   <p class="hint" id="throwHint" hidden>
-    로봇 머리 위 토큰을 다 치면 📱 휴대폰 발사 · 첫 글자로 가장 가까운 로봇 조준 · 로봇이 책상에 닿으면 HP −1<br>
-    기본 로봇(체력 1) · 빠른 로봇(2배 속도) · 헤비봇(체력 3, 맞을 때마다 새 토큰) · 💻 노트북 상자: 8초간 위력 ×3 · 🔋 배터리: HP +1
+    로봇이 타고 내려오는 낱말 발판을 다 치면 📱 휴대폰 발사 · 첫 글자로 가장 가까운 로봇 조준 · 빨간 선을 넘으면 HP −1<br>
+    버그봇(체력 1) · 스피드봇(2배 속도) · 헤비봇(체력 3, 맞을 때마다 새 낱말) · 💻 노트북: 8초간 위력 ×3 · 🔌 충전기: HP +1
   </p>
-  <p class="hint" id="rescueHint" hidden>
-    가라앉는 프로세스의 에러를 쳐서 🛟 패치 튜브 투하 · 가장 많이 가라앉은 프로세스부터 조준 · 빨리 구할수록 보너스<br>
-    크래시 프로세스 · 코어 덤프(빨리 가라앉음) · 서버 클러스터(패치 2번) · 완전히 가라앉으면 SLA −1 · ⏪ 롤백 상자: 모두 끌어올리고 5초 정지
+  <p class="hint" id="batteryHint" hidden>
+    왼쪽 내 폰 vs 오른쪽 방전봇 · 두 배터리 탑은 계속 방전 · 지나가는 아이템 낱말을 치면 내 탑 충전(셀 +0.5 · 보조배터리 +1)<br>
+    방전봇 탑 위 낱말을 치면 상대 −0.5 · 방전봇도 같은 낱말을 노림(빨간 밑줄) · 100%(8칸) 충전하면 스테이지 클리어 · 0%면 패배<br>
+    🍃 저전력: 내 방전 4초 감속 · 🔥 발열: 상대 4초 급방전 · 🌙 화면 꺼짐: 방전봇 3초 정지
   </p>
 </div>
 

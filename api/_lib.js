@@ -5,7 +5,7 @@ import { LANGUAGE_KEYS } from '../public/js/tokens.js';
 import { DURATIONS, SCORING, MAX_MULTIPLIER, calculateWordsPerMinute, calculateAccuracy } from '../public/js/engine.js';
 import { getWeekLabel } from '../public/js/week.js';
 import { MAX_POINTS_PER_CHARACTER as THROW_MAX_POINTS_PER_CHARACTER } from '../public/js/throw-engine.js';
-import { RESCUE_MAX_POINTS_PER_CHARACTER } from '../public/js/rescue-engine.js';
+import { BATTERY_MAX_POINTS_PER_CHARACTER } from '../public/js/battery-engine.js';
 
 export { DURATIONS, getWeekLabel };
 export const LANGUAGES = LANGUAGE_KEYS;
@@ -20,7 +20,7 @@ const MAX_ARCADE_SECONDS = 60 * 60;
 export const MODES = Object.freeze({
   practice: Object.freeze({ prefix: 'lb', timed: true, maxPointsPerCharacter: SCORING.basePoints * MAX_MULTIPLIER }),
   throw: Object.freeze({ prefix: 'lb-throw', timed: false, maxPointsPerCharacter: THROW_MAX_POINTS_PER_CHARACTER }),
-  rescue: Object.freeze({ prefix: 'lb-rescue', timed: false, maxPointsPerCharacter: RESCUE_MAX_POINTS_PER_CHARACTER })
+  battery: Object.freeze({ prefix: 'lb-battery', timed: false, maxPointsPerCharacter: BATTERY_MAX_POINTS_PER_CHARACTER })
 });
 
 export function resolveMode(rawMode) {

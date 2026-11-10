@@ -11,9 +11,9 @@ export const ARCADE_RULES = Object.freeze({
   projectileSeconds: 0.24
 });
 
-export function filterArcadeTokens(tokenPool) {
+export function filterArcadeTokens(tokenPool, maxTokenLength = ARCADE_RULES.maxTokenLength) {
   return (tokenPool ?? []).filter(token =>
-    token.text.length >= ARCADE_RULES.minTokenLength && token.text.length <= ARCADE_RULES.maxTokenLength);
+    token.text.length >= ARCADE_RULES.minTokenLength && token.text.length <= maxTokenLength);
 }
 
 export const randomBetween = (random, [min, max]) => min + random() * (max - min);
@@ -27,8 +27,8 @@ export const DIFFICULTY_LEVELS = Object.freeze({
 });
 
 export class TargetGameEngine {
-  constructor({ tokenPool, random = Math.random, onEvent = () => {}, mode, level = 2 }) {
-    const pool = filterArcadeTokens(tokenPool);
+  constructor({ tokenPool, random = Math.random, onEvent = () => {}, mode, level = 2, maxTokenLength = ARCADE_RULES.maxTokenLength }) {
+    const pool = filterArcadeTokens(tokenPool, maxTokenLength);
     if (pool.length < 4) throw new Error(`${mode} mode needs at least 4 usable tokens`);
     this.mode = mode;
     this.level = DIFFICULTY_LEVELS[level] ? Number(level) : 2;

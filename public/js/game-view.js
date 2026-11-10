@@ -40,13 +40,15 @@ export function roundedRect(context, x, y, width, height, radius) {
 }
 
 // 목표 머리 위 토큰 라벨: 조준 중이면 테두리 강조, 글자는 맞음(종류 색)/틀림(빨강)/다음(밑줄)/대기.
-export function drawTokenLabel(context, centerX, bottomY, entity, states, { active, accent, dimmed = false }) {
+export const LABEL_FONT_COMPACT = "600 12px 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace";
+
+export function drawTokenLabel(context, centerX, bottomY, entity, states, { active, accent, dimmed = false, compact = false, attacker = null }) {
   const text = entity.token.text;
   const kindColor = TOKEN_KINDS[entity.token.kind]?.color ?? '#c9d4e0';
-  context.font = LABEL_FONT;
+  context.font = compact ? LABEL_FONT_COMPACT : LABEL_FONT;
   const characterWidth = context.measureText('M').width;
-  const width = characterWidth * text.length + 16;
-  const height = 24;
+  const width = characterWidth * text.length + (compact ? 12 : 16);
+  const height = compact ? 21 : 24;
   const left = Math.round(centerX - width / 2);
   const top = Math.round(bottomY - height);
 
@@ -64,9 +66,15 @@ export function drawTokenLabel(context, centerX, bottomY, entity, states, { acti
   context.shadowBlur = 0;
 
   context.textBaseline = 'middle';
+  const padding = compact ? 6 : 8;
   [...text].forEach((character, index) => {
-    const x = left + 8 + index * characterWidth;
+    const x = left + padding + index * characterWidth;
     const state = states[index];
+    // 상대(AI)가 이 낱말을 치는 중이면 진행한 글자에 빨간 밑줄
+    if (attacker && index < attacker) {
+      context.fillStyle = 'rgba(255, 77, 109, 0.85)';
+      context.fillRect(x, top + 2, characterWidth, 2);
+    }
     if (state === 'wrong') {
       context.fillStyle = 'rgba(255, 77, 109, 0.45)';
       context.fillRect(x, top + 3, characterWidth, height - 6);
