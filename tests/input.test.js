@@ -50,13 +50,26 @@ test('자동수정이 단어를 통째로 바꾸면 지운 만큼 Backspace 후 
   assert.deepEqual(log, ['t', 'e', 'h', '⌫', '⌫', 'h', 'e']);
 });
 
-test('한글 조합은 게임에 반영하지 않고, 지워도 Backspace로 세지 않는다', () => {
+test('한글 모드 두벌식 입력은 같은 자리 영문 키로 바뀐다: ㅇㄷㄹ며ㅣㅅ → default', () => {
+  const { differ, log } = setup();
+  // 실제 IME 조합 순서: ㄹ+ㅁ이 ㄻ으로 묶였다가 모음이 오면 ㄹ + 며로 갈라진다
+  for (const step of [' ㅇ', ' ㅇㄷ', ' ㅇㄷㄹ', ' ㅇㄷㄻ', ' ㅇㄷㄹ며', ' ㅇㄷㄹ며ㅣ', ' ㅇㄷㄹ며ㅣㅅ']) differ.sync(step);
+  assert.deepEqual(log, [...'default']);
+});
+
+test('조합 중 받침이 다음 글자로 넘어가도(한 → 하나) 키 순서가 유지된다', () => {
   const { differ, log } = setup();
   differ.sync(' ㅎ');
   differ.sync(' 하');
   differ.sync(' 한');
-  differ.sync(' ');
-  assert.deepEqual(log, ['?ㅎ', '?하', '?한']);
+  differ.sync(' 하나');
+  assert.deepEqual(log, ['g', 'k', 's', 'k']);
+});
+
+test('자판 매핑이 없는 글자(이모지 등)는 무시하고 경고만', () => {
+  const { differ, log } = setup();
+  differ.sync(' 😀');
+  assert.deepEqual(log, ['?😀']);
 });
 
 test('스와이프로 여러 글자가 한 번에 들어와도 순서대로', () => {

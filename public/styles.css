@@ -185,6 +185,7 @@ tr.rank1 td:first-child { color: var(--warn); }
 .input-bar .rest { color: #4b5767; }
 .input-bar .caret { width: 2px; height: 20px; background: var(--tier-color); animation: blink 1s steps(2) infinite; }
 .input-bar .target-hint { color: #4b5767; font-size: 12px; margin-left: 8px; }
+.input-bar .target-hint.notice { color: #ffb86c; font-weight: 700; }
 #hiddenInput { position: fixed; opacity: 0; left: 0; top: 0; width: 1px; height: 1px; border: 0; padding: 0; resize: none; font-size: 16px; }
 
 /* ---------- 블랙 RGB 키보드 ---------- */
