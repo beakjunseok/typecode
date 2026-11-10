@@ -96,3 +96,28 @@ test('모드 검증: 알 수 없는 모드는 422, 예전 토큰(mode 없음)은
   assert.throws(() => lib.resolveMode('chess'), error => error.status === 422);
   assert.throws(() => lib.resolveMode('__proto__'), error => error.status === 422);
 });
+
+test('시간 연장 모드: 별도 랭킹, 생존 시간은 경과 시간·입력량·규칙상 최대 길이 이하, 타수 저장', async () => {
+  const response = await sessionRoute.POST(post({ mode: 'timeattack', language: 'go' }));
+  assert.equal(response.status, 200, '시간 선택 없이 세션 발급');
+  const session = lib.verifySessionToken((await response.json()).token);
+  assert.equal(session.mode, 'timeattack');
+  assert.equal(lib.MODES.timeattack.prefix, 'lb-time');
+
+  const base = { correctKeystrokes: 300, wrongKeystrokes: 6, score: 300 * 15, maxCombo: 25, survivedSeconds: 75 };
+  const ok = lib.validateSubmission(session, base, session.startedAt + 76_000);
+  assert.equal(ok.survivedSeconds, 75);
+  assert.equal(ok.cpm, 240, '타수 = 300타 / 75초 × 60');
+  assert.equal(ok.wpm, 48);
+  assert.throws(() => lib.validateSubmission(session, base, session.startedAt + 40_000), error => error.code === 'too_early');
+  // 정타 30개로는 20 + 30 × 0.481 ≈ 34초까지만 벌 수 있다
+  assert.throws(() => lib.validateSubmission(session, { ...base, correctKeystrokes: 30, score: 300, survivedSeconds: 75 }, session.startedAt + 76_000),
+    error => error.code === 'implausible_time');
+  // 규칙상 최대 510초 + 여유 2초를 넘을 수 없다
+  assert.throws(() => lib.validateSubmission(session, { ...base, correctKeystrokes: 9000, score: 9000, survivedSeconds: 600 }, session.startedAt + 601_000),
+    error => error.code === 'implausible_time');
+  assert.throws(() => lib.validateSubmission(session, { ...base, score: 300 * 21 }, session.startedAt + 76_000), error => error.code === 'implausible_score');
+  const publicEntry = lib.toPublicEntry({ sid: 'x', name: 'a', language: 'go', score: 1, wpm: 48, cpm: 240, accuracy: 98, maxCombo: 1, achievedAt: 1, survivedSeconds: 75 }, 0);
+  assert.equal(publicEntry.cpm, 240);
+  assert.equal(lib.toPublicEntry({ sid: 'y', name: 'b', language: 'go', score: 1, wpm: 60, accuracy: 98, maxCombo: 1, achievedAt: 1 }, 0).cpm, 300, '예전 기록은 WPM × 5');
+});

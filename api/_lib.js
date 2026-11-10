@@ -2,7 +2,8 @@ import { createHmac, randomBytes, timingSafeEqual, createHash } from 'node:crypt
 import { list, put } from '@vercel/blob';
 // 클라이언트와 같은 모듈을 그대로 가져와 규칙·상수가 어긋나지 않게 한다.
 import { LANGUAGE_KEYS } from '../public/js/tokens.js';
-import { DURATIONS, SCORING, MAX_MULTIPLIER, calculateWordsPerMinute, calculateAccuracy } from '../public/js/engine.js';
+import { DURATIONS, SCORING, MAX_MULTIPLIER, calculateWordsPerMinute, calculateCharactersPerMinute, calculateAccuracy } from '../public/js/engine.js';
+import { TIME_ATTACK_RULES, TIME_ATTACK_MAX_SECONDS_PER_CHARACTER, TIME_ATTACK_MAX_POINTS_PER_CHARACTER } from '../public/js/time-attack-engine.js';
 import { getWeekLabel } from '../public/js/week.js';
 import { MAX_POINTS_PER_CHARACTER as THROW_MAX_POINTS_PER_CHARACTER } from '../public/js/throw-engine.js';
 import { BATTERY_MAX_POINTS_PER_CHARACTER } from '../public/js/battery-engine.js';
@@ -15,10 +16,19 @@ const START_TOLERANCE_MS = 3000;
 const MAX_CHARS_PER_SECOND = 25;
 const MIN_ARCADE_SECONDS = 3;
 const MAX_ARCADE_SECONDS = 60 * 60;
+const TIME_ATTACK_TOLERANCE_SECONDS = 2;
 
 // 모드별 랭킹 저장 경로와 글자당 점수 상한. practice는 기존 경로(lb/)를 그대로 쓴다.
 export const MODES = Object.freeze({
   practice: Object.freeze({ prefix: 'lb', timed: true, maxPointsPerCharacter: SCORING.basePoints * MAX_MULTIPLIER }),
+  // 연습 · 시간 연장: 생존 시간은 '시작 시간 + 정타 × 글자당 최대 보너스'와 규칙상 최대 길이를 넘을 수 없다
+  timeattack: Object.freeze({
+    prefix: 'lb-time', timed: false, maxPointsPerCharacter: TIME_ATTACK_MAX_POINTS_PER_CHARACTER,
+    maxSurvivedSeconds: correctKeystrokes => Math.min(
+      TIME_ATTACK_RULES.startSeconds + correctKeystrokes * TIME_ATTACK_MAX_SECONDS_PER_CHARACTER,
+      TIME_ATTACK_RULES.maxSessionSeconds
+    ) + TIME_ATTACK_TOLERANCE_SECONDS
+  }),
   throw: Object.freeze({ prefix: 'lb-throw', timed: false, maxPointsPerCharacter: THROW_MAX_POINTS_PER_CHARACTER }),
   battery: Object.freeze({ prefix: 'lb-battery', timed: false, maxPointsPerCharacter: BATTERY_MAX_POINTS_PER_CHARACTER })
 });
@@ -127,10 +137,14 @@ export function validateSubmission(session, body, now = Date.now()) {
   if (score > correctKeystrokes * MODES[mode].maxPointsPerCharacter) {
     throw new HttpError(422, 'implausible_score', '점수가 입력량과 맞지 않습니다');
   }
+  if (MODES[mode].maxSurvivedSeconds && playedSeconds > MODES[mode].maxSurvivedSeconds(correctKeystrokes)) {
+    throw new HttpError(422, 'implausible_time', '입력량으로 벌 수 있는 시간보다 오래 버텼습니다');
+  }
   return {
     score,
     maxCombo,
     wpm: calculateWordsPerMinute(correctKeystrokes, playedSeconds),
+    cpm: calculateCharactersPerMinute(correctKeystrokes, playedSeconds),
     accuracy: calculateAccuracy(correctKeystrokes, wrongKeystrokes),
     ...(MODES[mode].timed ? {} : { survivedSeconds: playedSeconds })
   };
@@ -213,7 +227,7 @@ export async function loadWeeklyEntries(mode, week, maxPages = 5) {
 export function toPublicEntry(entry, index) {
   return {
     rank: index + 1, id: entry.sid, name: entry.name, language: entry.language,
-    score: entry.score, wpm: entry.wpm, accuracy: entry.accuracy, maxCombo: entry.maxCombo, achievedAt: entry.achievedAt,
+    score: entry.score, wpm: entry.wpm, cpm: entry.cpm ?? entry.wpm * 5, accuracy: entry.accuracy, maxCombo: entry.maxCombo, achievedAt: entry.achievedAt,
     ...(entry.survivedSeconds ? { survivedSeconds: entry.survivedSeconds } : {})
   };
 }

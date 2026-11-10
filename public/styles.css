@@ -35,7 +35,8 @@ kbd { font-family: var(--font); font-size: 10px; border: 1px solid var(--line); 
 header { display: flex; flex-direction: column; gap: var(--space-1); padding-bottom: var(--space-1); }
 .brand-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1); }
 .icon-buttons { display: flex; gap: 6px; margin-left: auto; }
-button.icon { min-width: 40px; padding: var(--space-1) 10px; }
+button.icon { min-width: 40px; padding: var(--space-1) 10px; font-size: 16px; line-height: 1; }
+#keyboardToggle { font-size: 20px; }
 button.icon.off { opacity: 0.45; }
 .logo { font-weight: 800; font-size: 20px; letter-spacing: -0.3px; }
 .logo span { color: var(--tier-color); text-shadow: 0 0 8px color-mix(in srgb, var(--tier-color) 60%, transparent); transition: color 0.4s; }
@@ -141,6 +142,20 @@ tr.rank1 td:first-child { color: var(--warn); }
 .modal[hidden] { display: none; }
 .modal .card { position: relative; }
 .modal .card h3 { padding-right: 44px; }
+.stat.time { position: relative; }
+/* 시간 연장 '+1.2s': 타이머 칸 위쪽 가운데에서 떠오른다(좁은 모바일 칸에서도 라벨·숫자를 가리지 않게) */
+.time-bonus {
+  position: absolute; left: 50%; top: -10px; z-index: 2; padding: 1px 6px; border-radius: 999px; white-space: nowrap;
+  background: rgba(7, 20, 12, 0.92); border: 1px solid rgba(57, 255, 136, 0.5);
+  color: var(--ok); font-weight: 800; font-size: 12px; pointer-events: none;
+  text-shadow: 0 0 8px rgba(57, 255, 136, 0.6); animation: time-bonus-rise 0.9s ease-out forwards;
+}
+@keyframes time-bonus-rise {
+  0% { opacity: 0; transform: translate(-50%, 4px) scale(0.8); }
+  20% { opacity: 1; transform: translate(-50%, -4px) scale(1.08); }
+  100% { opacity: 0; transform: translate(-50%, -16px) scale(1); }
+}
+.label-sub { font-size: 0.9em; opacity: 0.7; letter-spacing: 0; }
 .modal-close {
   position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; padding: 0; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; font-size: 16px; line-height: 1;
@@ -249,8 +264,9 @@ tr.rank1 td:first-child { color: var(--warn); }
   .mode-tabs button:last-child { border-radius: 0 6px 6px 0; }
   .controls { gap: 6px; flex-wrap: nowrap; }
   .controls select { flex: 1; min-width: 0; padding: 7px 6px; font-size: 12px; }
-  .segmented#durationGroup button { padding: 7px 7px; font-size: 12px; }
-  button.icon { min-width: 0; padding: 7px 8px; font-size: 12px; }
+  .segmented#durationGroup button { padding: 7px 5px; font-size: 12px; }
+  button.icon { min-width: 0; padding: 7px 6px; font-size: 15px; }
+  #keyboardToggle { font-size: 18px; padding: 4px 6px; }
   .stats { grid-template-columns: repeat(6, 1fr); gap: 4px; }
   .stat { padding: 4px 5px; border-radius: 6px; }
   .stat .label { font-size: 8px; letter-spacing: 0.5px; }

@@ -61,15 +61,21 @@ export function calculateWordsPerMinute(correctKeystrokes, elapsedSeconds) {
   return Math.round(correctKeystrokes / 5 / (Math.max(elapsedSeconds, 1) / 60));
 }
 
+// 타수(분당 타자 수) — 한컴타자연습과 같은 기준. WPM = 타수 ÷ 5
+export function calculateCharactersPerMinute(correctKeystrokes, elapsedSeconds) {
+  return Math.round(correctKeystrokes / (Math.max(elapsedSeconds, 1) / 60));
+}
+
 export function calculateAccuracy(correctKeystrokes, wrongKeystrokes) {
   const total = correctKeystrokes + wrongKeystrokes;
   return total === 0 ? 100 : Math.round((correctKeystrokes / total) * 1000) / 10;
 }
 
 export class TypingEngine {
-  constructor({ tokenPool, durationSeconds, random = Math.random, queueLength = 8, historyLength = 6, onEvent = () => {} }) {
+  constructor({ tokenPool, durationSeconds, random = Math.random, queueLength = 8, historyLength = 6, onEvent = () => {}, mode = 'practice' }) {
     if (!Array.isArray(tokenPool) || tokenPool.length === 0) throw new Error('tokenPool must be a non-empty array');
     if (!DURATIONS.includes(durationSeconds)) throw new Error(`unsupported duration: ${durationSeconds}`);
+    this.mode = mode;
     this.tokenPool = tokenPool;
     this.cumulativeWeights = buildCumulativeWeights(tokenPool);
     this.durationSeconds = durationSeconds;
@@ -96,7 +102,7 @@ export class TypingEngine {
     this.queue = [];
     this.history = [];
     this.weakTokens = new Map();
-    this.correctPerSecond = new Array(durationSeconds).fill(0);
+    this.correctPerSecond = [];
     this.lastWarnedSecond = null;
     this.advanceToken();
   }
@@ -189,9 +195,9 @@ export class TypingEngine {
     if (character !== expected) return this.acceptMistake(character, expected);
 
     this.correctKeystrokes++;
-    const secondIndex = Math.min(this.durationSeconds - 1, Math.max(0, Math.floor((nowMs - this.startedAt) / 1000)));
-    this.correctPerSecond[secondIndex]++;
-    if (this.typed.length === this.current.text.length && this.wrongInBuffer === 0) return this.completeToken();
+    const secondIndex = Math.min(this.maxTimelineSeconds() - 1, Math.max(0, Math.floor((nowMs - this.startedAt) / 1000)));
+    this.correctPerSecond[secondIndex] = (this.correctPerSecond[secondIndex] ?? 0) + 1;
+    if (this.typed.length === this.current.text.length && this.wrongInBuffer === 0) return this.completeToken(nowMs);
     this.emit('keystroke', { cursor: this.cursor });
     return { accepted: true, correct: true, tokenComplete: false };
   }
@@ -213,7 +219,7 @@ export class TypingEngine {
   }
 
   // 점수는 토큰 완성 시점에 한 번만 준다(지우고 다시 쳐서 점수를 불리는 것 방지).
-  completeToken() {
+  completeToken(nowMs) {
     const clean = !this.tokenHasMistake;
     const previousTier = getTierIndex(this.combo);
     this.score += Math.round(this.current.text.length * SCORING.basePoints * getMultiplier(this.combo));
@@ -237,6 +243,7 @@ export class TypingEngine {
       tierUp: tier > previousTier,
       milestone: clean && this.combo % SCORING.milestoneEvery === 0
     };
+    Object.assign(payload, this.onTokenComplete(payload, nowMs));
     this.advanceToken();
     this.emit('token', payload);
     return { accepted: true, correct: true, tokenComplete: true, ...payload };
@@ -258,12 +265,43 @@ export class TypingEngine {
     return { accepted: true, correct: false, ...payload };
   }
 
+  // ---------- 하위 모드(시간 연장 등)가 바꾸는 시간 규칙. 기본은 고정 제한 시간 ----------
+  // 시작부터 끝날 때까지의 총 시간(초). 시간 연장 모드는 토큰을 칠 때마다 늘어난다.
+  deadlineSeconds() {
+    return this.durationSeconds;
+  }
+
+  // 타이머 막대 100%에 해당하는 시간
+  timeBarSeconds() {
+    return this.durationSeconds;
+  }
+
+  // 초당 정타 기록 배열의 최대 길이
+  maxTimelineSeconds() {
+    return this.durationSeconds;
+  }
+
+  // WPM·타수를 계산할 실제 플레이 시간
+  playedSeconds() {
+    return this.durationSeconds;
+  }
+
+  // 토큰 완성 이벤트에 덧붙일 값(예: 늘어난 시간). 기본은 없음
+  onTokenComplete() {
+    return {};
+  }
+
+  summaryExtras() {
+    return {};
+  }
+
   // 주기적으로 호출. 마지막 5초 경고와 시간 종료를 처리한다.
   update(nowMs) {
     if (this.status !== 'running') return;
-    const remaining = this.durationSeconds - (nowMs - this.startedAt) / 1000;
+    const deadline = this.deadlineSeconds();
+    const remaining = deadline - (nowMs - this.startedAt) / 1000;
     if (remaining <= 0) {
-      this.finish(this.startedAt + this.durationSeconds * 1000);
+      this.finish(this.startedAt + deadline * 1000);
       return;
     }
     const wholeSeconds = Math.ceil(remaining);
@@ -283,16 +321,20 @@ export class TypingEngine {
   elapsedSeconds(nowMs) {
     if (this.status === 'ready') return 0;
     const end = this.status === 'finished' ? this.finishedAt : nowMs;
-    return Math.min(Math.max((end - this.startedAt) / 1000, 0), this.durationSeconds);
+    return Math.min(Math.max((end - this.startedAt) / 1000, 0), this.deadlineSeconds());
   }
 
   snapshot(nowMs) {
     const elapsed = this.elapsedSeconds(nowMs);
+    const remaining = Math.max(0, this.deadlineSeconds() - elapsed);
     return {
       status: this.status,
-      remainingSeconds: Math.max(0, Math.ceil(this.durationSeconds - elapsed)),
-      remainingRatio: 1 - elapsed / this.durationSeconds,
+      mode: this.mode,
+      remainingSeconds: Math.ceil(remaining),
+      remainingExact: remaining,
+      remainingRatio: remaining / this.timeBarSeconds(),
       wordsPerMinute: this.status === 'ready' ? 0 : calculateWordsPerMinute(this.correctKeystrokes, elapsed),
+      charactersPerMinute: this.status === 'ready' ? 0 : calculateCharactersPerMinute(this.correctKeystrokes, elapsed),
       accuracy: calculateAccuracy(this.correctKeystrokes, this.wrongKeystrokes),
       combo: this.combo,
       multiplier: getMultiplier(this.combo),
@@ -302,13 +344,14 @@ export class TypingEngine {
     };
   }
 
-  // 초 단위 이동 창(5초)으로 계산한 WPM 추이. O(duration)
+  // 초 단위 이동 창(5초)으로 계산한 WPM 추이. O(플레이 시간)
   wordsPerMinuteTimeline() {
     const timeline = [];
     let windowSum = 0;
-    for (let second = 0; second < this.durationSeconds; second++) {
-      windowSum += this.correctPerSecond[second];
-      if (second >= WPM_WINDOW_SECONDS) windowSum -= this.correctPerSecond[second - WPM_WINDOW_SECONDS];
+    const seconds = Math.max(1, Math.ceil(this.playedSeconds()));
+    for (let second = 0; second < seconds; second++) {
+      windowSum += this.correctPerSecond[second] ?? 0;
+      if (second >= WPM_WINDOW_SECONDS) windowSum -= this.correctPerSecond[second - WPM_WINDOW_SECONDS] ?? 0;
       const windowLength = Math.min(second + 1, WPM_WINDOW_SECONDS);
       timeline.push(Math.round(windowSum / 5 / (windowLength / 60)));
     }
@@ -320,10 +363,13 @@ export class TypingEngine {
       .sort((first, second) => second.misses - first.misses)
       .slice(0, WEAK_TOKEN_REPORT_SIZE)
       .map(entry => ({ text: entry.token.text, kind: entry.token.kind, misses: entry.misses }));
+    const played = this.playedSeconds();
     return {
+      mode: this.mode,
       durationSeconds: this.durationSeconds,
       score: this.score,
-      wordsPerMinute: calculateWordsPerMinute(this.correctKeystrokes, this.durationSeconds),
+      wordsPerMinute: calculateWordsPerMinute(this.correctKeystrokes, played),
+      charactersPerMinute: calculateCharactersPerMinute(this.correctKeystrokes, played),
       accuracy: calculateAccuracy(this.correctKeystrokes, this.wrongKeystrokes),
       maxCombo: this.maxCombo,
       cleanTokens: this.cleanTokens,
@@ -331,7 +377,8 @@ export class TypingEngine {
       correctKeystrokes: this.correctKeystrokes,
       wrongKeystrokes: this.wrongKeystrokes,
       weakTokens,
-      wordsPerMinuteTimeline: this.wordsPerMinuteTimeline()
+      wordsPerMinuteTimeline: this.wordsPerMinuteTimeline(),
+      ...this.summaryExtras()
     };
   }
 }

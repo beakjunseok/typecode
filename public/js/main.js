@@ -1,5 +1,6 @@
 // 진입점: 모드(연습 · 휴대폰 던지기 · 에러 구조 SOS)를 고르고, 엔진 이벤트를 화면·효과음·키보드·서버 호출에 연결한다.
 import { TypingEngine, DURATIONS } from './engine.js';
+import { TimeAttackEngine, TIME_ATTACK_RULES } from './time-attack-engine.js';
 import { LANGUAGES, getTokenPool } from './tokens.js';
 import { ThrowEngine, ROBOT_TYPES } from './throw-engine.js';
 import { BatteryEngine } from './battery-engine.js';
@@ -36,6 +37,10 @@ const MODE_CONFIG = Object.freeze({
   }
 });
 
+// 연습 모드의 세부 방식: 고정 제한 시간(30·60·120초) 또는 시간 연장(⏳). 랭킹은 따로 집계한다
+const PRACTICE_VARIANTS = Object.freeze(['timed', 'timeattack']);
+const BOARD_LABELS = Object.freeze({ practice: '연습', timeattack: '연습 · 시간 연장', throw: '휴대폰 던지기', battery: '배터리 구조 SOS' });
+
 const ui = createUi(document);
 const sound = new SoundEngine();
 const bgm = new BgmEngine(sound);
@@ -46,6 +51,7 @@ const settings = {
   mode: MODE_CONFIG[savedMode] ? savedMode : 'practice',
   languageKey: LANGUAGES[preferences.get('lang', 'javascript')] ? preferences.get('lang', 'javascript') : 'javascript',
   durationSeconds: DURATIONS.includes(preferences.get('duration', 60)) ? preferences.get('duration', 60) : 60,
+  practiceVariant: PRACTICE_VARIANTS.includes(preferences.get('practiceVariant', 'timed')) ? preferences.get('practiceVariant', 'timed') : 'timed',
   level: DIFFICULTY_LEVELS[preferences.get('level', 2)] ? Number(preferences.get('level', 2)) : 2,
   keyboardVisible: preferences.get('keyboard', true) !== false
 };
@@ -53,6 +59,10 @@ const run = { engine: null, generation: 0, sessionPromise: null, submitted: fals
 const now = () => performance.now();
 const modeConfig = () => MODE_CONFIG[settings.mode];
 const isArcade = () => modeConfig().arcade;
+const isTimeAttack = () => settings.mode === 'practice' && settings.practiceVariant === 'timeattack';
+// 서버·로컬 랭킹에서 쓰는 모드 이름(연습의 시간 연장은 'timeattack')
+const boardMode = () => (isTimeAttack() ? 'timeattack' : settings.mode);
+const boardLabel = (mode = boardMode()) => BOARD_LABELS[mode] ?? mode;
 
 function visible(character) {
   return { ' ': '␣', '\n': '↵', '\t': '⇥' }[character] ?? character;
@@ -64,7 +74,7 @@ function handlePracticeEvent(type, payload) {
     case 'start':
       run.sessionPromise = startSession(run.generation);
       sound.play('gameStart');
-      ui.log('sys', `run started · ${LANGUAGES[settings.languageKey].label} · ${settings.durationSeconds}s`);
+      ui.log('sys', `run started · ${LANGUAGES[settings.languageKey].label} · ${isTimeAttack() ? `⏳ 시간 연장 ${TIME_ATTACK_RULES.startSeconds}s` : `${settings.durationSeconds}s`}`);
       break;
     case 'keystroke':
       sound.play('key', { character: run.lastCharacter });
@@ -93,8 +103,9 @@ function handlePracticeEvent(type, payload) {
   }
 }
 
-function handlePracticeToken({ clean, combo, tier, tierUp, milestone }) {
+function handlePracticeToken({ clean, combo, tier, tierUp, milestone, timeBonus }) {
   sound.play('key', { character: run.lastCharacter });
+  if (timeBonus > 0) ui.showTimeBonus(timeBonus);
   bgm.setIntensity(tier);
   if (tierUp) {
     sound.play('tierUp', { tier });
@@ -211,7 +222,8 @@ const BATTERY_ITEM_LOG = {
 
 // ---------- 세션 · 제출 ----------
 function startSession(generation) {
-  return requestSession({ mode: settings.mode, language: settings.languageKey, durationSeconds: settings.durationSeconds }).catch(error => {
+  const mode = boardMode();
+  return requestSession({ mode, language: settings.languageKey, ...(mode === 'practice' ? { durationSeconds: settings.durationSeconds } : {}) }).catch(error => {
     if (generation === run.generation) ui.log('warn', `session 발급 실패 (${error.message}) — 이번 판은 로컬 랭킹에만 저장`);
     return null;
   });
@@ -221,7 +233,7 @@ function buildSubmission(summary, token, name) {
   return {
     token, name, score: summary.score, maxCombo: summary.maxCombo,
     correctKeystrokes: summary.correctKeystrokes, wrongKeystrokes: summary.wrongKeystrokes,
-    ...(isArcade() ? { survivedSeconds: summary.survivedSeconds } : {})
+    ...(summary.survivedSeconds !== undefined ? { survivedSeconds: summary.survivedSeconds } : {})
   };
 }
 
@@ -230,7 +242,7 @@ async function handleSave(event) {
   const engine = run.engine;
   if (!engine || engine.status !== 'finished' || run.submitted || engine.score <= 0) return;
   const generation = run.generation;
-  const mode = settings.mode;
+  const mode = boardMode();
   const name = ui.elements.playerName.value.trim().slice(0, 16) || 'anonymous';
   preferences.set('name', name);
   ui.setSaveButton({ label: '등록 중…', disabled: true });
@@ -248,9 +260,9 @@ async function handleSave(event) {
     if (generation !== run.generation) return;
     run.submitted = true;
     run.highlightId = result.myEntry.id;
-    ui.renderBoard(result.entries, { week: result.week, isLive: true, highlightId: run.highlightId, modeLabel: MODE_CONFIG[mode].label });
+    ui.renderBoard(result.entries, { week: result.week, isLive: true, highlightId: run.highlightId, modeLabel: boardLabel(mode) });
     ui.setSaveButton({ label: '등록 완료', disabled: true });
-    ui.setSaveStatus(`이번 주 ${MODE_CONFIG[mode].label} ${result.myRank}위로 등록됐습니다.`, 'ok');
+    ui.setSaveStatus(`이번 주 ${boardLabel(mode)} ${result.myRank}위로 등록됐습니다.`, 'ok');
     if (result.myRank === 1) sound.play('newRecord');
     ui.log('ok', `ranking updated: ${name} · #${result.myRank} (${result.week})`);
   } catch (error) {
@@ -264,24 +276,25 @@ async function handleSave(event) {
 function saveLocally(summary, name, mode) {
   const entry = {
     id: `local-${Date.now()}`, name, language: settings.languageKey, score: summary.score,
-    wpm: summary.wordsPerMinute, accuracy: summary.accuracy, achievedAt: Date.now()
+    wpm: summary.wordsPerMinute, cpm: summary.charactersPerMinute, accuracy: summary.accuracy, achievedAt: Date.now(),
+    ...(summary.survivedSeconds !== undefined ? { survivedSeconds: summary.survivedSeconds } : {})
   };
   run.submitted = true;
   run.highlightId = entry.id;
-  ui.renderBoard(localBoard.save(entry, mode), { week: getWeekLabel(), isLive: false, highlightId: entry.id, modeLabel: MODE_CONFIG[mode].label });
+  ui.renderBoard(localBoard.save(entry, mode), { week: getWeekLabel(), isLive: false, highlightId: entry.id, modeLabel: boardLabel(mode) });
   ui.setSaveButton({ label: '로컬 저장됨', disabled: true });
   ui.setSaveStatus('서버에 연결하지 못해 이 브라우저에만 저장했습니다.', 'warn');
 }
 
 async function refreshBoard() {
-  const mode = settings.mode;
-  const modeLabel = MODE_CONFIG[mode].label;
+  const mode = boardMode();
+  const modeLabel = boardLabel(mode);
   try {
     const result = await fetchBoard(mode);
-    if (mode !== settings.mode) return;
+    if (mode !== boardMode()) return;
     ui.renderBoard(result.entries, { week: result.week, isLive: true, highlightId: run.highlightId, modeLabel });
   } catch (error) {
-    if (mode !== settings.mode) return;
+    if (mode !== boardMode()) return;
     ui.renderBoard(localBoard.load(mode), { week: getWeekLabel(), isLive: false, highlightId: run.highlightId, modeLabel });
   }
 }
@@ -297,6 +310,10 @@ function arcadeSubtitle(summary) {
   return `${base} · 처치 ${summary.totalKills} (기본 ${basic} · 빠른 ${fast} · 헤비 ${tank}) · 아이템 ${summary.itemsCollected}`;
 }
 
+function timeAttackSubtitle(summary) {
+  return `${LANGUAGES[settings.languageKey].label} · ⏳ 시간 연장 · 생존 ${summary.survivedSeconds}s (시작 ${summary.startSeconds}s + 획득 ${summary.timeBonusTotal}s) · 토큰 ${summary.completedTokens}개 (클린 ${summary.cleanTokens})`;
+}
+
 function handleFinish(summary) {
   stopTicking();
   sound.play(isArcade() ? 'gameOver' : 'finish');
@@ -305,11 +322,12 @@ function handleFinish(summary) {
   renderStats();
   ui.setFocusState({ focused: false, finished: true, arcade: isArcade() });
   keyboard.setNext(null);
-  ui.log('sys', `run finished · score ${summary.score} · ${summary.wordsPerMinute} WPM · ${summary.accuracy}%`);
+  ui.log('sys', `run finished · score ${summary.score} · ${summary.charactersPerMinute}타 (${summary.wordsPerMinute} WPM) · ${summary.accuracy}%`);
   ui.showResult(summary, {
     languageKey: settings.languageKey,
     playerName: preferences.get('name', ''),
-    ...(isArcade() ? { title: modeConfig().resultTitle, subtitle: arcadeSubtitle(summary) } : {})
+    ...(isArcade() ? { title: modeConfig().resultTitle, subtitle: arcadeSubtitle(summary) } : {}),
+    ...(summary.mode === 'timeattack' ? { title: 'TIME UP', subtitle: timeAttackSubtitle(summary) } : {})
   });
 }
 
@@ -372,6 +390,7 @@ function startMusic() {
 
 function createEngine() {
   if (!isArcade()) {
+    if (isTimeAttack()) return new TimeAttackEngine({ tokenPool: getTokenPool(settings.languageKey), onEvent: handlePracticeEvent });
     return new TypingEngine({
       tokenPool: getTokenPool(settings.languageKey),
       durationSeconds: settings.durationSeconds,
@@ -428,7 +447,7 @@ function updateKeyboardHint() {
 function applyKeyboardVisibility() {
   keyboard.setVisible(settings.keyboardVisible && !isArcade());
   ui.elements.keyboardToggle.hidden = isArcade();
-  ui.elements.keyboardToggle.textContent = settings.keyboardVisible ? '⌨ KBD' : '⌨ OFF';
+  ui.elements.keyboardToggle.textContent = '⌨';
   ui.elements.keyboardToggle.classList.toggle('off', !settings.keyboardVisible);
   ui.elements.keyboardToggle.setAttribute('aria-pressed', String(settings.keyboardVisible));
 }
@@ -630,13 +649,30 @@ function bindSettings() {
     resetGame();
   });
   ui.elements.modeButtons.forEach(button => button.addEventListener('click', () => switchMode(button.dataset.mode)));
+  // 30·60·120초 = 고정 시간, ⏳연장 = 시간 연장. 바꾸면 랭킹 보드도 해당 방식으로 바뀐다
+  const isActiveDuration = button => (button.dataset.variant === 'timeattack'
+    ? settings.practiceVariant === 'timeattack'
+    : settings.practiceVariant === 'timed' && Number(button.dataset.seconds) === settings.durationSeconds);
+  const renderDurationButtons = () => ui.elements.durationButtons.forEach(button => {
+    const active = isActiveDuration(button);
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  renderDurationButtons();
   ui.elements.durationButtons.forEach(button => {
-    button.classList.toggle('active', Number(button.dataset.seconds) === settings.durationSeconds);
     button.addEventListener('click', () => {
-      settings.durationSeconds = Number(button.dataset.seconds);
-      preferences.set('duration', settings.durationSeconds);
-      ui.elements.durationButtons.forEach(other => other.classList.toggle('active', other === button));
+      const previousBoard = boardMode();
+      if (button.dataset.variant === 'timeattack') {
+        settings.practiceVariant = 'timeattack';
+      } else {
+        settings.practiceVariant = 'timed';
+        settings.durationSeconds = Number(button.dataset.seconds);
+        preferences.set('duration', settings.durationSeconds);
+      }
+      preferences.set('practiceVariant', settings.practiceVariant);
+      renderDurationButtons();
       resetGame();
+      if (boardMode() !== previousBoard) refreshBoard();
     });
   });
   ui.elements.languageSelect.addEventListener('change', () => {
@@ -658,7 +694,7 @@ function bindSettings() {
   });
   bgm.setEnabled(preferences.get('bgm', true));
   const renderBgmToggle = () => {
-    ui.elements.bgmToggle.textContent = bgm.enabled ? '♫ BGM' : '♫ OFF';
+    ui.elements.bgmToggle.textContent = '♫';
     ui.elements.bgmToggle.classList.toggle('off', !bgm.enabled);
     ui.elements.bgmToggle.setAttribute('aria-pressed', String(bgm.enabled));
   };

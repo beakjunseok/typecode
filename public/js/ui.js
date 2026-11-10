@@ -22,7 +22,7 @@ function languageLabel(languageKey) {
 export function createUi(root = document) {
   const byId = id => root.getElementById(id);
   const elements = {
-    app: byId('app'), languageSelect: byId('languageSelect'), durationButtons: root.querySelectorAll('[data-seconds]'),
+    app: byId('app'), languageSelect: byId('languageSelect'), durationButtons: root.querySelectorAll('#durationGroup button'),
     soundToggle: byId('soundToggle'), bgmToggle: byId('bgmToggle'), restartButton: byId('restartButton'),
     timerFill: byId('timerFill'), timeStat: byId('timeStat'), timeLabel: byId('timeLabel'), timeValue: byId('timeValue'), wpmValue: byId('wpmValue'),
     accuracyValue: byId('accuracyValue'), comboValue: byId('comboValue'), multiplierStat: byId('multiplierStat'),
@@ -38,7 +38,7 @@ export function createUi(root = document) {
     focusOverlay: byId('focusOverlay'), hiddenInput: byId('hiddenInput'), consoleView: byId('consoleView'),
     boardTitle: byId('boardTitle'), boardBadge: byId('boardBadge'), boardBody: byId('boardBody'),
     resultModal: byId('resultModal'), resultClose: byId('resultClose'), resultTitle: byId('resultTitle'), resultSub: byId('resultSub'), resultScore: byId('resultScore'),
-    resultWpm: byId('resultWpm'), resultAccuracy: byId('resultAccuracy'), resultCombo: byId('resultCombo'),
+    resultWpm: byId('resultWpm'), resultWpmSub: byId('resultWpmSub'), resultAccuracy: byId('resultAccuracy'), resultCombo: byId('resultCombo'),
     wpmChart: byId('wpmChart'), wpmChartPeak: byId('wpmChartPeak'), weakTokens: byId('weakTokens'),
     saveForm: byId('saveForm'), playerName: byId('playerName'), saveStatus: byId('saveStatus'),
     saveButton: byId('saveButton'), retryButton: byId('retryButton')
@@ -99,13 +99,16 @@ export function createUi(root = document) {
   function renderStats(snapshot) {
     const tier = snapshot.tierProgress.index;
     const arcade = snapshot.elapsedSeconds !== undefined;
-    elements.timeLabel.textContent = arcade ? 'SURVIVED' : 'TIME';
-    elements.timeValue.textContent = arcade ? `${Math.floor(snapshot.elapsedSeconds)}s` : snapshot.remainingSeconds;
+    const timeAttack = snapshot.mode === 'timeattack';
+    elements.timeLabel.textContent = arcade ? 'SURVIVED' : timeAttack ? 'TIME ⏳' : 'TIME';
+    // 시간 연장 모드는 소수 한 자리(시간이 조금씩 늘어나는 게 보이도록)
+    elements.timeValue.textContent = arcade ? `${Math.floor(snapshot.elapsedSeconds)}s`
+      : timeAttack ? snapshot.remainingExact.toFixed(1) : snapshot.remainingSeconds;
     elements.timeStat.classList.toggle('low', arcade ? snapshot.lives === 1 && snapshot.status === 'running'
       : snapshot.status === 'running' && snapshot.remainingSeconds <= 5);
     const barRatio = arcade ? (snapshot.powerSeconds ? snapshot.powerRemaining / snapshot.powerSeconds : 0) : snapshot.remainingRatio;
     elements.timerFill.style.transform = `scaleX(${Math.max(0, Math.min(1, barRatio))})`;
-    elements.wpmValue.textContent = snapshot.wordsPerMinute;
+    elements.wpmValue.textContent = snapshot.charactersPerMinute ?? snapshot.wordsPerMinute * 5;
     elements.accuracyValue.textContent = `${snapshot.accuracy}%`;
     elements.comboValue.textContent = snapshot.combo;
     elements.multiplierValue.textContent = `×${snapshot.multiplier.toFixed(1)}`;
@@ -147,14 +150,14 @@ export function createUi(root = document) {
     const table = element('table');
     const head = element('thead');
     const headRow = element('tr');
-    [['RANK'], ['NAME'], ['LANG'], ['WPM', 'num'], ['ACC', 'num hide-mobile'], ['SCORE', 'num']]
+    [['RANK'], ['NAME'], ['LANG'], ['타수', 'num'], ['ACC', 'num hide-mobile'], ['SCORE', 'num']]
       .forEach(([label, className]) => headRow.appendChild(element('th', className, label)));
     head.appendChild(headRow);
     const body = element('tbody');
     entries.forEach((entry, index) => {
       const row = element('tr', [entry.id === highlightId ? 'me' : '', index === 0 ? 'rank1' : ''].join(' ').trim());
       [
-        [`#${index + 1}`], [entry.name], [languageLabel(entry.language)], [entry.wpm, 'num'],
+        [`#${index + 1}`], [entry.name], [languageLabel(entry.language)], [entry.cpm ?? entry.wpm * 5, 'num'],
         [`${entry.accuracy}%`, 'num hide-mobile'], [Number(entry.score).toLocaleString(), 'num']
       ].forEach(([value, className]) => row.appendChild(element('td', className, value)));
       body.appendChild(row);
@@ -178,7 +181,7 @@ export function createUi(root = document) {
     line.setAttribute('points', points.join(' '));
     line.setAttribute('class', 'chart-line');
     elements.wpmChart.replaceChildren(area, line);
-    elements.wpmChartPeak.textContent = `최고 ${Math.max(0, ...timeline)} WPM`;
+    elements.wpmChartPeak.textContent = `최고 ${Math.max(0, ...timeline)}타`;
   }
 
   function renderWeakTokens(weakTokens) {
@@ -199,16 +202,26 @@ export function createUi(root = document) {
     elements.resultSub.textContent = subtitle ??
       `${languageLabel(languageKey)} · ${summary.durationSeconds}s · 토큰 ${summary.completedTokens}개 (클린 ${summary.cleanTokens})`;
     elements.resultScore.textContent = summary.score.toLocaleString();
-    elements.resultWpm.textContent = summary.wordsPerMinute;
+    elements.resultWpm.textContent = summary.charactersPerMinute ?? summary.wordsPerMinute * 5;
+    elements.resultWpmSub.textContent = `· ${summary.wordsPerMinute} WPM`;
     elements.resultAccuracy.textContent = `${summary.accuracy}%`;
     elements.resultCombo.textContent = summary.maxCombo;
-    renderWpmChart(summary.wordsPerMinuteTimeline);
+    renderWpmChart(summary.wordsPerMinuteTimeline.map(value => value * 5));
     renderWeakTokens(summary.weakTokens);
     elements.playerName.value = playerName;
     elements.saveButton.textContent = '랭킹 등록';
     elements.saveButton.disabled = summary.score <= 0;
     setSaveStatus(summary.score <= 0 ? '완성한 토큰이 없어 등록할 기록이 없습니다.' : '');
     elements.resultModal.hidden = false;
+  }
+
+  // 시간 연장: 타이머 칸 위로 '+1.2s'가 떠오르며 사라진다. 이전 표시가 남아 있으면 교체
+  function showTimeBonus(seconds) {
+    if (!(seconds > 0)) return;
+    elements.timeStat.querySelector('.time-bonus')?.remove();
+    const badge = element('span', 'time-bonus', `+${seconds.toFixed(1)}s`);
+    elements.timeStat.appendChild(badge);
+    setTimeout(() => badge.remove(), 900);
   }
 
   function hideResult() {
@@ -227,6 +240,6 @@ export function createUi(root = document) {
 
   return {
     elements, populateLanguages, renderToken, renderStats, setFocusState, log, renderBoard,
-    showResult, hideResult, setSaveStatus, setSaveButton, kindColor
+    showResult, hideResult, showTimeBonus, setSaveStatus, setSaveButton, kindColor
   };
 }
