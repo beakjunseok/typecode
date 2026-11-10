@@ -6,7 +6,7 @@ import { SONGS, parseChord, melodyNote, expandForm } from './songs.js';
 const LOOKAHEAD_SECONDS = 0.12;
 const SCHEDULER_INTERVAL_MS = 25;
 const CROSSFADE_SECONDS = 0.8;
-const MUSIC_VOLUME = 0.34;
+const MUSIC_VOLUME = 0.27; // 키 소리가 묻히지 않게 0.34 → 0.27(약 −2 dB)
 
 const midiToFrequency = note => 440 * 2 ** ((note - 69) / 12);
 

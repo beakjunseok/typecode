@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SoundEngine, SOUND_NAMES, keyPan } from '../public/js/audio.js';
+import { LINEAR_SPRITE } from '../public/js/key-samples.js';
 import { BgmEngine } from '../public/js/bgm.js';
 import { SONGS, songSeconds, expandForm } from '../public/js/songs.js';
 
@@ -30,7 +31,7 @@ function createFakeAudio() {
     createDynamicsCompressor() { return node(); }
     createBiquadFilter() { return node({ type: 'lowpass', frequency: param(1000), Q: param(1) }); }
     createOscillator() { return Object.assign(scheduled('oscillators'), { type: 'sine', frequency: param(440), detune: param(0) }); }
-    createBufferSource() { return Object.assign(scheduled('noises'), { buffer: null }); }
+    createBufferSource() { return Object.assign(scheduled('noises'), { buffer: null, playbackRate: param(1) }); }
     createConvolver() { stats.convolvers = (stats.convolvers ?? 0) + 1; return node({ buffer: null }); }
     createStereoPanner() { const panner = node({ pan: param(0) }); stats.pans = [...(stats.pans ?? []), panner.pan]; return panner; }
     createBuffer(channels, length) { const data = new Float32Array(length); return { getChannelData: () => data }; }
@@ -157,4 +158,46 @@ test('키 소리는 방 울림 버스(Convolver)와 좌우 패너를 쓰고, 미
   } finally {
     delete globalThis.AudioContext;
   }
+});
+
+test('적축 녹음: 샘플이 준비되면 누름+올라옴 두 클립을 재생하고, 같은 클립을 연달아 쓰지 않는다', () => {
+  const { FakeContext, stats } = createFakeAudio();
+  globalThis.AudioContext = FakeContext;
+  try {
+    const sound = new SoundEngine();
+    sound.ensureContext();
+    sound.linearBuffer = { duration: 3 };
+    const starts = [];
+    const original = sound.context.createBufferSource.bind(sound.context);
+    sound.context.createBufferSource = () => {
+      const source = original();
+      const start = source.start.bind(source);
+      source.start = (time, offset, duration) => { starts.push({ time, offset, duration }); start(time); };
+      return source;
+    };
+    const oscillatorsBefore = stats.oscillators;
+    sound.play('keyWrong', { character: 'a' });
+    assert.equal(starts.length, 2, '누름 + 올라옴');
+    assert.ok(starts[1].time - starts[0].time >= 0.07, '올라오는 소리는 70ms 이상 뒤');
+    assert.equal(stats.oscillators, oscillatorsBefore, '샘플이 있으면 합성음 없음');
+    const downOffsets = LINEAR_SPRITE.down.map(([offset]) => offset);
+    assert.ok(downOffsets.includes(starts[0].offset));
+    let previous = sound.lastClip.down;
+    for (let round = 0; round < 40; round++) {
+      sound.play('keyWrong', { character: 'k' });
+      assert.notEqual(sound.lastClip.down, previous, '직전 클립 반복 없음');
+      previous = sound.lastClip.down;
+    }
+    sound.play('erase');
+    assert.ok(LINEAR_SPRITE.eraseDown.some(([offset]) => offset === starts.at(-2).offset), 'Backspace 녹음');
+    assert.deepEqual(stats.errors, []);
+  } finally {
+    delete globalThis.AudioContext;
+  }
+});
+
+test('스프라이트 오프셋은 겹치지 않고 그룹마다 클립이 있다', () => {
+  const all = Object.values(LINEAR_SPRITE).flat().sort((a, b) => a[0] - b[0]);
+  for (let index = 1; index < all.length; index++) assert.ok(all[index][0] >= all[index - 1][0] + all[index - 1][1]);
+  for (const group of ['down', 'up', 'eraseDown', 'eraseUp']) assert.ok(LINEAR_SPRITE[group].length >= 3, group);
 });
