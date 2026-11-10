@@ -4,6 +4,8 @@ import { list, put } from '@vercel/blob';
 import { LANGUAGE_KEYS } from '../public/js/tokens.js';
 import { DURATIONS, SCORING, MAX_MULTIPLIER, calculateWordsPerMinute, calculateAccuracy } from '../public/js/engine.js';
 import { getWeekLabel } from '../public/js/week.js';
+import { MAX_POINTS_PER_CHARACTER as THROW_MAX_POINTS_PER_CHARACTER } from '../public/js/throw-engine.js';
+import { RESCUE_MAX_POINTS_PER_CHARACTER } from '../public/js/rescue-engine.js';
 
 export { DURATIONS, getWeekLabel };
 export const LANGUAGES = LANGUAGE_KEYS;
@@ -11,7 +13,21 @@ export const BOARD_SIZE = 10;
 const MAX_SUBMIT_DELAY_MS = 10 * 60 * 1000;
 const START_TOLERANCE_MS = 3000;
 const MAX_CHARS_PER_SECOND = 25;
-const BOARD_PREFIX = 'lb';
+const MIN_ARCADE_SECONDS = 3;
+const MAX_ARCADE_SECONDS = 60 * 60;
+
+// 모드별 랭킹 저장 경로와 글자당 점수 상한. practice는 기존 경로(lb/)를 그대로 쓴다.
+export const MODES = Object.freeze({
+  practice: Object.freeze({ prefix: 'lb', timed: true, maxPointsPerCharacter: SCORING.basePoints * MAX_MULTIPLIER }),
+  throw: Object.freeze({ prefix: 'lb-throw', timed: false, maxPointsPerCharacter: THROW_MAX_POINTS_PER_CHARACTER }),
+  rescue: Object.freeze({ prefix: 'lb-rescue', timed: false, maxPointsPerCharacter: RESCUE_MAX_POINTS_PER_CHARACTER })
+});
+
+export function resolveMode(rawMode) {
+  const mode = rawMode ?? 'practice';
+  if (!Object.hasOwn(MODES, mode)) throw new HttpError(422, 'invalid_mode', '지원하지 않는 모드입니다');
+  return mode;
+}
 
 export class HttpError extends Error {
   constructor(status, code, message) {
@@ -57,8 +73,8 @@ function sign(payloadEncoded) {
   return createHmac('sha256', getSigningKey()).update(payloadEncoded).digest('base64url');
 }
 
-export function issueSessionToken({ language, durationSeconds }) {
-  const payload = { sid: randomBytes(9).toString('hex'), language, durationSeconds, startedAt: Date.now() };
+export function issueSessionToken({ language, durationSeconds = null, mode = 'practice' }) {
+  const payload = { sid: randomBytes(9).toString('hex'), mode, language, durationSeconds, startedAt: Date.now() };
   const payloadEncoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return { token: `${payloadEncoded}.${sign(payloadEncoded)}`, session: payload };
 }
@@ -88,37 +104,60 @@ function isNonNegativeInteger(value) {
   return Number.isInteger(value) && value >= 0;
 }
 
-// 클라이언트 값은 상한 검증만 하고, WPM·정확도는 서버가 다시 계산한다.
+// 클라이언트 값은 상한 검증만 하고, WPM·정확도는 서버가 다시 계산한다. 모드별로 시간 기준이 다르다.
 export function validateSubmission(session, body, now = Date.now()) {
+  const mode = resolveMode(session.mode);
   const { correctKeystrokes, wrongKeystrokes, score, maxCombo } = body;
   if (![correctKeystrokes, wrongKeystrokes, score, maxCombo].every(isNonNegativeInteger)) {
     throw new HttpError(422, 'invalid_fields', 'correctKeystrokes·wrongKeystrokes·score·maxCombo는 0 이상 정수여야 합니다');
   }
   const elapsedMs = now - session.startedAt;
-  if (elapsedMs < session.durationSeconds * 1000 - START_TOLERANCE_MS) {
-    throw new HttpError(422, 'too_early', '제한 시간이 끝나기 전에 제출됐습니다');
+  const playedSeconds = MODES[mode].timed ? session.durationSeconds : validateArcadeTime(body.survivedSeconds, elapsedMs);
+  if (MODES[mode].timed) {
+    if (elapsedMs < session.durationSeconds * 1000 - START_TOLERANCE_MS) {
+      throw new HttpError(422, 'too_early', '제한 시간이 끝나기 전에 제출됐습니다');
+    }
+    if (elapsedMs > session.durationSeconds * 1000 + MAX_SUBMIT_DELAY_MS) {
+      throw new HttpError(422, 'session_expired', '세션이 만료됐습니다');
+    }
   }
-  if (elapsedMs > session.durationSeconds * 1000 + MAX_SUBMIT_DELAY_MS) {
-    throw new HttpError(422, 'session_expired', '세션이 만료됐습니다');
-  }
-  if (correctKeystrokes > session.durationSeconds * MAX_CHARS_PER_SECOND) {
+  if (correctKeystrokes > playedSeconds * MAX_CHARS_PER_SECOND) {
     throw new HttpError(422, 'implausible_speed', '입력 속도가 비정상적입니다');
   }
-  if (score > correctKeystrokes * SCORING.basePoints * MAX_MULTIPLIER) {
+  if (score > correctKeystrokes * MODES[mode].maxPointsPerCharacter) {
     throw new HttpError(422, 'implausible_score', '점수가 입력량과 맞지 않습니다');
   }
   return {
     score,
     maxCombo,
-    wpm: calculateWordsPerMinute(correctKeystrokes, session.durationSeconds),
-    accuracy: calculateAccuracy(correctKeystrokes, wrongKeystrokes)
+    wpm: calculateWordsPerMinute(correctKeystrokes, playedSeconds),
+    accuracy: calculateAccuracy(correctKeystrokes, wrongKeystrokes),
+    ...(MODES[mode].timed ? {} : { survivedSeconds: playedSeconds })
   };
 }
 
+// 아케이드 모드: 클라이언트가 보낸 생존 시간은 서버가 잰 경과 시간을 넘을 수 없다.
+function validateArcadeTime(survivedSeconds, elapsedMs) {
+  if (!Number.isInteger(survivedSeconds) || survivedSeconds < MIN_ARCADE_SECONDS) {
+    throw new HttpError(422, 'invalid_survived_seconds', `survivedSeconds는 ${MIN_ARCADE_SECONDS} 이상 정수여야 합니다`);
+  }
+  if (survivedSeconds * 1000 > elapsedMs + START_TOLERANCE_MS) {
+    throw new HttpError(422, 'too_early', '생존 시간이 서버 경과 시간보다 깁니다');
+  }
+  if (elapsedMs > (MAX_ARCADE_SECONDS * 1000) + MAX_SUBMIT_DELAY_MS) {
+    throw new HttpError(422, 'session_expired', '세션이 만료됐습니다');
+  }
+  return survivedSeconds;
+}
+
 // 점수 1건 = blob 1개(append-only). 데이터는 경로에 인코딩해 list 한 번으로 보드를 만든다.
-function encodeEntryPath(week, sid, entry) {
+function boardPrefix(mode, week) {
+  return `${MODES[resolveMode(mode)].prefix}/${week}/`;
+}
+
+function encodeEntryPath(mode, week, sid, entry) {
   const payload = Buffer.from(JSON.stringify(entry)).toString('base64url');
-  return `${BOARD_PREFIX}/${week}/${sid}.${payload}.json`;
+  return `${boardPrefix(mode, week)}${sid}.${payload}.json`;
 }
 
 function decodeEntryPath(pathname) {
@@ -132,13 +171,13 @@ function decodeEntryPath(pathname) {
   }
 }
 
-export async function sessionAlreadySubmitted(week, sid) {
-  const { blobs } = await list({ prefix: `${BOARD_PREFIX}/${week}/${sid}.`, limit: 1 });
+export async function sessionAlreadySubmitted(mode, week, sid) {
+  const { blobs } = await list({ prefix: `${boardPrefix(mode, week)}${sid}.`, limit: 1 });
   return blobs.length > 0;
 }
 
-export async function storeEntry(week, sid, entry) {
-  await put(encodeEntryPath(week, sid, entry), '{}', {
+export async function storeEntry(mode, week, sid, entry) {
+  await put(encodeEntryPath(mode, week, sid, entry), '{}', {
     access: 'public',
     addRandomSuffix: false,
     allowOverwrite: false,
@@ -156,11 +195,11 @@ export function rankEntries(entries) {
   return [...uniqueBySession.values()].sort((first, second) => second.score - first.score || first.achievedAt - second.achievedAt);
 }
 
-export async function loadWeeklyEntries(week, maxPages = 5) {
+export async function loadWeeklyEntries(mode, week, maxPages = 5) {
   const entries = [];
   let cursor;
   for (let page = 0; page < maxPages; page++) {
-    const result = await list({ prefix: `${BOARD_PREFIX}/${week}/`, limit: 1000, cursor });
+    const result = await list({ prefix: boardPrefix(mode, week), limit: 1000, cursor });
     for (const blob of result.blobs) {
       const entry = decodeEntryPath(blob.pathname);
       if (entry) entries.push(entry);
@@ -174,6 +213,7 @@ export async function loadWeeklyEntries(week, maxPages = 5) {
 export function toPublicEntry(entry, index) {
   return {
     rank: index + 1, id: entry.sid, name: entry.name, language: entry.language,
-    score: entry.score, wpm: entry.wpm, accuracy: entry.accuracy, maxCombo: entry.maxCombo, achievedAt: entry.achievedAt
+    score: entry.score, wpm: entry.wpm, accuracy: entry.accuracy, maxCombo: entry.maxCombo, achievedAt: entry.achievedAt,
+    ...(entry.survivedSeconds ? { survivedSeconds: entry.survivedSeconds } : {})
   };
 }

@@ -105,7 +105,6 @@ button.active { color: var(--tier-color); border-color: var(--tier-color); posit
 }
 .overlay span { font-size: 12px; color: var(--dim); }
 .overlay[hidden] { display: none; }
-#hiddenInput { position: absolute; opacity: 0; left: 0; top: 0; width: 1px; height: 1px; border: 0; padding: 0; resize: none; font-size: 16px; }
 
 .console {
   background: #07090c; border: 1px solid var(--line); border-radius: var(--radius); padding: var(--space-1) 12px;
@@ -168,6 +167,53 @@ tr.rank1 td:first-child { color: var(--warn); }
   to { transform: translate(var(--dx), var(--dy)); opacity: 0; filter: blur(2px); }
 }
 
+/* ---------- 모드 탭 · 아케이드 ---------- */
+.mode-tabs button { padding: var(--space-1) 14px; }
+.arcade-canvas { display: block; width: 100%; height: 460px; background: #0b1017; }
+#hiddenInput { position: fixed; opacity: 0; left: 0; top: 0; width: 1px; height: 1px; border: 0; padding: 0; resize: none; font-size: 16px; }
+
+/* ---------- 블랙 RGB 키보드 ---------- */
+.keyboard-section { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.keyboard-section[hidden] { display: none; }
+.keyboard {
+  --unit: min(52px, calc((100vw - 64px) / 15.6));
+  display: flex; flex-direction: column; gap: 5px; padding: 12px; border-radius: 14px;
+  background: linear-gradient(180deg, #121417, #08090b); border: 1px solid #1c1f24;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.kb-row { display: flex; gap: 5px; justify-content: center; }
+.key {
+  position: relative; width: calc(var(--unit) * var(--w) + 5px * (var(--w) - 1)); height: var(--unit);
+  border-radius: 7px; background: linear-gradient(180deg, #1d2025 0%, #121418 100%);
+  box-shadow: inset 0 -3px 0 #050607, inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 2px 0 #000;
+  display: flex; align-items: flex-start; justify-content: flex-start; padding: 5px 7px; overflow: hidden;
+  transition: transform 0.06s, box-shadow 0.12s;
+}
+.key.wide .legend { font-size: 10px; letter-spacing: 0.5px; }
+/* RGB 백라이트: 키 위치별 색상 위상 + 전체가 천천히 색상 회전 */
+.key .glow {
+  position: absolute; inset: auto 0 0 0; height: 100%; pointer-events: none;
+  background: radial-gradient(120% 80% at 50% 110%, hsl(var(--hue) 95% 55% / 0.55), transparent 65%);
+  animation: rgb-wave 6s linear infinite;
+}
+.key .legend { position: relative; display: flex; flex-direction: column; gap: 1px; font-size: 13px; font-weight: 600; line-height: 1.1; }
+.key .base { color: hsl(var(--hue) 100% 80%); text-shadow: 0 0 6px hsl(var(--hue) 100% 60% / 0.8); animation: rgb-wave 6s linear infinite; }
+.key .shifted { font-size: 9px; color: #6b7686; }
+.key::before { content: ''; position: absolute; left: 6px; right: 6px; bottom: 3px; height: 2px; border-radius: 1px; background: var(--finger); opacity: 0.35; }
+.key.home::after { content: ''; position: absolute; left: 50%; bottom: 8px; width: 10px; height: 2px; margin-left: -5px; background: #6b7686; border-radius: 1px; }
+.key.next { transform: translateY(-2px); box-shadow: 0 0 0 2px #ffffff, 0 0 18px rgba(255, 255, 255, 0.55), inset 0 -3px 0 #050607; }
+.key.next .glow, .key.next-shift .glow { animation: none; background: radial-gradient(120% 90% at 50% 100%, rgba(255, 255, 255, 0.4), transparent 70%); }
+.key.next .base { color: #ffffff; animation: none; }
+.key.next::after, .key.next-shift::after {
+  content: ''; position: absolute; right: 7px; top: 7px; width: 10px; height: 10px; margin: 0; border-radius: 50%;
+  background: #ff8a1f; box-shadow: 0 0 10px #ff8a1f; left: auto; bottom: auto;
+}
+.key.next-shift { box-shadow: 0 0 0 2px #ff8a1f, 0 0 14px rgba(255, 138, 31, 0.5), inset 0 -3px 0 #050607; }
+.key.pressed-ok { transform: translateY(2px); box-shadow: 0 0 0 2px var(--ok), 0 0 20px var(--ok), inset 0 -1px 0 #050607; }
+.key.pressed-bad { transform: translateY(2px); box-shadow: 0 0 0 2px var(--err), 0 0 20px var(--err), inset 0 -1px 0 #050607; }
+@keyframes rgb-wave { to { filter: hue-rotate(360deg); } }
+.kb-hint { font-size: 12px; color: var(--finger, var(--dim)); min-height: 16px; }
+
 @media (max-width: 640px) {
   body { padding: 10px; }
   .stats { grid-template-columns: repeat(3, 1fr); }
@@ -176,9 +222,16 @@ tr.rank1 td:first-child { color: var(--warn); }
   .queue { font-size: 14px; gap: 10px; }
   .track { min-height: 230px; padding: 24px 10px 20px; }
   .hide-mobile { display: none; }
+  .arcade-canvas { height: 340px; }
+  .mode-tabs button { padding: 6px 8px; font-size: 12px; }
+  .keyboard { padding: 6px; gap: 3px; }
+  .kb-row { gap: 3px; }
+  .key { padding: 2px 3px; border-radius: 4px; }
+  .key .legend { font-size: 9px; }
+  .key .shifted { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .spark { display: none; }
-  .stage.shake, .stage.tier-flash, .current.enter, .stat.time.low .value { animation: none; }
+  .stage.shake, .stage.tier-flash, .current.enter, .stat.time.low .value, .key .glow, .key .base { animation: none; }
 }
