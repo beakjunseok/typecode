@@ -3,6 +3,7 @@
 // 엔진 좌표 x(1=출현 지점 → playerX=책상)를 화면 y로, lane을 세로 열로 바꿔 그린다.
 import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
+import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING } from './developer-view.js';
 import { THROW_RULES } from './throw-engine.js';
 import {
   setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates
@@ -40,10 +41,15 @@ export class ThrowRenderer {
       labelPop: new Spring(0, { stiffness: 420, damping: 18 })
     }));
     this.player = {
-      arm: new Spring(0, { stiffness: 220, damping: 12 }),
       hurt: new Spring(0, { stiffness: 220, damping: 10 }),
-      aimX: 0.5
+      aimX: 0.5,
+      aimTarget: 0.5,
+      throwAt: -Infinity,
+      pose: { ...chargePose(0), held: 1 },
+      trail: []
     };
+    this.handPosition = null;
+    this.projectileStarts = new WeakMap();
   }
 
   get context() {
@@ -77,8 +83,8 @@ export class ThrowRenderer {
 
   onEvent(type, payload) {
     if (type === 'throw') {
-      this.player.arm.kick(-30);
       this.player.aimX = payload.target.lane / Math.max(1, this.lanes - 1);
+      this.player.aimTarget = this.player.aimX;
     } else if (type === 'lock') {
       this.visuals.get(payload.target.id).labelPop.kick(14);
     } else if (type === 'mistake' && payload.target) {
@@ -121,7 +127,6 @@ export class ThrowRenderer {
     this.lastGameTime = engine.gameTime;
     this.particles.update(frameSeconds);
     this.visuals.step(frameSeconds, new Set([...engine.robots, ...engine.items].map(entity => entity.id)));
-    this.player.arm.step(frameSeconds);
     this.player.hurt.step(frameSeconds);
 
     const { width, height } = this.surface;
@@ -202,71 +207,58 @@ export class ThrowRenderer {
     context.setLineDash([]);
   }
 
-  // 아래 가운데: 책상 + 개발자(뒷모습 3/4). 던질 때 팔이 위로 휘두르고, 맞으면 몸이 흔들린다.
+  // 아래 가운데: 책상·모니터(developer-view) → 개발자(어깨 너머 뒷모습) → 의자 등받이. 손 위치를 투사체 출발점으로 기억
   drawPlayer(context, engine) {
-    const { width, height } = this.surface;
+    const { width } = this.surface;
     const { x, y } = this.playerPosition();
     const laptopMode = engine.laptopRemaining() > 0;
-    // 책상 상판
-    const deskGradient = context.createLinearGradient(0, height - 34, 0, height);
-    deskGradient.addColorStop(0, '#2a3646');
-    deskGradient.addColorStop(1, '#141b24');
-    context.fillStyle = deskGradient;
-    context.fillRect(0, height - 30, width, 30);
-    context.fillStyle = 'rgba(54, 226, 255, 0.35)';
-    context.fillRect(0, height - 30, width, 2);
-    // 듀얼 모니터(양옆)
-    for (const side of [-1, 1]) {
-      const monitorX = x + side * Math.min(110, width * 0.3);
-      context.fillStyle = '#0d131b';
-      roundedRect(context, monitorX - 30, height - 62, 60, 36, 4);
-      context.fill();
-      context.fillStyle = laptopMode ? '#c792ea' : '#36e2ff';
-      context.globalAlpha = 0.3 + 0.15 * Math.sin(engine.gameTime * 2 + side);
-      context.fillRect(monitorX - 26, height - 58, 52, 26);
-      context.globalAlpha = 1;
-      context.fillStyle = 'rgba(201, 212, 224, 0.35)';
-      for (let line = 0; line < 3; line++) context.fillRect(monitorX - 22, height - 54 + line * 7, 18 + ((line * 13 + Math.floor(engine.gameTime * 4)) % 22), 2);
-    }
+    const gameOver = engine.status === 'finished';
     const hurt = this.player.hurt.value;
-    const idle = Math.sin(engine.gameTime * 2.4) * 1.5;
-    context.save();
-    context.translate(x + Math.sin(hurt) * hurt * 0.2, y + idle);
-    // 의자 등받이
-    context.fillStyle = '#1b2430';
-    roundedRect(context, -24, -6, 48, 40, 10);
-    context.fill();
-    // 후드 몸통
-    context.fillStyle = '#2b3a4d';
-    roundedRect(context, -18, -14, 36, 34, 12);
-    context.fill();
-    context.fillStyle = '#36e2ff';
-    context.fillRect(-1, -12, 2, 20);
-    // 머리(뒤통수) + 헤드셋
-    context.fillStyle = '#1b2430';
-    context.beginPath();
-    context.arc(0, -26, 13, 0, Math.PI * 2);
-    context.fill();
-    context.strokeStyle = '#36e2ff';
-    context.lineWidth = 3;
-    context.beginPath();
-    context.arc(0, -27, 14, Math.PI * 1.05, Math.PI * 1.95);
-    context.stroke();
-    context.fillStyle = '#36e2ff';
-    context.fillRect(-16, -30, 4, 9);
-    context.fillRect(12, -30, 4, 9);
-    // 던지는 팔: 목표 열 쪽으로 향하고, 던질 때 스프링으로 휘두름
-    const aim = (this.player.aimX - 0.5) * 1.1;
-    context.save();
-    context.translate(14, -10);
-    context.rotate(-Math.PI / 2 + aim + this.player.arm.value * 0.05);
-    context.fillStyle = '#2b3a4d';
-    roundedRect(context, 0, -4, 22, 8, 4);
-    context.fill();
-    if (laptopMode) this.drawLaptopShape(context, 26, 0, 0.6, Math.PI / 2);
-    else this.drawPhoneShape(context, 30, 0, Math.PI / 2, this.phoneCracks(engine), 1.5);
-    context.restore();
-    context.restore();
+    drawDeskSetup(context, { x, y, width, time: engine.gameTime, laptopMode, hurt: Math.abs(hurt), gameOver });
+    const pose = this.updateThrowPose(engine);
+    const cracks = this.phoneCracks(engine);
+    const hand = drawDeveloper(context, {
+      x, y: y + 12, scale: 1.3, time: engine.gameTime, aim: (this.player.aimX - 0.5) * 1.1, pose, trail: this.player.trail,
+      hurt, lives: engine.lives, gameOver, laptopMode,
+      drawHeld: (heldContext, heldX, heldY, angle, size, laptop) => {
+        const scale = Math.max(0.01, size);
+        if (laptop) this.drawLaptopShape(heldContext, heldX, heldY, 0.6 * scale, angle);
+        else this.drawPhoneShape(heldContext, heldX, heldY, angle, cracks, 1.45 * scale);
+      }
+    });
+    this.handPosition = hand;
+    // 휘두르는 동안(풀린 뒤 0.16초까지)만 손 궤적을 남긴다
+    const sinceThrow = engine.gameTime - this.player.throwAt;
+    if (!gameOver && sinceThrow >= 0 && sinceThrow < 0.16) {
+      this.player.trail.push({ x: hand.x, y: hand.y });
+      if (this.player.trail.length > 7) this.player.trail.shift();
+    } else if (this.player.trail.length) {
+      this.player.trail.shift();
+    }
+  }
+
+  // 던지기 자세: 지금 노리는 낱말을 친 비율만큼 팔을 장전하고, 던진 직후엔 휘두르기 동작(throwPose).
+  // 목표 자세를 그대로 쓰지 않고 빠르게 따라가게(지수 평활) 해 연속 투척·조준 변경에도 끊기지 않는다. O(1)
+  updateThrowPose(engine) {
+    const latest = engine.projectiles.reduce((max, projectile) => Math.max(max, projectile.launchedAt), -Infinity);
+    if (latest > this.player.throwAt) this.player.throwAt = latest;
+    const target = engine.target;
+    const charge = target && target.token ? engine.typed.length / target.token.text.length : 0;
+    if (target && target.lane !== undefined) this.player.aimTarget = target.lane / Math.max(1, this.lanes - 1);
+    const sinceThrow = engine.gameTime - this.player.throwAt;
+    const goal = throwPose({ charge, sinceThrow });
+    const frameSeconds = Math.max(0, Math.min(0.05, engine.gameTime - (this.player.poseTime ?? engine.gameTime)));
+    this.player.poseTime = engine.gameTime;
+    // 휘두르는 구간은 거의 즉시(빠른 동작), 그 밖에는 부드럽게 따라간다
+    const swinging = sinceThrow >= 0 && sinceThrow < THROW_TIMING.follow;
+    const follow = swinging ? 1 : 1 - Math.exp(-frameSeconds * 22);
+    const current = this.player.pose;
+    current.upper += (goal.upper - current.upper) * follow;
+    current.bend += (goal.bend - current.bend) * follow;
+    current.lean += (goal.lean - current.lean) * follow;
+    current.held = goal.held;
+    if (!swinging) this.player.aimX += (this.player.aimTarget - this.player.aimX) * (1 - Math.exp(-frameSeconds * 10));
+    return current;
   }
 
   drawRobot(context, robot, engine) {
@@ -681,15 +673,23 @@ export class ThrowRenderer {
   drawProjectile(context, projectile, engine) {
     const target = engine.findEntity(projectile.targetId);
     if (!target) return;
-    const raw = Math.min(1, (engine.gameTime - projectile.launchedAt) / ARCADE_RULES.projectileSeconds);
-    const start = this.playerPosition();
+    // 휴대폰은 팔을 휘두르는 RELEASE 시점에 손을 떠난다 → 그 전엔 손에 있고, 남은 시간 동안 날아가 같은 순간에 맞는다
+    const elapsed = engine.gameTime - projectile.launchedAt;
+    if (elapsed < THROW_TIMING.release) return;
+    const raw = Math.min(1, (elapsed - THROW_TIMING.release) / (ARCADE_RULES.projectileSeconds - THROW_TIMING.release));
+    // 개발자 손에서 출발(던질 때 기억한 손 위치), 없으면 화면 아래 가운데
+    if (!this.projectileStarts.has(projectile)) {
+      const fallback = this.playerPosition();
+      this.projectileStarts.set(projectile, this.handPosition ? { ...this.handPosition } : { x: fallback.x, y: fallback.y - 30 });
+    }
+    const start = this.projectileStarts.get(projectile);
     const endX = this.columnX(target.lane);
     const endY = this.toY(target.x) - (target.kind === 'item' ? 18 : 30 * this.depthScale(target.x));
     const pointAt = progress => {
       const eased = easeOutCubic(progress);
       return {
         x: start.x + (endX - start.x) * eased + Math.sin(eased * Math.PI) * (endX > start.x ? 24 : -24),
-        y: start.y - 30 + (endY - start.y + 30) * eased
+        y: start.y + (endY - start.y) * eased
       };
     };
     for (let trail = 3; trail >= 1; trail--) {
