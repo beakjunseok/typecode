@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "grammars": "npm --prefix scripts/grammars install --ignore-scripts --legacy-peer-deps --no-audit --no-fund",
+    "tokens": "node scripts/generate-tokens.mjs"
   },
   "dependencies": {
     "@vercel/blob": "2.9.0"
