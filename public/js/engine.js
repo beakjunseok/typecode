@@ -45,6 +45,18 @@ export function getTierProgress(combo) {
   };
 }
 
+// 토큰의 weight(없으면 1)를 누적한 배열. 0 이하·비정상 값은 1로 취급한다. O(n)
+function buildCumulativeWeights(tokenPool) {
+  const cumulative = new Array(tokenPool.length);
+  let total = 0;
+  tokenPool.forEach((token, index) => {
+    const weight = Number.isFinite(token.weight) && token.weight > 0 ? token.weight : 1;
+    total += weight;
+    cumulative[index] = total;
+  });
+  return cumulative;
+}
+
 export function calculateWordsPerMinute(correctKeystrokes, elapsedSeconds) {
   return Math.round(correctKeystrokes / 5 / (Math.max(elapsedSeconds, 1) / 60));
 }
@@ -59,6 +71,7 @@ export class TypingEngine {
     if (!Array.isArray(tokenPool) || tokenPool.length === 0) throw new Error('tokenPool must be a non-empty array');
     if (!DURATIONS.includes(durationSeconds)) throw new Error(`unsupported duration: ${durationSeconds}`);
     this.tokenPool = tokenPool;
+    this.cumulativeWeights = buildCumulativeWeights(tokenPool);
     this.durationSeconds = durationSeconds;
     this.random = random;
     this.queueLength = queueLength;
@@ -104,10 +117,24 @@ export class TypingEngine {
       return weakCandidates[Math.floor(this.random() * weakCandidates.length)].token;
     }
     for (let attempt = 0; attempt < 8; attempt++) {
-      const token = this.tokenPool[Math.floor(this.random() * this.tokenPool.length)];
+      const token = this.drawWeightedToken();
       if (token.text !== excludedText || this.tokenPool.length === 1) return token;
     }
     return this.tokenPool.find(token => token.text !== excludedText) ?? this.tokenPool[0];
+  }
+
+  // 누적 가중치에서 이진 탐색으로 한 개를 뽑는다. O(log n)
+  drawWeightedToken() {
+    const weights = this.cumulativeWeights;
+    const target = this.random() * weights[weights.length - 1];
+    let low = 0;
+    let high = weights.length - 1;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (weights[middle] > target) high = middle;
+      else low = middle + 1;
+    }
+    return this.tokenPool[low];
   }
 
   fillQueue() {

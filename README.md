@@ -7,7 +7,8 @@
 **플레이:** https://typecode-coral.vercel.app
 
 ## 규칙
-- 언어 7종(JavaScript · Python · Java · C · Go · Rust · SQL), 시간 30 · 60 · 120초. 첫 키 입력부터 타이머 시작
+- 언어 12종(JavaScript · TypeScript · Python · Java · C · C++ · C# · Go · Rust · Kotlin · Swift · SQL), 시간 30 · 60 · 120초. 첫 키 입력부터 타이머 시작
+- 출제 비율은 종류 단위로 고정(keyword 34% · builtin 22% · type 14% · operator 12% · 나머지). 토큰 수가 많은 언어에서도 한 종류만 쏟아지지 않음
 - 토큰을 끝까지 맞게 채우면 자동으로 다음 토큰. 틀린 글자는 빨갛게 남고 `Backspace`로 지우면 원래 색으로 돌아온다
   (`Ctrl/Alt + Backspace`: 토큰 전체 삭제)
 - 점수 = 토큰 글자 수 × 10 × 배율, **토큰 완성 시 한 번만** 지급(지웠다 다시 쳐서 점수를 불릴 수 없음)
@@ -33,7 +34,8 @@
 public/                  정적 클라이언트 (빌드 없음, ES Modules)
   index.html, styles.css
   js/engine.js           순수 게임 엔진: 규칙·점수·콤보·타이머 (DOM 없음, 시각을 인자로 받음)
-  js/tokens.js           언어별 토큰 사전 + 종류/색
+  js/tokens.js           토큰 사전 공개 창구: 종류·색·출제 비율, 가중치 풀 생성
+  js/tokens.generated.js 자동 생성된 언어별 토큰 목록 (직접 수정 금지)
   js/week.js             KST ISO 주차 계산 (클라이언트·서버 공용)
   js/audio.js            효과음 합성 엔진
   js/effects.js          파티클·흔들림
@@ -44,11 +46,30 @@ api/                     Vercel Functions
   _lib.js                세션 서명, 제출 검증, Blob 저장/조회 (engine.js·tokens.js의 상수를 그대로 import)
   session.js             POST  게임 시작 시 서버 시각 기반 세션 토큰 발급
   scores.js              GET 주간 TOP 10 / POST 점수 제출
-tests/                   node --test (엔진·토큰·서버)
+scripts/
+  token-sources.mjs      언어별 추출 설정: 사용할 문법 소스, 제외 목록, 직접 고른 토큰
+  generate-tokens.mjs    highlight.js + tree-sitter + 직접 목록 → tokens.generated.js
+  grammars/              추출 전용 의존성(배포 제외, 네이티브 빌드 없이 설치)
+tests/                   node --test (엔진·토큰·서버·생성 파일 동기화)
 ```
 
 엔진은 `onEvent(type, payload)`로 `start · keystroke · backspace · mistake · token · warning · finish`를 내보내고,
 `main.js`가 이를 소리·효과·로그에 연결한다. 서버는 같은 `engine.js`의 점수 상수로 검증하므로 규칙을 바꿔도 어긋나지 않는다.
+
+### 토큰 소스
+| 종류 | 출처 |
+|---|---|
+| keyword | [highlight.js](https://github.com/highlightjs/highlight.js) 키워드 ∪ [tree-sitter](https://tree-sitter.github.io/) 문법의 키워드 노드, 미사용 예약어·문법 조각은 제외 목록으로 제거 (SQL은 hljs ∩ tree-sitter-sql) |
+| operator | tree-sitter `node-types.json`의 기호 노드 (주석·문자열·괄호 구분자 제외) |
+| type · builtin · literal | highlight.js |
+| 관용구 · decorator · directive | 직접 고른 목록 (`console.log()`, `@Override`, `#include` 등) |
+
+생성 결과는 커밋되어 있어 배포 시 빌드가 필요 없다. 소스나 설정을 바꾸면:
+```bash
+npm run grammars   # 최초 1회: scripts/grammars에 highlight.js·tree-sitter 문법 설치
+npm run tokens     # tokens.generated.js 재생성 + 언어별 출처 리포트 출력
+npm test           # 생성 파일이 설정과 일치하는지까지 검사
+```
 
 ### 랭킹 설계
 - **초기화 배치 없음**: 점수는 `lb/{KST ISO 주차}/` 경로에 쌓이고, 주가 바뀌면 새 경로를 읽는다.
@@ -64,7 +85,7 @@ tests/                   node --test (엔진·토큰·서버)
 ## 개발
 ```bash
 npm install
-npm test            # 엔진·토큰·서버 테스트
+npm test            # 엔진·토큰·서버 테스트 (문법 소스 미설치 시 동기화 검사는 skip)
 npx vercel dev      # 로컬 실행 (Blob 토큰 필요: vercel env pull)
 ```
 Vercel 프로젝트에 Blob 스토어를 연결하면 `BLOB_READ_WRITE_TOKEN`이 자동 주입된다.
