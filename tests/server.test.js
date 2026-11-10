@@ -60,3 +60,38 @@ test('API 상태 코드: 200 / 400 / 401 / 422', async () => {
   assert.equal(early.status, 422);
   assert.equal((await early.json()).error, 'too_early');
 });
+
+test('아케이드 모드 세션: 시간 제한 없음, 모드가 토큰에 서명된다', async () => {
+  for (const mode of ['throw', 'rescue']) {
+    const response = await sessionRoute.POST(post({ mode, language: 'go' }));
+    assert.equal(response.status, 200);
+    const { token } = await response.json();
+    const session = lib.verifySessionToken(token);
+    assert.equal(session.mode, mode);
+    assert.equal(session.durationSeconds, null);
+  }
+  assert.equal((await sessionRoute.POST(post({ mode: 'snake', language: 'go' }))).status, 422);
+  assert.equal((await sessionRoute.POST(post({ language: 'go' }))).status, 422, 'practice는 시간 필수');
+});
+
+test('아케이드 제출 검증: 생존 시간은 서버 경과 시간 이하, 모드별 점수 상한', () => {
+  const { session } = lib.issueSessionToken({ mode: 'throw', language: 'go' });
+  const base = { correctKeystrokes: 300, wrongKeystrokes: 20, score: 300 * 90, maxCombo: 20, survivedSeconds: 60 };
+  const ok = lib.validateSubmission(session, base, session.startedAt + 62_000);
+  assert.equal(ok.survivedSeconds, 60);
+  assert.equal(ok.wpm, 60);
+  assert.throws(() => lib.validateSubmission(session, base, session.startedAt + 30_000), error => error.code === 'too_early');
+  assert.throws(() => lib.validateSubmission(session, { ...base, survivedSeconds: 2 }, session.startedAt + 62_000), error => error.code === 'invalid_survived_seconds');
+  assert.throws(() => lib.validateSubmission(session, { ...base, survivedSeconds: undefined }, session.startedAt + 62_000), error => error.status === 422);
+  assert.throws(() => lib.validateSubmission(session, { ...base, score: 300 * 96 }, session.startedAt + 62_000), error => error.code === 'implausible_score');
+
+  const rescue = lib.issueSessionToken({ mode: 'rescue', language: 'go' }).session;
+  assert.throws(() => lib.validateSubmission(rescue, { ...base, score: 300 * 56 }, rescue.startedAt + 62_000), error => error.code === 'implausible_score');
+  assert.ok(lib.validateSubmission(rescue, { ...base, score: 300 * 55 }, rescue.startedAt + 62_000));
+});
+
+test('모드 검증: 알 수 없는 모드는 422, 예전 토큰(mode 없음)은 practice', () => {
+  assert.equal(lib.resolveMode(undefined), 'practice');
+  assert.throws(() => lib.resolveMode('chess'), error => error.status === 422);
+  assert.throws(() => lib.resolveMode('__proto__'), error => error.status === 422);
+});

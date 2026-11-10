@@ -95,12 +95,13 @@ export class SoundEngine {
     oscillator.stop(startTime + attack + decay + 0.02);
   }
 
-  noise(context, { startTime, peak, decay, filterType, frequency, q = 1, attack = 0.002 }) {
+  noise(context, { startTime, peak, decay, filterType, frequency, q = 1, attack = 0.002, sweepTo = null }) {
     const source = context.createBufferSource();
     source.buffer = this.noiseBuffer;
     const filter = context.createBiquadFilter();
     filter.type = filterType;
-    filter.frequency.value = frequency;
+    filter.frequency.setValueAtTime(frequency, startTime);
+    if (sweepTo) filter.frequency.exponentialRampToValueAtTime(sweepTo, startTime + attack + decay);
     filter.Q.value = q;
     source.connect(filter);
     filter.connect(this.envelope(context, startTime, peak, attack, decay));
@@ -165,6 +166,106 @@ const SOUNDS = {
   // 마지막 5초 경고
   warning(engine, context, time, { remainingSeconds = 5 }) {
     engine.tone(context, { frequency: remainingSeconds === 1 ? 1320 : 990, startTime: time, peak: 0.05, decay: 0.06 });
+  },
+  // 휴대폰 던지기: 대역 필터가 올라가는 '휙' 소리
+  throwPhone(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.08, decay: 0.18, filterType: 'bandpass', frequency: 600, sweepTo: 3200, q: 2 });
+  },
+  // 노트북 던지기: 더 낮고 무거운 '휘익'
+  throwLaptop(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.1, decay: 0.26, filterType: 'bandpass', frequency: 300, sweepTo: 1600, q: 1.5 });
+    engine.tone(context, { frequency: 140, sweepTo: 90, startTime: time, peak: 0.05, decay: 0.2, waveform: 'triangle' });
+  },
+  // 명중: 짧은 금속 충돌음
+  hit(engine, context, time) {
+    engine.bell(context, { frequency: 520, startTime: time, peak: 0.06, length: 0.18 });
+    engine.noise(context, { startTime: time, peak: 0.07, decay: 0.05, filterType: 'highpass', frequency: 2500 });
+  },
+  // 처치: 저역 폭발 + 낮게 떨어지는 톤
+  explode(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.16, decay: 0.45, filterType: 'lowpass', frequency: 1400, sweepTo: 120 });
+    engine.tone(context, { frequency: 110, sweepTo: 40, startTime: time, peak: 0.1, decay: 0.35, waveform: 'sawtooth', filter: { type: 'lowpass', frequency: 400 } });
+  },
+  // 아이템 획득: 빠르게 올라가는 사각파 아르페지오
+  powerUp(engine, context, time) {
+    [523.25, 783.99, 1046.5, 1567.98].forEach((frequency, index) => {
+      engine.tone(context, { frequency, startTime: time + index * 0.05, peak: 0.045, decay: 0.12, waveform: 'square', filter: { type: 'lowpass', frequency: 3000 } });
+    });
+  },
+  // 생명 감소: 내려가는 경보음
+  lifeLost(engine, context, time) {
+    engine.tone(context, { frequency: 440, sweepTo: 110, startTime: time, peak: 0.09, decay: 0.45, waveform: 'sawtooth', filter: { type: 'lowpass', frequency: 1200 } });
+    engine.noise(context, { startTime: time, peak: 0.08, decay: 0.2, filterType: 'lowpass', frequency: 600 });
+  },
+  // 패치 튜브 투하: '퐁' 하는 물소리
+  splash(engine, context, time) {
+    engine.tone(context, { frequency: 520, sweepTo: 1300, startTime: time, peak: 0.07, decay: 0.12 });
+    engine.noise(context, { startTime: time + 0.05, peak: 0.06, decay: 0.2, filterType: 'bandpass', frequency: 900, sweepTo: 300 });
+  },
+  // 구조 성공: 밝은 두 음
+  rescued(engine, context, time) {
+    engine.tone(context, { frequency: 783.99, startTime: time, peak: 0.06, decay: 0.12, waveform: 'triangle' });
+    engine.tone(context, { frequency: 1174.66, startTime: time + 0.08, peak: 0.06, decay: 0.22, waveform: 'triangle' });
+  },
+  // 가라앉음: 아래로 꺼지는 '꼬르륵'
+  sink(engine, context, time) {
+    [0, 0.09, 0.18].forEach((offset, index) => {
+      engine.tone(context, { frequency: 420 - index * 90, sweepTo: 180 - index * 30, startTime: time + offset, peak: 0.06, decay: 0.1 });
+    });
+  },
+  // 롤백: 거꾸로 감기는 스윕 + 종소리
+  rollback(engine, context, time) {
+    engine.tone(context, { frequency: 1800, sweepTo: 300, startTime: time, peak: 0.06, decay: 0.35, waveform: 'triangle' });
+    engine.bell(context, { frequency: 659.25, startTime: time + 0.3, peak: 0.07, length: 0.8 });
+  },
+  // 조준 고정: 아주 짧은 틱
+  lock(engine, context, time) {
+    engine.tone(context, { frequency: 2600, startTime: time, peak: 0.02, decay: 0.02, waveform: 'square' });
+  },
+  // 게임 시작: 부팅 차임(두 음 상승 + 반짝임)
+  gameStart(engine, context, time) {
+    engine.tone(context, { frequency: 392, startTime: time, peak: 0.05, decay: 0.12, waveform: 'triangle' });
+    engine.tone(context, { frequency: 784, startTime: time + 0.1, peak: 0.05, decay: 0.25, waveform: 'triangle' });
+    engine.noise(context, { startTime: time + 0.1, peak: 0.02, decay: 0.2, filterType: 'highpass', frequency: 7000 });
+  },
+  // 로봇 등장: 작은 '삐-뽀' (자주 나오므로 아주 작게)
+  spawnRobot(engine, context, time, { type = 'basic' }) {
+    const base = { basic: 660, fast: 990, tank: 330 }[type] ?? 660;
+    engine.tone(context, { frequency: base, startTime: time, peak: 0.016, decay: 0.05, waveform: 'square', filter: { type: 'lowpass', frequency: 2000 } });
+    engine.tone(context, { frequency: base * 0.75, startTime: time + 0.06, peak: 0.016, decay: 0.06, waveform: 'square', filter: { type: 'lowpass', frequency: 2000 } });
+  },
+  // 프로세스 입수: 작은 첨벙
+  spawnVictim(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.05, decay: 0.25, filterType: 'bandpass', frequency: 1200, sweepTo: 300, q: 0.8 });
+  },
+  // 아이템 등장: 반짝이는 3음
+  itemSpawn(engine, context, time) {
+    [1318.5, 1760, 2093].forEach((frequency, index) => {
+      engine.tone(context, { frequency, startTime: time + index * 0.06, peak: 0.025, decay: 0.15 });
+    });
+  },
+  // 아이템 효과 종료: 내려가는 두 음
+  powerDown(engine, context, time) {
+    engine.tone(context, { frequency: 880, sweepTo: 440, startTime: time, peak: 0.04, decay: 0.25, waveform: 'triangle' });
+  },
+  // 게임 오버: 단조 하행
+  gameOver(engine, context, time) {
+    [440, 392, 349.23, 293.66].forEach((frequency, index) => {
+      engine.tone(context, { frequency, startTime: time + index * 0.18, peak: 0.07, decay: 0.4, waveform: 'triangle' });
+    });
+    engine.tone(context, { frequency: 146.83, startTime: time + 0.72, peak: 0.08, decay: 0.9, waveform: 'sawtooth', filter: { type: 'lowpass', frequency: 600 } });
+  },
+  // 주간 1위: 팡파르
+  newRecord(engine, context, time) {
+    [523.25, 523.25, 523.25, 698.46, 880, 1046.5].forEach((frequency, index) => {
+      const offset = [0, 0.1, 0.2, 0.32, 0.5, 0.68][index];
+      engine.tone(context, { frequency, startTime: time + offset, peak: 0.06, decay: index === 5 ? 0.7 : 0.12, waveform: 'square', filter: { type: 'lowpass', frequency: 3500 } });
+    });
+    engine.bell(context, { frequency: 1046.5, startTime: time + 0.68, peak: 0.05, length: 1.2 });
+  },
+  // 버튼 클릭
+  uiClick(engine, context, time) {
+    engine.tone(context, { frequency: 1500, startTime: time, peak: 0.02, decay: 0.03, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
   },
   // 종료: 상행 아르페지오
   finish(engine, context, time) {

@@ -16,14 +16,22 @@
 <div class="app" id="app">
   <header>
     <div class="logo">TYPE<span>//</span>CODE</div>
+    <div class="segmented mode-tabs" role="tablist" aria-label="게임 모드">
+      <button type="button" data-mode="practice" role="tab">연습</button>
+      <button type="button" data-mode="throw" role="tab">📱 휴대폰 던지기</button>
+      <button type="button" data-mode="rescue" role="tab">🛟 에러 구조 SOS</button>
+    </div>
     <div class="controls">
       <select id="languageSelect" aria-label="언어 선택"></select>
-      <div class="segmented" role="group" aria-label="제한 시간">
+      <select id="levelSelect" aria-label="난이도" hidden></select>
+      <div class="segmented" id="durationGroup" role="group" aria-label="제한 시간">
         <button type="button" data-seconds="30">30s</button>
         <button type="button" data-seconds="60">60s</button>
         <button type="button" data-seconds="120">120s</button>
       </div>
       <button type="button" id="soundToggle" aria-pressed="true">SND ON</button>
+      <button type="button" id="bgmToggle" aria-pressed="true">BGM ON</button>
+      <button type="button" id="keyboardToggle" aria-pressed="true">KBD ON</button>
       <button type="button" id="restartButton" title="Esc">재시작</button>
     </div>
   </header>
@@ -31,7 +39,7 @@
   <div class="timer-bar" aria-hidden="true"><div class="timer-fill" id="timerFill"></div></div>
 
   <div class="stats">
-    <div class="stat time" id="timeStat"><div class="label">TIME</div><div class="value" id="timeValue">60</div></div>
+    <div class="stat time" id="timeStat"><div class="label" id="timeLabel">TIME</div><div class="value" id="timeValue">60</div></div>
     <div class="stat"><div class="label">WPM</div><div class="value" id="wpmValue">0</div></div>
     <div class="stat"><div class="label">ACC</div><div class="value" id="accuracyValue">100%</div></div>
     <div class="stat"><div class="label">COMBO</div><div class="value" id="comboValue">0</div></div>
@@ -52,8 +60,17 @@
       <div class="queue" id="queueView" aria-hidden="true"></div>
     </div>
     <div class="overlay" id="focusOverlay">여기를 클릭(탭)해서 시작 준비<br><span>첫 키 입력부터 타이머가 돕니다</span></div>
-    <textarea id="hiddenInput" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="타자 입력"></textarea>
   </section>
+
+  <section class="stage arcade" id="arcadeStage" aria-label="게임 화면" hidden>
+    <div class="tabbar"><span class="file" id="arcadeTitle">phone-throw.exe</span><span id="arcadeHint"></span></div>
+    <canvas id="arcadeCanvas" class="arcade-canvas"></canvas>
+    <div class="overlay" id="arcadeOverlay">여기를 클릭(탭)해서 시작 준비<br><span id="arcadeOverlayHint">첫 글자를 치면 게임이 시작됩니다</span></div>
+  </section>
+
+  <section class="keyboard-section" id="keyboardSection" aria-label="화면 키보드"></section>
+
+  <textarea id="hiddenInput" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="타자 입력"></textarea>
 
   <div class="console" id="consoleView" aria-live="polite"></div>
 
@@ -62,9 +79,17 @@
     <div id="boardBody"><p class="empty">랭킹 불러오는 중…</p></div>
   </section>
 
-  <p class="hint">
+  <p class="hint" id="practiceHint">
     문법 토큰을 하나씩 입력 · 다 맞게 치면 자동으로 다음 토큰 · 틀린 글자는 빨갛게 남고 <kbd>Backspace</kbd>로 지움 (<kbd>Ctrl</kbd>+<kbd>Backspace</kbd> 토큰 전체) · <kbd>Esc</kbd> 재시작<br>
     오타 없이 끝낸 토큰이 이어지면 콤보 · 10+ ×1.5 · 30+ ×2.0 · 틀린 토큰은 다시 출제 · 랭킹은 매주 월요일 00시(KST) 새로 집계
+  </p>
+  <p class="hint" id="throwHint" hidden>
+    로봇 머리 위 토큰을 다 치면 📱 휴대폰 발사 · 첫 글자로 가장 가까운 로봇 조준 · 로봇이 책상에 닿으면 HP −1<br>
+    기본 로봇(체력 1) · 빠른 로봇(2배 속도) · 헤비봇(체력 3, 맞을 때마다 새 토큰) · 💻 노트북 상자: 8초간 위력 ×3 · 🔋 배터리: HP +1
+  </p>
+  <p class="hint" id="rescueHint" hidden>
+    가라앉는 프로세스의 에러를 쳐서 🛟 패치 튜브 투하 · 가장 많이 가라앉은 프로세스부터 조준 · 빨리 구할수록 보너스<br>
+    크래시 프로세스 · 코어 덤프(빨리 가라앉음) · 서버 클러스터(패치 2번) · 완전히 가라앉으면 SLA −1 · ⏪ 롤백 상자: 모두 끌어올리고 5초 정지
   </p>
 </div>
 

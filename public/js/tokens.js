@@ -10,7 +10,8 @@ export const TOKEN_KINDS = Object.freeze({
   operator:  { label: 'operator',  color: '#ffcb6b' },
   literal:   { label: 'literal',   color: '#f78c6c' },
   decorator: { label: 'decorator', color: '#ff79c6' },
-  directive: { label: 'directive', color: '#c3e88d' }
+  directive: { label: 'directive', color: '#c3e88d' },
+  error:     { label: 'error',     color: '#ff6b81' }
 });
 
 // 종류별 출제 비율. 언어마다 종류별 토큰 수가 크게 달라도(SQL keyword 159개 vs operator 6개)

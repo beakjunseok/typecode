@@ -41,8 +41,8 @@ async function callApi(path, { method = 'GET', body } = {}) {
   }
 }
 
-export async function requestSession(language, durationSeconds) {
-  const result = await callApi('/api/session', { method: 'POST', body: { language, durationSeconds } });
+export async function requestSession({ mode = 'practice', language, durationSeconds }) {
+  const result = await callApi('/api/session', { method: 'POST', body: { mode, language, durationSeconds } });
   if (typeof result.token !== 'string') throw new ApiError('세션 응답 형식 오류', 0, 'bad_response');
   return result.token;
 }
@@ -51,8 +51,8 @@ export function submitScore(payload) {
   return callApi('/api/scores', { method: 'POST', body: payload });
 }
 
-export function fetchBoard() {
-  return callApi('/api/scores');
+export function fetchBoard(mode = 'practice') {
+  return callApi(`/api/scores?mode=${encodeURIComponent(mode)}`);
 }
 
 function readStorage(key, fallbackValue) {
@@ -78,16 +78,19 @@ export const preferences = {
   set: (key, value) => writeStorage(`typecode:${key}`, value)
 };
 
+// 모드별 로컬 랭킹. practice는 예전 키를 그대로 써서 기존 기록을 유지한다.
+const localBoardKey = mode => `${LOCAL_BOARD_PREFIX}${mode === 'practice' ? '' : `${mode}:`}${getWeekLabel()}`;
+
 export const localBoard = {
-  load() {
-    const entries = readStorage(LOCAL_BOARD_PREFIX + getWeekLabel(), []);
+  load(mode = 'practice') {
+    const entries = readStorage(localBoardKey(mode), []);
     return Array.isArray(entries) ? entries.filter(entry => entry && Number.isFinite(entry.score)) : [];
   },
-  save(entry) {
-    const entries = [...this.load(), entry]
+  save(entry, mode = 'practice') {
+    const entries = [...this.load(mode), entry]
       .sort((first, second) => second.score - first.score || first.achievedAt - second.achievedAt)
       .slice(0, BOARD_SIZE);
-    writeStorage(LOCAL_BOARD_PREFIX + getWeekLabel(), entries);
+    writeStorage(localBoardKey(mode), entries);
     return entries;
   }
 };

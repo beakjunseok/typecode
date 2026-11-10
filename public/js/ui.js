@@ -23,16 +23,19 @@ export function createUi(root = document) {
   const byId = id => root.getElementById(id);
   const elements = {
     app: byId('app'), languageSelect: byId('languageSelect'), durationButtons: root.querySelectorAll('[data-seconds]'),
-    soundToggle: byId('soundToggle'), restartButton: byId('restartButton'),
-    timerFill: byId('timerFill'), timeStat: byId('timeStat'), timeValue: byId('timeValue'), wpmValue: byId('wpmValue'),
+    soundToggle: byId('soundToggle'), bgmToggle: byId('bgmToggle'), restartButton: byId('restartButton'),
+    timerFill: byId('timerFill'), timeStat: byId('timeStat'), timeLabel: byId('timeLabel'), timeValue: byId('timeValue'), wpmValue: byId('wpmValue'),
     accuracyValue: byId('accuracyValue'), comboValue: byId('comboValue'), multiplierStat: byId('multiplierStat'),
     multiplierValue: byId('multiplierValue'), scoreValue: byId('scoreValue'),
-    stage: byId('stage'), fileName: byId('fileName'), tokenCounter: byId('tokenCounter'),
+    stage: byId('stage'), arcadeStage: byId('arcadeStage'), arcadeCanvas: byId('arcadeCanvas'), arcadeTitle: byId('arcadeTitle'),
+    arcadeHint: byId('arcadeHint'), arcadeOverlay: byId('arcadeOverlay'), modeButtons: root.querySelectorAll('[data-mode]'),
+    durationGroup: byId('durationGroup'), levelSelect: byId('levelSelect'), keyboardSection: byId('keyboardSection'), keyboardToggle: byId('keyboardToggle'),
+    fileName: byId('fileName'), tokenCounter: byId('tokenCounter'),
     historyView: byId('historyView'), kindLabel: byId('kindLabel'), currentView: byId('currentView'),
     comboFill: byId('comboFill'), comboHint: byId('comboHint'), queueView: byId('queueView'),
     focusOverlay: byId('focusOverlay'), hiddenInput: byId('hiddenInput'), consoleView: byId('consoleView'),
     boardTitle: byId('boardTitle'), boardBadge: byId('boardBadge'), boardBody: byId('boardBody'),
-    resultModal: byId('resultModal'), resultSub: byId('resultSub'), resultScore: byId('resultScore'),
+    resultModal: byId('resultModal'), resultTitle: byId('resultTitle'), resultSub: byId('resultSub'), resultScore: byId('resultScore'),
     resultWpm: byId('resultWpm'), resultAccuracy: byId('resultAccuracy'), resultCombo: byId('resultCombo'),
     wpmChart: byId('wpmChart'), wpmChartPeak: byId('wpmChartPeak'), weakTokens: byId('weakTokens'),
     saveForm: byId('saveForm'), playerName: byId('playerName'), saveStatus: byId('saveStatus'),
@@ -90,11 +93,16 @@ export function createUi(root = document) {
     }
   }
 
+  // 연습 모드: 남은 시간 / 아케이드 모드: 버틴 시간 + 아이템 남은 시간을 타이머 바로 표시
   function renderStats(snapshot) {
     const tier = snapshot.tierProgress.index;
-    elements.timeValue.textContent = snapshot.remainingSeconds;
-    elements.timeStat.classList.toggle('low', snapshot.status === 'running' && snapshot.remainingSeconds <= 5);
-    elements.timerFill.style.transform = `scaleX(${Math.max(0, snapshot.remainingRatio)})`;
+    const arcade = snapshot.elapsedSeconds !== undefined;
+    elements.timeLabel.textContent = arcade ? 'SURVIVED' : 'TIME';
+    elements.timeValue.textContent = arcade ? `${Math.floor(snapshot.elapsedSeconds)}s` : snapshot.remainingSeconds;
+    elements.timeStat.classList.toggle('low', arcade ? snapshot.lives === 1 && snapshot.status === 'running'
+      : snapshot.status === 'running' && snapshot.remainingSeconds <= 5);
+    const barRatio = arcade ? (snapshot.powerSeconds ? snapshot.powerRemaining / snapshot.powerSeconds : 0) : snapshot.remainingRatio;
+    elements.timerFill.style.transform = `scaleX(${Math.max(0, Math.min(1, barRatio))})`;
     elements.wpmValue.textContent = snapshot.wordsPerMinute;
     elements.accuracyValue.textContent = `${snapshot.accuracy}%`;
     elements.comboValue.textContent = snapshot.combo;
@@ -113,9 +121,11 @@ export function createUi(root = document) {
     elements.app.style.setProperty('--tier-color', TIER_COLORS[tier]);
   }
 
-  function setFocusState({ focused, finished }) {
-    elements.focusOverlay.hidden = focused || finished;
-    elements.stage.classList.toggle('focused', focused);
+  function setFocusState({ focused, finished, arcade = false }) {
+    elements.focusOverlay.hidden = arcade || focused || finished;
+    elements.arcadeOverlay.hidden = !arcade || focused || finished;
+    elements.stage.classList.toggle('focused', focused && !arcade);
+    elements.arcadeStage.classList.toggle('focused', focused && arcade);
   }
 
   function log(level, message) {
@@ -124,8 +134,8 @@ export function createUi(root = document) {
     while (elements.consoleView.children.length > CONSOLE_LINES) elements.consoleView.firstChild.remove();
   }
 
-  function renderBoard(entries, { week, isLive, highlightId = null }) {
-    elements.boardTitle.textContent = `WEEKLY TOP 10 · ${week}`;
+  function renderBoard(entries, { week, isLive, highlightId = null, modeLabel = '' }) {
+    elements.boardTitle.textContent = `WEEKLY TOP 10${modeLabel ? ` · ${modeLabel}` : ''} · ${week}`;
     elements.boardBadge.textContent = isLive ? 'LIVE' : 'LOCAL';
     elements.boardBadge.className = `badge ${isLive ? 'live' : 'local'}`;
     if (!entries.length) {
@@ -182,8 +192,9 @@ export function createUi(root = document) {
     }));
   }
 
-  function showResult(summary, { languageKey, playerName }) {
-    elements.resultSub.textContent =
+  function showResult(summary, { languageKey, playerName, title = 'BUILD FINISHED', subtitle = null }) {
+    elements.resultTitle.textContent = title;
+    elements.resultSub.textContent = subtitle ??
       `${languageLabel(languageKey)} · ${summary.durationSeconds}s · 토큰 ${summary.completedTokens}개 (클린 ${summary.cleanTokens})`;
     elements.resultScore.textContent = summary.score.toLocaleString();
     elements.resultWpm.textContent = summary.wordsPerMinute;
