@@ -126,14 +126,24 @@ function comboFrequency(combo) {
 }
 
 const SOUNDS = {
-  // 기계식 키보드 느낌: 밴드패스 노이즈 + 아주 짧은 고음. 매번 음색을 조금씩 흔들어 단조로움을 피한다.
+  // 윤활된 기계식 키보드 '도각': 낮은 하우징 울림(thock) + 키캡 바닥 닿는 소리 + 살짝 올라오는 복귀음.
+  // 매 타마다 음높이·세기를 ±8% 흔들어 같은 소리가 반복되는 느낌을 줄인다. 노드 6개, O(1)
   key(engine, context, time) {
-    engine.noise(context, { startTime: time, peak: 0.09, decay: 0.022, filterType: 'bandpass', frequency: 3200 + Math.random() * 1400, q: 1.4 });
-    engine.tone(context, { frequency: 1900 + Math.random() * 300, startTime: time, peak: 0.012, decay: 0.012, waveform: 'square' });
+    const vary = () => 0.92 + Math.random() * 0.16;
+    const body = 170 * vary();
+    engine.tone(context, { frequency: body, sweepTo: body * 0.55, startTime: time, peak: 0.11 * vary(), attack: 0.001, decay: 0.05 });
+    engine.tone(context, { frequency: body * 2.6, startTime: time, peak: 0.025, attack: 0.001, decay: 0.028, waveform: 'triangle', filter: { type: 'lowpass', frequency: 1600 } });
+    engine.noise(context, { startTime: time, peak: 0.075 * vary(), attack: 0.001, decay: 0.022, filterType: 'lowpass', frequency: 1100 * vary(), q: 0.7 });
+    engine.noise(context, { startTime: time, peak: 0.035, attack: 0.0005, decay: 0.008, filterType: 'bandpass', frequency: 2400 * vary(), q: 0.9 });
+    const release = time + 0.07 + Math.random() * 0.03;
+    engine.noise(context, { startTime: release, peak: 0.018, attack: 0.001, decay: 0.012, filterType: 'bandpass', frequency: 1800 * vary(), q: 1.1 });
+    engine.tone(context, { frequency: body * 1.4, startTime: release, peak: 0.012, attack: 0.001, decay: 0.02 });
   },
-  // 지우기: 키 소리보다 낮고 둔하게
+  // 지우기: 같은 키보드의 넓은 키(Backspace) — 더 낮고 묵직하게, 스태빌라이저 '덜컥'
   erase(engine, context, time) {
-    engine.noise(context, { startTime: time, peak: 0.06, decay: 0.03, filterType: 'bandpass', frequency: 1400, q: 1.2 });
+    engine.tone(context, { frequency: 120, sweepTo: 70, startTime: time, peak: 0.1, attack: 0.001, decay: 0.06 });
+    engine.noise(context, { startTime: time, peak: 0.07, attack: 0.001, decay: 0.03, filterType: 'lowpass', frequency: 800, q: 0.7 });
+    engine.noise(context, { startTime: time + 0.012, peak: 0.025, attack: 0.001, decay: 0.015, filterType: 'bandpass', frequency: 1500, q: 1.5 });
   },
   // 토큰 완성: 콤보가 오를수록 펜타토닉 음계를 따라 올라간다
   token(engine, context, time, { combo = 1 }) {
