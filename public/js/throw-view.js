@@ -2,6 +2,7 @@
 // 플레이어는 아래 가운데에서 위로 던진다. 멀리(위) 있는 로봇은 작게, 가까울수록 크게 그려 원근감을 준다.
 // 엔진 좌표 x(1=출현 지점 → playerX=책상)를 화면 y로, lane을 세로 열로 바꿔 그린다.
 import { ARCADE_RULES } from './target-game.js';
+import { drawDrone } from './drone-view.js';
 import { THROW_RULES } from './throw-engine.js';
 import {
   setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates
@@ -554,20 +555,8 @@ export class ThrowRenderer {
     context.translate(x, y);
     context.scale(scale, scale);
     context.rotate(Math.sin(engine.gameTime * 2 + item.id) * 0.1);
-    // 작은 프로펠러 드론이 상자를 들고 내려온다
-    const spin = Math.sin(engine.gameTime * 40) * 10;
-    context.strokeStyle = '#8a98aa';
-    context.lineWidth = 2;
-    context.beginPath();
-    context.moveTo(-14 - spin, -26);
-    context.lineTo(-14 + spin, -26);
-    context.moveTo(14 - spin, -26);
-    context.lineTo(14 + spin, -26);
-    context.moveTo(-14, -26);
-    context.lineTo(-8, -16);
-    context.moveTo(14, -26);
-    context.lineTo(8, -16);
-    context.stroke();
+    // 공용 드론이 집게로 상자를 물고 내려온다(드론 눈·LED는 아이템 색)
+    drawDrone(context, { x: 0, y: -29, size: 0.85, time: engine.gameTime, accent: style.color, seed: item.id, claws: true });
     context.shadowColor = style.color;
     context.shadowBlur = 14 + Math.sin(engine.gameTime * 6) * 6;
     context.fillStyle = style.fill;
