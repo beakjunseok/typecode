@@ -9,10 +9,11 @@ export const LANGUAGE_SOURCES = [
   {
     key: 'javascript', label: 'JavaScript', file: 'main.js',
     hljs: 'javascript', treeSitter: 'tree-sitter-javascript/src/node-types.json',
-    excludeWords: ['meta', 'target'],
-    hljsKinds: { keyword: 'keyword', built_in: 'builtin', literal: 'literal', 'variable.language': 'keyword' },
+    excludeWords: ['meta', 'target', 'this', 'super'],
+    hljsKinds: { keyword: 'keyword', built_in: 'builtin', literal: 'literal', 'variable.language': 'builtin' },
     excludeOperators: ['</', '/>'],
     curated: {
+      keyword: ['this', 'super'],
       builtin: ['console.log()', 'Promise.all()', 'JSON.parse()', 'JSON.stringify()', 'Array.from()', 'Object.keys()',
         'addEventListener()', 'querySelector()', '.map()', '.filter()', '.reduce()', '.forEach()', 'fetch()'],
       operator: ['?.']
@@ -21,11 +22,12 @@ export const LANGUAGE_SOURCES = [
   {
     key: 'typescript', label: 'TypeScript', file: 'main.ts',
     hljs: 'typescript', treeSitter: 'tree-sitter-typescript/typescript/src/node-types.json',
-    excludeWords: ['meta', 'target'],
-    hljsKinds: { keyword: 'keyword', built_in: 'builtin', literal: 'literal', 'variable.language': 'keyword' },
+    excludeWords: ['meta', 'target', 'this', 'super'],
+    hljsKinds: { keyword: 'keyword', built_in: 'builtin', literal: 'literal', 'variable.language': 'builtin' },
     excludeOperators: ['+?:', '-?:', '{|', '|}'],
     curated: {
       type: ['Record<string, number>', 'Partial<T>', 'Promise<void>', 'string[]', 'Readonly<T>', 'unknown', 'never'],
+      keyword: ['this', 'super'],
       builtin: ['console.log()', 'Array.isArray()', 'Object.entries()', 'as const'],
       decorator: ['@Injectable()', '@Component()']
     }
@@ -108,7 +110,9 @@ export const LANGUAGE_SOURCES = [
     // 미사용 예약어 + macro_rules! 조각 지정자
     excludeWords: ['abstract', 'become', 'box', 'do', 'final', 'macro', 'override', 'priv', 'typeof', 'unsized', 'virtual',
       'try', 'yield', 'gen', 'block', 'expr', 'expr_2021', 'ident', 'item', 'lifetime', 'literal', 'meta', 'pat', 'pat_param',
-      'path', 'stmt', 'tt', 'ty', 'vis'],
+      'path', 'stmt', 'tt', 'ty', 'vis',
+      // 폐기·비표준 매크로/트레이트(hljs 목록에 남아 있음)
+      'try!', 'concat_idents!', 'local_data_key!', 'SliceConcatExt', 'col!', 'bytes!', 'bitflags!', 'select!'],
     hljsKinds: { keyword: 'keyword', type: 'type', literal: 'literal', built_in: 'builtin' },
     curated: {
       type: ['Option<T>', 'Result<T, E>', 'Vec<i32>', '&str', '&mut'],
