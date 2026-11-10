@@ -1,6 +1,7 @@
 // 배터리 구조 SOS 화면(세로형). 원작 해상구조 SOS의 '왼쪽 나 vs 오른쪽 상대, 수직 탑 높이 경쟁' 구도.
 // 위: 충전 드론 + 100% 충전선 / 가운데: 가로로 지나가는 아이템 / 양옆: 배터리 셀 탑 + 캐릭터 / 아래: 바다.
 import { ARCADE_RULES } from './target-game.js';
+import { drawDrone } from './drone-view.js';
 import { BATTERY_RULES } from './battery-engine.js';
 import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates } from './game-view.js';
 
@@ -129,7 +130,7 @@ export class BatteryRenderer {
     const { width, height } = this.surface;
     context.clearRect(0, 0, width, height);
     this.drawSky(context, width, engine);
-    this.drawDrone(context, engine);
+    this.drawChargingDrone(context, engine);
     this.drawGoalLine(context, width);
     this.drawTower(context, 'me', engine);
     this.drawTower(context, 'rival', engine);
@@ -163,31 +164,26 @@ export class BatteryRenderer {
     context.globalAlpha = 1;
   }
 
-  // 충전 드론: 프로펠러가 돌고, 충전 케이블이 100% 선까지 내려와 있다
-  drawDrone(context, engine) {
-    const x = this.surface.width / 2 + Math.sin(engine.gameTime * 0.8) * 20;
-    const y = HUD_HEIGHT + 18;
-    const spin = Math.sin(engine.gameTime * 50) * 12;
-    context.strokeStyle = '#8a98aa';
-    context.lineWidth = 2;
-    for (const offset of [-22, 22]) {
-      context.beginPath();
-      context.moveTo(x + offset - spin, y - 6);
-      context.lineTo(x + offset + spin, y - 6);
-      context.stroke();
-    }
-    context.fillStyle = '#1b2430';
-    roundedRect(context, x - 24, y - 4, 48, 14, 6);
-    context.fill();
-    context.fillStyle = Math.sin(engine.gameTime * 6) > 0 ? '#39ff88' : '#1f9e62';
-    context.fillRect(x - 4, y, 8, 4);
-    context.strokeStyle = 'rgba(57, 255, 136, 0.5)';
+  // 충전 드론: 위에서 좌우로 천천히 오가며(이동 방향으로 살짝 기울어짐) 100% 선까지 충전 케이블을 늘어뜨린다
+  drawChargingDrone(context, engine) {
+    const sway = engine.gameTime * 0.8;
+    const x = this.surface.width / 2 + Math.sin(sway) * 20;
+    const y = HUD_HEIGHT + 28 + Math.sin(engine.gameTime * 2.2) * 2;
+    const size = 1.25;
+    const cableTop = y + 9 * size;
+    context.strokeStyle = 'rgba(57, 255, 136, 0.55)';
+    context.lineWidth = 1.6;
     context.beginPath();
-    context.moveTo(x, y + 10);
-    context.quadraticCurveTo(x + 8, y + 24, x, this.goalY - 6);
+    context.moveTo(x, cableTop);
+    context.quadraticCurveTo(x - Math.cos(sway) * 10, (cableTop + this.goalY) / 2, x, this.goalY - 7);
     context.stroke();
     context.fillStyle = '#c9d4e0';
-    context.fillRect(x - 3, this.goalY - 8, 6, 6);
+    roundedRect(context, x - 4, this.goalY - 9, 8, 7, 2);
+    context.fill();
+    context.fillStyle = '#39ff88';
+    context.fillRect(x - 2, this.goalY - 2, 1.5, 3);
+    context.fillRect(x + 0.5, this.goalY - 2, 1.5, 3);
+    drawDrone(context, { x, y, size, time: engine.gameTime, accent: '#39ff88', tilt: Math.cos(sway) * 0.09, seed: 3 });
   }
 
   drawGoalLine(context, width) {
@@ -534,24 +530,20 @@ export class BatteryRenderer {
     context.textAlign = 'start';
   }
 
+  // 보조배터리 드론: 공용 드론이 집게로 보조배터리(충전 칸 4개)를 물고 간다
   drawPowerbankDrone(context, engine) {
-    const spin = Math.sin(engine.gameTime * 50) * 10;
-    context.strokeStyle = '#8a98aa';
-    context.lineWidth = 2;
-    for (const offset of [-16, 16]) {
-      context.beginPath();
-      context.moveTo(offset - spin, -18);
-      context.lineTo(offset + spin, -18);
-      context.stroke();
-    }
-    context.fillStyle = '#1b2430';
-    roundedRect(context, -18, -16, 36, 8, 4);
-    context.fill();
     context.fillStyle = '#c9d4e0';
     roundedRect(context, -12, -6, 24, 16, 3);
     context.fill();
-    context.fillStyle = '#36e2ff';
-    for (let bar = 0; bar < 4; bar++) context.fillRect(-9 + bar * 5, 4, 3, 3);
+    context.fillStyle = '#1b2430';
+    roundedRect(context, -10, -1, 20, 8, 2);
+    context.fill();
+    const charged = 1 + Math.floor((engine.gameTime * 2) % 4);
+    for (let bar = 0; bar < 4; bar++) {
+      context.fillStyle = bar < charged ? '#36e2ff' : '#28394a';
+      context.fillRect(-8.5 + bar * 4.5, 1, 3, 4);
+    }
+    drawDrone(context, { x: 0, y: -16, size: 0.68, time: engine.gameTime, accent: '#36e2ff', seed: 11, claws: true });
   }
 
   drawEcoIcon(context, color) {
