@@ -126,18 +126,25 @@ function comboFrequency(combo) {
 }
 
 const SOUNDS = {
-  // 윤활된 기계식 키보드 '도각': 낮은 하우징 울림(thock) + 키캡 바닥 닿는 소리 + 살짝 올라오는 복귀음.
-  // 매 타마다 음높이·세기를 ±8% 흔들어 같은 소리가 반복되는 느낌을 줄인다. 노드 6개, O(1)
+  // 맞는 키: 청축(클리키). 누를 때 클릭 재킷이 '딸깍' 튀고 → 바닥 닿는 소리 → 올라올 때 작은 '딸깍' 한 번 더.
+  // 매 타마다 음높이·세기를 ±8% 흔들어 같은 소리 반복을 피한다. 노드 7개, O(1)
   key(engine, context, time) {
     const vary = () => 0.92 + Math.random() * 0.16;
-    const body = 170 * vary();
-    engine.tone(context, { frequency: body, sweepTo: body * 0.55, startTime: time, peak: 0.11 * vary(), attack: 0.001, decay: 0.05 });
-    engine.tone(context, { frequency: body * 2.6, startTime: time, peak: 0.025, attack: 0.001, decay: 0.028, waveform: 'triangle', filter: { type: 'lowpass', frequency: 1600 } });
-    engine.noise(context, { startTime: time, peak: 0.075 * vary(), attack: 0.001, decay: 0.022, filterType: 'lowpass', frequency: 1100 * vary(), q: 0.7 });
-    engine.noise(context, { startTime: time, peak: 0.035, attack: 0.0005, decay: 0.008, filterType: 'bandpass', frequency: 2400 * vary(), q: 0.9 });
-    const release = time + 0.07 + Math.random() * 0.03;
-    engine.noise(context, { startTime: release, peak: 0.018, attack: 0.001, decay: 0.012, filterType: 'bandpass', frequency: 1800 * vary(), q: 1.1 });
-    engine.tone(context, { frequency: body * 1.4, startTime: release, peak: 0.012, attack: 0.001, decay: 0.02 });
+    engine.noise(context, { startTime: time, peak: 0.1 * vary(), attack: 0.0005, decay: 0.006, filterType: 'bandpass', frequency: 4600 * vary(), q: 2.2 });
+    engine.tone(context, { frequency: 3300 * vary(), startTime: time, peak: 0.028, attack: 0.0005, decay: 0.004, waveform: 'square' });
+    const bottom = time + 0.012;
+    engine.noise(context, { startTime: bottom, peak: 0.055, attack: 0.001, decay: 0.02, filterType: 'lowpass', frequency: 1600 * vary(), q: 0.7 });
+    engine.tone(context, { frequency: 230 * vary(), sweepTo: 140, startTime: bottom, peak: 0.05, attack: 0.001, decay: 0.03 });
+    const release = time + 0.075 + Math.random() * 0.025;
+    engine.noise(context, { startTime: release, peak: 0.045 * vary(), attack: 0.0005, decay: 0.005, filterType: 'bandpass', frequency: 3900 * vary(), q: 2 });
+    engine.tone(context, { frequency: 2800 * vary(), startTime: release, peak: 0.012, attack: 0.0005, decay: 0.003, waveform: 'square' });
+  },
+  // 틀린 키: 적축(리니어). 클릭 없이 매끄럽게 '툭' 내려가 낮게 닿는 소리 — 맞을 때와 손맛으로 구분된다. 노드 3개, O(1)
+  keyWrong(engine, context, time) {
+    const vary = () => 0.92 + Math.random() * 0.16;
+    engine.tone(context, { frequency: 150 * vary(), sweepTo: 95, startTime: time, peak: 0.09, attack: 0.002, decay: 0.045 });
+    engine.noise(context, { startTime: time, peak: 0.06 * vary(), attack: 0.002, decay: 0.025, filterType: 'lowpass', frequency: 700 * vary(), q: 0.6 });
+    engine.noise(context, { startTime: time + 0.08, peak: 0.012, attack: 0.002, decay: 0.015, filterType: 'lowpass', frequency: 900, q: 0.6 });
   },
   // 지우기: 같은 키보드의 넓은 키(Backspace) — 더 낮고 묵직하게, 스태빌라이저 '덜컥'
   erase(engine, context, time) {
@@ -158,8 +165,8 @@ const SOUNDS = {
   // 오타: 살짝 어긋난 두 톱니파를 저역 필터로 눌러 '버즈' 느낌
   error(engine, context, time) {
     const filter = { type: 'lowpass', frequency: 750 };
-    engine.tone(context, { frequency: 98, startTime: time, peak: 0.08, decay: 0.15, waveform: 'sawtooth', filter });
-    engine.tone(context, { frequency: 104, startTime: time, peak: 0.08, decay: 0.15, waveform: 'sawtooth', filter });
+    engine.tone(context, { frequency: 98, startTime: time + 0.02, peak: 0.05, decay: 0.12, waveform: 'sawtooth', filter });
+    engine.tone(context, { frequency: 104, startTime: time + 0.02, peak: 0.05, decay: 0.12, waveform: 'sawtooth', filter });
     engine.noise(context, { startTime: time, peak: 0.04, decay: 0.05, filterType: 'lowpass', frequency: 500 });
   },
   // 콤보 10단위: 짧은 메탈릭 핑

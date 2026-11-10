@@ -73,6 +73,7 @@ function handlePracticeEvent(type, payload) {
       sound.play('erase');
       break;
     case 'mistake':
+      sound.play('keyWrong');
       sound.play('error');
       pulseClass(ui.elements.stage, 'shake', 200);
       if (payload.comboLost >= 5) ui.log('warn', `combo ${payload.comboLost} dropped`);
@@ -93,6 +94,7 @@ function handlePracticeEvent(type, payload) {
 }
 
 function handlePracticeToken({ clean, combo, tier, tierUp, milestone }) {
+  sound.play('key');
   bgm.setIntensity(tier);
   if (tierUp) {
     sound.play('tierUp', { tier });
@@ -131,6 +133,7 @@ function handleArcadeEvent(type, payload) {
       sound.play('erase');
       break;
     case 'mistake':
+      sound.play('keyWrong');
       sound.play('error');
       pulseClass(ui.elements.arcadeStage, 'shake', 200);
       ui.log('err', payload.target
@@ -138,6 +141,7 @@ function handleArcadeEvent(type, payload) {
         : `TargetNotFound: '${visible(payload.typed)}'로 시작하는 낱말이 없습니다`);
       break;
     case 'throw':
+      sound.play('key');
       sound.play(battery ? 'splash' : payload.weapon === 'laptop' ? 'throwLaptop' : 'throwPhone');
       if (payload.tier > run.lastTier) {
         sound.play('tierUp', { tier: payload.tier });
