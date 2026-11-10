@@ -30,11 +30,12 @@
         <button type="button" data-seconds="30">30s</button>
         <button type="button" data-seconds="60">60s</button>
         <button type="button" data-seconds="120">120s</button>
+        <button type="button" data-variant="timeattack" title="시간 연장: 20초로 시작, 토큰을 맞출 때마다 시간 추가">⏳연장</button>
       </div>
       <div class="icon-buttons">
         <button type="button" class="icon" id="soundToggle" aria-pressed="true" title="효과음">🔊</button>
-        <button type="button" class="icon" id="bgmToggle" aria-pressed="true" title="배경음악">♫ BGM</button>
-        <button type="button" class="icon" id="keyboardToggle" aria-pressed="true" title="화면 키보드">⌨ KBD</button>
+        <button type="button" class="icon" id="bgmToggle" aria-pressed="true" title="배경음악">♫</button>
+        <button type="button" class="icon" id="keyboardToggle" aria-pressed="true" title="화면 키보드">⌨</button>
         <button type="button" class="icon" id="restartButton" title="재시작 (Esc)">↻</button>
       </div>
     </div>
@@ -44,7 +45,7 @@
 
   <div class="stats">
     <div class="stat time" id="timeStat"><div class="label" id="timeLabel">TIME</div><div class="value" id="timeValue">60</div></div>
-    <div class="stat"><div class="label">WPM</div><div class="value" id="wpmValue">0</div></div>
+    <div class="stat" title="타수: 분당 타자 수 (WPM = 타수 ÷ 5)"><div class="label">타수</div><div class="value" id="wpmValue">0</div></div>
     <div class="stat"><div class="label">ACC</div><div class="value" id="accuracyValue">100%</div></div>
     <div class="stat"><div class="label">COMBO</div><div class="value" id="comboValue">0</div></div>
     <div class="stat mult" id="multiplierStat"><div class="label">MULT</div><div class="value" id="multiplierValue">×1.0</div></div>
@@ -88,7 +89,8 @@
 
   <p class="hint" id="practiceHint">
     문법 토큰을 하나씩 입력 · 다 맞게 치면 자동으로 다음 토큰 · 틀린 글자는 빨갛게 남고 <kbd>Backspace</kbd>로 지움 (<kbd>Ctrl</kbd>+<kbd>Backspace</kbd> 토큰 전체) · <kbd>Esc</kbd> 재시작<br>
-    오타 없이 끝낸 토큰이 이어지면 콤보 · 10+ ×1.5 · 30+ ×2.0 · 틀린 토큰은 다시 출제 · 랭킹은 매주 월요일 00시(KST) 새로 집계
+    오타 없이 끝낸 토큰이 이어지면 콤보 · 10+ ×1.5 · 30+ ×2.0 · 틀린 토큰은 다시 출제 · 랭킹은 매주 월요일 00시(KST) 새로 집계<br>
+    ⏳연장: 20초로 시작 · 토큰을 맞출 때마다 시간 추가(긴 토큰일수록 많이, 오타 있던 토큰은 40%, 콤보 단계가 높을수록 더) · 남은 시간은 최대 30초 · 갈수록 보너스가 줄어듦
   </p>
   <p class="hint" id="throwHint" hidden>
     로봇이 타고 내려오는 낱말 발판을 다 치면 📱 휴대폰 발사 · 첫 글자로 가장 가까운 로봇 조준 · 빨간 선을 넘으면 건전지 생명 −1칸<br>
@@ -108,12 +110,12 @@
     <p class="sub" id="resultSub"></p>
     <div class="result-grid">
       <div class="stat"><div class="label">SCORE</div><div class="value" id="resultScore">0</div></div>
-      <div class="stat"><div class="label">WPM</div><div class="value" id="resultWpm">0</div></div>
+      <div class="stat"><div class="label">타수 <span class="label-sub" id="resultWpmSub"></span></div><div class="value" id="resultWpm">0</div></div>
       <div class="stat"><div class="label">ACC</div><div class="value" id="resultAccuracy">0%</div></div>
       <div class="stat"><div class="label">MAX COMBO</div><div class="value" id="resultCombo">0</div></div>
     </div>
     <div class="result-section">
-      <div class="section-head"><span>WPM 추이</span><span id="wpmChartPeak"></span></div>
+      <div class="section-head"><span>타수 추이</span><span id="wpmChartPeak"></span></div>
       <svg class="chart" id="wpmChart" viewBox="0 0 300 64" preserveAspectRatio="none" aria-hidden="true"></svg>
     </div>
     <div class="result-section">
