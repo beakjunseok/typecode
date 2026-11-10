@@ -62,7 +62,7 @@ test('API 상태 코드: 200 / 400 / 401 / 422', async () => {
 });
 
 test('아케이드 모드 세션: 시간 제한 없음, 모드가 토큰에 서명된다', async () => {
-  for (const mode of ['throw', 'rescue']) {
+  for (const mode of ['throw', 'battery']) {
     const response = await sessionRoute.POST(post({ mode, language: 'go' }));
     assert.equal(response.status, 200);
     const { token } = await response.json();
@@ -85,9 +85,10 @@ test('아케이드 제출 검증: 생존 시간은 서버 경과 시간 이하, 
   assert.throws(() => lib.validateSubmission(session, { ...base, survivedSeconds: undefined }, session.startedAt + 62_000), error => error.status === 422);
   assert.throws(() => lib.validateSubmission(session, { ...base, score: 300 * 96 }, session.startedAt + 62_000), error => error.code === 'implausible_score');
 
-  const rescue = lib.issueSessionToken({ mode: 'rescue', language: 'go' }).session;
-  assert.throws(() => lib.validateSubmission(rescue, { ...base, score: 300 * 56 }, rescue.startedAt + 62_000), error => error.code === 'implausible_score');
-  assert.ok(lib.validateSubmission(rescue, { ...base, score: 300 * 55 }, rescue.startedAt + 62_000));
+  const battery = lib.issueSessionToken({ mode: 'battery', language: 'go' }).session;
+  assert.throws(() => lib.validateSubmission(battery, { ...base, score: 300 * 36 }, battery.startedAt + 62_000), error => error.code === 'implausible_score');
+  assert.ok(lib.validateSubmission(battery, { ...base, score: 300 * 35 }, battery.startedAt + 62_000));
+  assert.throws(() => lib.resolveMode('rescue'), error => error.status === 422, '옛 모드 이름은 더 이상 없음');
 });
 
 test('모드 검증: 알 수 없는 모드는 422, 예전 토큰(mode 없음)은 practice', () => {

@@ -18,6 +18,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font); }
 body {
   min-height: 100vh;
@@ -31,7 +32,11 @@ kbd { font-family: var(--font); font-size: 10px; border: 1px solid var(--line); 
 
 .app { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--space-1); }
 
-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1); padding-bottom: var(--space-1); }
+header { display: flex; flex-direction: column; gap: var(--space-1); padding-bottom: var(--space-1); }
+.brand-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1); }
+.icon-buttons { display: flex; gap: 6px; margin-left: auto; }
+button.icon { min-width: 40px; padding: var(--space-1) 10px; }
+button.icon.off { opacity: 0.45; }
 .logo { font-weight: 800; font-size: 20px; letter-spacing: -0.3px; }
 .logo span { color: var(--tier-color); text-shadow: 0 0 8px color-mix(in srgb, var(--tier-color) 60%, transparent); transition: color 0.4s; }
 .controls { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; }
@@ -168,8 +173,18 @@ tr.rank1 td:first-child { color: var(--warn); }
 }
 
 /* ---------- 모드 탭 · 아케이드 ---------- */
-.mode-tabs button { padding: var(--space-1) 14px; }
-.arcade-canvas { display: block; width: 100%; height: 460px; background: #0b1017; }
+.mode-tabs button { padding: var(--space-1) 14px; white-space: nowrap; }
+.arcade-canvas { display: block; width: 100%; height: 520px; background: #0b1017; touch-action: manipulation; }
+.input-bar {
+  display: flex; align-items: center; gap: 2px; height: 40px; padding: 0 12px; background: #07090c;
+  border-top: 1px solid var(--line); font-size: 16px; white-space: pre; overflow: hidden; cursor: text;
+}
+.input-bar .prompt { color: var(--tier-color); margin-right: 8px; font-weight: 700; }
+.input-bar .typed { color: var(--ok); }
+.input-bar .wrong { color: #fff; background: rgba(255, 77, 109, 0.45); }
+.input-bar .rest { color: #4b5767; }
+.input-bar .caret { width: 2px; height: 20px; background: var(--tier-color); animation: blink 1s steps(2) infinite; }
+.input-bar .target-hint { color: #4b5767; font-size: 12px; margin-left: 8px; }
 #hiddenInput { position: fixed; opacity: 0; left: 0; top: 0; width: 1px; height: 1px; border: 0; padding: 0; resize: none; font-size: 16px; }
 
 /* ---------- 블랙 RGB 키보드 ---------- */
@@ -215,15 +230,30 @@ tr.rank1 td:first-child { color: var(--warn); }
 .kb-hint { font-size: 12px; color: var(--finger, var(--dim)); min-height: 16px; }
 
 @media (max-width: 640px) {
-  body { padding: 10px; }
-  .stats { grid-template-columns: repeat(3, 1fr); }
-  .stat .value { font-size: 16px; }
+  body { padding: 8px; }
+  .app { gap: 6px; }
+  .logo { font-size: 17px; }
+  .brand-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  .mode-tabs { display: grid; grid-template-columns: 0.8fr 1.2fr 1.1fr; }
+  .mode-tabs button { padding: 8px 4px; font-size: 12px; margin-left: 0; border-radius: 0; }
+  .mode-tabs button:first-child { border-radius: 6px 0 0 6px; }
+  .mode-tabs button:last-child { border-radius: 0 6px 6px 0; }
+  .controls { gap: 6px; flex-wrap: nowrap; }
+  .controls select { flex: 1; min-width: 0; padding: 7px 6px; font-size: 12px; }
+  .segmented#durationGroup button { padding: 7px 7px; font-size: 12px; }
+  button.icon { min-width: 0; padding: 7px 8px; font-size: 12px; }
+  .stats { grid-template-columns: repeat(6, 1fr); gap: 4px; }
+  .stat { padding: 4px 5px; border-radius: 6px; }
+  .stat .label { font-size: 8px; letter-spacing: 0.5px; }
+  .stat .value { font-size: 14px; }
+  .console { height: 64px; font-size: 11px; padding: 4px 8px; }
+  .tabbar { padding: 4px 10px; font-size: 11px; }
+  .input-bar { height: 38px; font-size: 15px; }
   .current { font-size: 32px; min-height: 44px; }
   .queue { font-size: 14px; gap: 10px; }
   .track { min-height: 230px; padding: 24px 10px 20px; }
   .hide-mobile { display: none; }
-  .arcade-canvas { height: 340px; }
-  .mode-tabs button { padding: 6px 8px; font-size: 12px; }
+
   .keyboard { padding: 6px; gap: 3px; }
   .kb-row { gap: 3px; }
   .key { padding: 2px 3px; border-radius: 4px; }

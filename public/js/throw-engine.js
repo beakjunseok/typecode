@@ -11,7 +11,7 @@ export const ROBOT_TYPES = Object.freeze({
 
 export const ITEM_TYPES = Object.freeze({
   laptop: Object.freeze({ label: '노트북', effect: '8초간 노트북 투척(피해 3)' }),
-  battery: Object.freeze({ label: '배터리', effect: '생명 1 회복' })
+  charger: Object.freeze({ label: '충전기', effect: '생명 1 회복' })
 });
 
 export const WEAPONS = Object.freeze({
@@ -26,7 +26,7 @@ export const THROW_RULES = Object.freeze({
   maxRobots: 9,
   dyingSeconds: 0.5,
   laptopSeconds: 8,
-  batteryChance: 0.45,
+  chargerChance: 0.45,
   itemSpeed: 0.06,
   firstItemAt: [18, 26],
   itemInterval: [22, 32],
@@ -43,6 +43,7 @@ export const filterThrowTokens = filterArcadeTokens;
 export class ThrowEngine extends TargetGameEngine {
   constructor(options) {
     super({ ...options, mode: 'throw' });
+    this.lanes = Number.isInteger(options.lanes) && options.lanes >= 2 && options.lanes <= 6 ? options.lanes : THROW_RULES.lanes;
     this.robots = [];
     this.items = [];
     this.laptopUntil = 0;
@@ -103,7 +104,7 @@ export class ThrowEngine extends TargetGameEngine {
 
   // 오른쪽 끝 근처가 비어 있는 줄에 우선 배치해 로봇이 겹쳐 나오지 않게 한다.
   chooseLane() {
-    const lanes = [...Array(THROW_RULES.lanes).keys()];
+    const lanes = [...Array(this.lanes).keys()];
     const free = lanes.filter(lane => !this.robots.some(robot => robot.lane === lane && robot.x > 0.82));
     const candidates = free.length ? free : lanes;
     return candidates[Math.floor(this.random() * candidates.length)];
@@ -133,9 +134,9 @@ export class ThrowEngine extends TargetGameEngine {
     return robot;
   }
 
-  // 생명이 깎였으면 일정 확률로 배터리(에너지 충전), 아니면 노트북(강력한 무기)
+  // 생명이 깎였으면 일정 확률로 충전기(에너지 충전), 아니면 노트북(강력한 무기) — 원작의 하트·일반 케이크
   chooseItemType() {
-    return this.lives < ARCADE_RULES.startLives && this.random() < THROW_RULES.batteryChance ? 'battery' : 'laptop';
+    return this.lives < ARCADE_RULES.startLives && this.random() < THROW_RULES.chargerChance ? 'charger' : 'laptop';
   }
 
   spawnItem(lane = this.chooseLane(), itemType = this.chooseItemType()) {
@@ -199,7 +200,7 @@ export class ThrowEngine extends TargetGameEngine {
 
   activateItem(item) {
     this.itemsCollected++;
-    if (item.item === 'battery') {
+    if (item.item === 'charger') {
       this.lives = Math.min(ARCADE_RULES.startLives, this.lives + 1);
       this.emit('item', { item, lives: this.lives });
       return;
