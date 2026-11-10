@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SoundEngine, SOUND_NAMES } from '../public/js/audio.js';
+import { SoundEngine, SOUND_NAMES, keyPan } from '../public/js/audio.js';
 import { BgmEngine } from '../public/js/bgm.js';
 import { SONGS, songSeconds, expandForm } from '../public/js/songs.js';
 
@@ -31,6 +31,8 @@ function createFakeAudio() {
     createBiquadFilter() { return node({ type: 'lowpass', frequency: param(1000), Q: param(1) }); }
     createOscillator() { return Object.assign(scheduled('oscillators'), { type: 'sine', frequency: param(440), detune: param(0) }); }
     createBufferSource() { return Object.assign(scheduled('noises'), { buffer: null }); }
+    createConvolver() { stats.convolvers = (stats.convolvers ?? 0) + 1; return node({ buffer: null }); }
+    createStereoPanner() { const panner = node({ pan: param(0) }); stats.pans = [...(stats.pans ?? []), panner.pan]; return panner; }
     createBuffer(channels, length) { const data = new Float32Array(length); return { getChannelData: () => data }; }
     resume() { return Promise.resolve(); }
   }
@@ -115,6 +117,44 @@ test('BGM은 강도가 높을수록 더 많은 음을 낸다 (층 추가)', () =
     assert.deepEqual(stats.errors, []);
   } finally {
     globalThis.setInterval = originalSetInterval;
+    delete globalThis.AudioContext;
+  }
+});
+
+test('키 소리 좌우 위치: 왼손 키는 왼쪽, 오른손 키는 오른쪽, 공백·알 수 없는 글자는 가운데', () => {
+  assert.ok(keyPan('q') < -0.3 && keyPan('a') < -0.3 && keyPan('`') < -0.4);
+  assert.ok(keyPan('p') > 0.25 && keyPan('l') > 0.2 && keyPan('/') > 0.2);
+  assert.equal(keyPan('Q'), keyPan('q'), 'Shift 글자도 같은 자리');
+  assert.equal(keyPan('{'), keyPan('['));
+  assert.equal(keyPan(' '), 0);
+  assert.equal(keyPan(undefined), 0);
+  for (const character of '`1234567890-=qwertyuiop[]\\asdfghjkl;\'zxcvbnm,./') {
+    assert.ok(Math.abs(keyPan(character)) <= 0.55 + 1e-9, `${character} 범위`);
+  }
+});
+
+test('키 소리는 방 울림 버스(Convolver)와 좌우 패너를 쓰고, 미지원 브라우저에서도 소리가 난다', () => {
+  const { FakeContext, stats } = createFakeAudio();
+  globalThis.AudioContext = FakeContext;
+  try {
+    const sound = new SoundEngine();
+    sound.play('key', { character: 'q' });
+    sound.play('keyWrong', { character: 'p' });
+    assert.equal(stats.convolvers, 1, '방 울림은 한 번만 생성');
+    assert.ok(stats.pans[0].value < 0 && stats.pans[1].value > 0, 'q 왼쪽, p 오른쪽');
+  } finally {
+    delete globalThis.AudioContext;
+  }
+  const bare = createFakeAudio();
+  globalThis.AudioContext = class extends bare.FakeContext {
+    constructor() { super(); this.createConvolver = undefined; this.createStereoPanner = undefined; }
+  };
+  try {
+    const sound = new SoundEngine();
+    sound.play('key', { character: 'a' });
+    assert.ok(bare.stats.oscillators > 0 && bare.stats.noises > 0, '울림·패너 없이도 재생');
+    assert.deepEqual(bare.stats.errors, []);
+  } finally {
     delete globalThis.AudioContext;
   }
 });
