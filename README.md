@@ -120,6 +120,7 @@ public/                  정적 클라이언트 (빌드 없음, ES Modules)
   js/game-view.js        캔버스 공통: DPR, 토큰 라벨, 파티클, 스프링, HUD
   js/throw-view.js, js/battery-view.js   모드별 캐릭터·배경 그리기
   js/drone-view.js       공용 드론(로터·항법등·카메라 눈·집게): 던지기 아이템, 충전 드론, 보조배터리 드론
+  js/developer-view.js   휴대폰 던지기 개발자(어깨 너머 뒷모습)·책상·의자, 던지기 동작(장전 → 휘두름 → 놓음 → 따라가기 → 복귀)
   js/keyboard.js         블랙 RGB 화면 키보드
   js/songs.js            BGM 곡 데이터 3곡(섹션·코드·멜로디)
   js/bgm.js              BGM 시퀀서 + 악기 합성
