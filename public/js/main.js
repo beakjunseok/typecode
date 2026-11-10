@@ -562,7 +562,7 @@ function focusTypingArea() {
   // 모바일: 키보드가 올라온 뒤 게임 화면이 보이도록 스크롤하고 높이를 다시 맞춘다
   if (isArcade()) {
     setTimeout(() => {
-      ui.elements.arcadeStage.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      ui.elements.arcadeStage.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
       fitArcadeCanvas();
     }, 350);
   }
@@ -676,6 +676,15 @@ function bindEvents() {
   const restart = () => { resetGame(); focusTypingArea(); };
   elements.restartButton.addEventListener('click', restart);
   elements.retryButton.addEventListener('click', restart);
+  // 결과창 닫기: ✕ 버튼 · 바깥 어두운 영역 클릭. 기록은 그대로 두고 화면만 보여준다(↻로 재시작)
+  const closeResult = () => { sound.play('uiClick'); ui.hideResult(); };
+  elements.resultClose.addEventListener('click', closeResult);
+  elements.resultModal.addEventListener('click', event => { if (event.target === elements.resultModal) closeResult(); });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || elements.resultModal.hidden) return;
+    event.preventDefault();
+    closeResult();
+  });
   elements.saveForm.addEventListener('submit', handleSave);
   elements.focusOverlay.addEventListener('click', focusTypingArea);
   elements.arcadeOverlay.addEventListener('click', focusTypingArea);

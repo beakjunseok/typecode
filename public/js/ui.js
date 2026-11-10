@@ -37,7 +37,7 @@ export function createUi(root = document) {
     comboFill: byId('comboFill'), comboHint: byId('comboHint'), queueView: byId('queueView'),
     focusOverlay: byId('focusOverlay'), hiddenInput: byId('hiddenInput'), consoleView: byId('consoleView'),
     boardTitle: byId('boardTitle'), boardBadge: byId('boardBadge'), boardBody: byId('boardBody'),
-    resultModal: byId('resultModal'), resultTitle: byId('resultTitle'), resultSub: byId('resultSub'), resultScore: byId('resultScore'),
+    resultModal: byId('resultModal'), resultClose: byId('resultClose'), resultTitle: byId('resultTitle'), resultSub: byId('resultSub'), resultScore: byId('resultScore'),
     resultWpm: byId('resultWpm'), resultAccuracy: byId('resultAccuracy'), resultCombo: byId('resultCombo'),
     wpmChart: byId('wpmChart'), wpmChartPeak: byId('wpmChartPeak'), weakTokens: byId('weakTokens'),
     saveForm: byId('saveForm'), playerName: byId('playerName'), saveStatus: byId('saveStatus'),
