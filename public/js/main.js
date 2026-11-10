@@ -433,7 +433,8 @@ function applyKeyboardVisibility() {
 const inputDiffer = createInputDiffer({
   onCharacter: character => applyCharacter(character),
   onBackspace: () => applyBackspace(false),
-  onIgnored: () => warnIme()
+  onIgnored: () => warnIme(),
+  onHangul: () => showInputNotice('한→영 자동 변환 · 대문자는 영문 키보드')
 });
 
 function resetInputBuffer() {
@@ -441,9 +442,10 @@ function resetInputBuffer() {
 }
 
 function warnIme() {
+  showInputNotice('⚠ 영문 키보드로 바꿔 주세요');
   if (Date.now() - run.lastImeWarning < IME_WARNING_INTERVAL_MS) return;
   run.lastImeWarning = Date.now();
-  ui.log('warn', '한글 등 영문 외 입력은 무시됩니다 — 키보드를 영문으로 바꿔 주세요');
+  ui.log('warn', '영문 자판에 없는 글자는 무시됩니다 — 키보드를 영문으로 바꿔 주세요');
 }
 
 function applyCharacter(character) {
@@ -521,7 +523,18 @@ function renderInputBar() {
   ui.elements.inputTyped.textContent = goodPart;
   ui.elements.inputWrong.textContent = badPart;
   ui.elements.inputRest.textContent = target ? target.token.text.slice(typed.length) : '';
-  ui.elements.inputTarget.textContent = target ? '' : engine.status === 'finished' ? 'game over' : '낱말의 첫 글자를 치세요';
+  const notice = run.inputNotice && run.inputNotice.until > Date.now() ? run.inputNotice.message : '';
+  ui.elements.inputTarget.textContent = notice || (target ? '' : engine.status === 'finished' ? 'game over' : '낱말의 첫 글자를 치세요');
+  ui.elements.inputTarget.classList.toggle('notice', Boolean(notice));
+}
+
+// 입력창 안내(영문 키보드 전환 등)를 잠깐 띄운다. 게임 로그는 모바일에서 화면 밖이라 입력창에 직접 보여준다.
+const INPUT_NOTICE_MS = 2500;
+function showInputNotice(message) {
+  run.inputNotice = { message, until: Date.now() + INPUT_NOTICE_MS };
+  renderInputBar();
+  clearTimeout(run.inputNoticeTimer);
+  run.inputNoticeTimer = setTimeout(renderInputBar, INPUT_NOTICE_MS + 50);
 }
 
 // 게임 화면 높이: 모바일 키보드가 올라오면(visualViewport 축소) 그만큼 줄여서 입력창이 키보드 바로 위에 오게 한다.
@@ -541,6 +554,8 @@ function fitArcadeCanvas() {
 function focusTypingArea() {
   startMusic();
   if (run.engine.status === 'finished') return;
+  // 이미 입력 중이면 건드리지 않는다: 값을 되돌리면 모바일 키보드의 조합이 깨지고, 스크롤이 튀어 화면이 흔들린다
+  if (document.activeElement === ui.elements.hiddenInput) return;
   resetInputBuffer();
   ui.elements.hiddenInput.focus({ preventScroll: true });
   // 모바일: 키보드가 올라온 뒤 게임 화면이 보이도록 스크롤하고 높이를 다시 맞춘다
