@@ -4,6 +4,9 @@ import { ARCADE_RULES } from './target-game.js';
 import { BATTERY_RULES } from './battery-engine.js';
 import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates } from './game-view.js';
 
+const BEAM_SECONDS = 0.35;
+const wallSeconds = () => performance.now() / 1000;
+
 const HUD_HEIGHT = 34;
 const SEA_HEIGHT = 64;
 const SIDE_STYLE = {
@@ -24,6 +27,7 @@ export class BatteryRenderer {
     this.particles = new ParticleSystem();
     this.lastGameTime = 0;
     this.accent = '#36e2ff';
+    // 빔·배너는 연출이라 게임 시계(gameTime)가 아닌 실제 시계로 잰다: 게임이 끝나 시계가 멈추거나 재시작해 0으로 돌아가도 반드시 사라진다
     this.beams = [];
     this.banner = null;
     this.visuals = new VisualStates(() => ({ labelPop: new Spring(0, { stiffness: 420, damping: 18 }) }));
@@ -73,10 +77,10 @@ export class BatteryRenderer {
     else if (type === 'item' || type === 'drain') this.bounce[type === 'item' ? 'me' : 'rival'].kick(type === 'item' ? -140 : 160);
     else if (type === 'rival-take') this.bounce.rival.kick(-140);
     else if (type === 'rival-attack') this.bounce.me.kick(160);
-    else if (type === 'stage-clear') this.banner = { text: `STAGE ${payload.stage} CLEAR`, sub: payload.how === 'charged' ? '100% 충전 완료! 충전 드론이 구조했습니다' : '방전봇 침몰!', at: engine?.gameTime ?? 0 };
+    else if (type === 'stage-clear') this.banner = { text: `STAGE ${payload.stage} CLEAR`, sub: payload.how === 'charged' ? '100% 충전 완료! 충전 드론이 구조했습니다' : '방전봇 침몰!', at: wallSeconds() };
 
     if (!this.context) return;
-    const now = engine?.gameTime ?? 0;
+    const now = wallSeconds();
     if (type === 'rival-take') {
       const { x, y } = this.itemPosition(payload.item);
       this.beams.push({ from: this.characterPosition('rival'), to: { x, y }, color: '#ff4d6d', at: now });
@@ -98,7 +102,14 @@ export class BatteryRenderer {
     }
   }
 
+  // 수명이 끝난 빔을 지운다(실제 시계 기준). 빔 수 k에 대해 O(k)
+  pruneEffects() {
+    const wallNow = wallSeconds();
+    this.beams = this.beams.filter(beam => wallNow - beam.at < BEAM_SECONDS);
+  }
+
   render(engine, { accent }) {
+    this.pruneEffects();
     const context = this.context;
     if (!context) return;
     this.surface.resize?.();
@@ -114,7 +125,6 @@ export class BatteryRenderer {
       const target = Math.max(0, engine[side].cells);
       this.displayCells[side] += (target - this.displayCells[side]) * Math.min(1, frameSeconds * 10 || 0.2);
     }
-    this.beams = this.beams.filter(beam => engine.gameTime - beam.at < 0.35);
 
     const { width, height } = this.surface;
     context.clearRect(0, 0, width, height);
@@ -623,7 +633,7 @@ export class BatteryRenderer {
   }
 
   drawBeam(context, beam, engine) {
-    const progress = (engine.gameTime - beam.at) / 0.35;
+    const progress = Math.min(1, (wallSeconds() - beam.at) / BEAM_SECONDS);
     context.strokeStyle = beam.color;
     context.globalAlpha = 1 - progress;
     context.lineWidth = 3;
@@ -664,7 +674,7 @@ export class BatteryRenderer {
 
   drawBanner(context, width, engine) {
     if (!this.banner) return;
-    const age = engine.gameTime - this.banner.at;
+    const age = wallSeconds() - this.banner.at;
     if (age > 1.8) {
       this.banner = null;
       return;

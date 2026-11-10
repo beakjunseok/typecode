@@ -227,19 +227,27 @@ test('시간이 지나면 빠른 로봇·탱크 로봇이 등장한다', () => {
   assert.deepEqual([...seen].sort(), ['basic', 'fast', 'tank']);
 });
 
-test('충전기 아이템: 생명이 깎였을 때만 나오고 1 회복 (최대치 초과 없음)', () => {
+test('건전지 아이템: 생명이 깎이면 몇 초 뒤 나오고 1칸 회복, 가득 차면 더 안 나온다', () => {
   const { engine } = createEngine({ random: () => 0.1 });
   const clock = { now: 0 };
   engine.start(0);
   engine.nextSpawnAt = Infinity;
-  assert.equal(engine.chooseItemType(), 'laptop', '생명이 가득하면 노트북');
-  engine.lives = 2;
-  assert.equal(engine.chooseItemType(), 'charger');
-  const charger = engine.spawnItem(1, 'charger');
-  typeText(engine, clock, charger.token.text);
+  engine.nextItemAt = Infinity;
+  assert.equal(engine.chooseItemType(), 'laptop', '정기 아이템은 노트북');
+  assert.equal(engine.nextBatteryAt, Infinity, '생명이 가득하면 건전지 없음');
+  const robot = engine.spawnRobot('basic', 0);
+  robot.x = THROW_RULES.playerX + 0.001;
+  advance(engine, clock, 0.2);
+  assert.equal(engine.lives, 2);
+  assert.ok(Number.isFinite(engine.nextBatteryAt), '생명이 깎이면 건전지 예약');
+  advance(engine, clock, THROW_RULES.batteryFirstDelay[1] + 0.5);
+  const battery = engine.items.find(item => item.item === 'battery' && !item.consumed);
+  assert.ok(battery, '건전지 등장');
+  typeText(engine, clock, battery.token.text);
   advance(engine, clock, 0.3);
   assert.equal(engine.lives, 3);
-  assert.equal(engine.laptopRemaining(), 0, '충전기는 노트북 모드를 켜지 않음');
+  assert.equal(engine.laptopRemaining(), 0, '건전지는 노트북 모드를 켜지 않음');
+  assert.equal(engine.nextBatteryAt, Infinity, '가득 차면 건전지 예약 해제');
 });
 
 test('난이도: Lv.4는 Lv.1보다 로봇이 빠르다', () => {
