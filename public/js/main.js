@@ -23,7 +23,7 @@ const MODE_CONFIG = Object.freeze({
   practice: { label: '연습', arcade: false },
   throw: {
     label: '휴대폰 던지기', arcade: true, title: 'phone-throw.exe', resultTitle: 'GAME OVER',
-    hint: '로봇 발밑 낱말을 다 치면 휴대폰 발사', Renderer: ThrowRenderer,
+    hint: '로봇 발밑 낱말을 다 치면 휴대폰 발사 · 🔋 건전지로 생명 회복', Renderer: ThrowRenderer,
     // 좁은 세로 화면: 레인 3개, 토큰 14자 이하(라벨이 열 너비를 넘지 않게)
     createEngine: options => new ThrowEngine({
       ...options, lanes: options.narrow ? 3 : 4, maxTokenLength: options.narrow ? 14 : 22
@@ -155,12 +155,12 @@ function handleArcadeEvent(type, payload) {
       break;
     case 'item-spawn':
       sound.play('itemSpawn');
-      if (!battery) ui.log('info', payload.item.item === 'charger' ? '🔌 충전기 상자 등장' : '💻 노트북 상자 등장');
+      if (!battery) ui.log('info', payload.item.item === 'battery' ? '🔋 건전지 등장 — 치면 생명 1칸 회복' : '💻 노트북 상자 등장');
       break;
     case 'item':
       sound.play(battery && payload.item.item === 'heat' ? 'explode' : 'powerUp');
       ui.log('ok', battery ? `${BATTERY_ITEM_LOG[payload.item.item]}`
-        : payload.item.item === 'charger' ? `에너지 충전 — HP ${payload.lives}` : '노트북 장착 — 8초간 위력 ×3');
+        : payload.item.item === 'battery' ? `건전지 충전 — 생명 ${payload.lives}칸` : '노트북 장착 — 8초간 위력 ×3');
       break;
     case 'drain':
       sound.play('hit');
@@ -185,9 +185,10 @@ function handleArcadeEvent(type, payload) {
       break;
     case 'damage':
       sound.play(battery ? 'sink' : 'lifeLost');
+      if (!battery) sound.play('glassCrack');
       pulseClass(ui.elements.arcadeStage, 'shake', 300);
       ui.log('err', battery ? (payload.cause.how === 'sunk' ? '배터리 0% — 방전의 바다에 빠졌습니다' : '방전봇이 먼저 100% 충전했습니다')
-        : `로봇이 책상 도달 — HP ${payload.lives}`);
+        : `로봇이 빨간 선 돌파 — 건전지 ${payload.lives}칸 · 휴대폰에 금이 갔습니다`);
       run.lastTier = 0;
       break;
     case 'finish':
@@ -702,4 +703,4 @@ resetGame();
 refreshBoard();
 
 // 자동화 테스트·디버깅용 읽기 창구(게임 상태 조회). 게임 로직은 이 값에 의존하지 않는다.
-globalThis.__TYPECODE__ = { run, settings };
+globalThis.__TYPECODE__ = { run, settings, renderers };

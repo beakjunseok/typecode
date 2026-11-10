@@ -1,4 +1,4 @@
-// '휴대폰 던지기' 모드: 오른쪽에서 다가오는 로봇에게 토큰을 쳐서 휴대폰(아이템 사용 시 노트북)을 던진다.
+// '휴대폰 던지기' 모드: 위에서 내려오는 로봇에게 토큰을 쳐서 휴대폰(아이템 사용 시 노트북)을 던진다.
 // 좌표 x는 0(내 책상)~1(화면 오른쪽 끝). 공통 규칙(조준·입력·콤보·생명)은 TargetGameEngine에 있다.
 import { SCORING, MAX_MULTIPLIER } from './engine.js';
 import { TargetGameEngine, ARCADE_RULES, filterArcadeTokens, randomBetween } from './target-game.js';
@@ -11,7 +11,7 @@ export const ROBOT_TYPES = Object.freeze({
 
 export const ITEM_TYPES = Object.freeze({
   laptop: Object.freeze({ label: '노트북', effect: '8초간 노트북 투척(피해 3)' }),
-  charger: Object.freeze({ label: '충전기', effect: '생명 1 회복' })
+  battery: Object.freeze({ label: '건전지', effect: '생명(건전지) 1칸 회복' })
 });
 
 export const WEAPONS = Object.freeze({
@@ -26,7 +26,9 @@ export const THROW_RULES = Object.freeze({
   maxRobots: 9,
   dyingSeconds: 0.5,
   laptopSeconds: 8,
-  chargerChance: 0.45,
+  // 건전지(회복)는 노트북과 따로, 생명이 깎여 있을 때만 가끔 나온다
+  batteryFirstDelay: [6, 10],
+  batteryInterval: [14, 22],
   itemSpeed: 0.06,
   firstItemAt: [18, 26],
   itemInterval: [22, 32],
@@ -49,6 +51,7 @@ export class ThrowEngine extends TargetGameEngine {
     this.laptopUntil = 0;
     this.nextSpawnAt = 0.4;
     this.nextItemAt = randomBetween(this.random, THROW_RULES.firstItemAt);
+    this.nextBatteryAt = Infinity;
     this.kills = { basic: 0, fast: 0, tank: 0 };
   }
 
@@ -115,7 +118,11 @@ export class ThrowEngine extends TargetGameEngine {
       if (this.robots.filter(robot => robot.state === 'walking').length < THROW_RULES.maxRobots) this.spawnRobot();
       this.nextSpawnAt = this.gameTime + this.spawnInterval();
     }
-    if (this.gameTime >= this.nextItemAt && !this.items.some(item => !item.consumed)) {
+    if (this.gameTime >= this.nextBatteryAt && !this.items.some(item => !item.consumed && item.item === 'battery')) {
+      this.spawnItem(this.chooseLane(), 'battery');
+      this.scheduleBattery(THROW_RULES.batteryInterval);
+    }
+    if (this.gameTime >= this.nextItemAt && !this.items.some(item => !item.consumed && item.item === 'laptop')) {
       this.spawnItem();
       this.nextItemAt = this.gameTime + randomBetween(this.random, THROW_RULES.itemInterval);
     }
@@ -134,9 +141,18 @@ export class ThrowEngine extends TargetGameEngine {
     return robot;
   }
 
-  // 생명이 깎였으면 일정 확률로 충전기(에너지 충전), 아니면 노트북(강력한 무기) — 원작의 하트·일반 케이크
+  // 정기 아이템은 노트북(강력한 무기). 회복용 건전지는 scheduleBattery가 따로 관리한다 — 원작의 하트 케이크
   chooseItemType() {
-    return this.lives < ARCADE_RULES.startLives && this.random() < THROW_RULES.chargerChance ? 'charger' : 'laptop';
+    return 'laptop';
+  }
+
+  isDamaged() {
+    return this.lives < ARCADE_RULES.startLives;
+  }
+
+  // 생명이 깎이면 몇 초 뒤 첫 건전지, 이후에도 깎여 있는 동안 간격을 두고 계속. 가득 차면 멈춘다
+  scheduleBattery(delayRange) {
+    this.nextBatteryAt = this.isDamaged() ? this.gameTime + randomBetween(this.random, delayRange) : Infinity;
   }
 
   spawnItem(lane = this.chooseLane(), itemType = this.chooseItemType()) {
@@ -172,6 +188,7 @@ export class ThrowEngine extends TargetGameEngine {
     robot.stateAt = this.gameTime;
     this.releaseTargetIf(robot.id, 'robot-crashed');
     this.loseLife({ robot });
+    if (this.status === 'running' && this.nextBatteryAt === Infinity) this.scheduleBattery(THROW_RULES.batteryFirstDelay);
   }
 
   removeFinished() {
@@ -200,8 +217,9 @@ export class ThrowEngine extends TargetGameEngine {
 
   activateItem(item) {
     this.itemsCollected++;
-    if (item.item === 'charger') {
+    if (item.item === 'battery') {
       this.lives = Math.min(ARCADE_RULES.startLives, this.lives + 1);
+      if (!this.isDamaged()) this.nextBatteryAt = Infinity;
       this.emit('item', { item, lives: this.lives });
       return;
     }

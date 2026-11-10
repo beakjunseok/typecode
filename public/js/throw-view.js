@@ -14,8 +14,15 @@ const ROBOT_STYLE = {
 };
 const ITEM_STYLE = {
   laptop: { color: '#c792ea', fill: '#2a1f3d', label: '노트북 ×3' },
-  charger: { color: '#39ff88', fill: '#123321', label: 'HP +1' }
+  battery: { color: '#39ff88', fill: '#123321', label: 'HP +1' }
 };
+// 금 단계별 화면색(금이 갈수록 어두워지고 붉어진다)과 금 무늬(단계마다 누적되는 선분 묶음, 화면 좌표 -4.5~4.5 × -8~6)
+const PHONE_SCREEN_COLORS = ['#36e2ff', '#2fb8d1', '#2a7f95', '#5a2b3a'];
+const PHONE_CRACK_PATHS = [
+  [[[4.5, -8], [1.5, -4], [2.5, -1], [-0.5, 2]], [[1.5, -4], [-2, -5.5]]],
+  [[[-4.5, 6], [-1.5, 2.5], [-0.5, 2], [3, 3.5], [4.5, 6]], [[-0.5, 2], [-4.5, -1]], [[-0.5, 2], [0.5, 6]]],
+  [[[-4.5, -8], [-1, -3], [-0.5, 2]], [[4.5, -3], [2.5, -1]], [[-3, -6], [0, -8]], [[2, 4.5], [4.5, 1.5]]]
+];
 const HUD_HEIGHT = 34;
 const PLAYER_ZONE = 104;
 
@@ -256,7 +263,7 @@ export class ThrowRenderer {
     roundedRect(context, 0, -4, 22, 8, 4);
     context.fill();
     if (laptopMode) this.drawLaptopShape(context, 26, 0, 0.6, Math.PI / 2);
-    else this.drawPhoneShape(context, 26, 0, Math.PI / 2);
+    else this.drawPhoneShape(context, 30, 0, Math.PI / 2, this.phoneCracks(engine), 1.5);
     context.restore();
     context.restore();
   }
@@ -570,7 +577,7 @@ export class ThrowRenderer {
     context.lineWidth = 2;
     context.stroke();
     context.shadowBlur = 0;
-    if (item.item === 'charger') this.drawChargerShape(context, 0, -2);
+    if (item.item === 'battery') this.drawBatteryShape(context, 0, -2, engine.gameTime);
     else this.drawLaptopShape(context, 0, -3, 1, 0);
     context.restore();
     if (!item.consumed) {
@@ -580,29 +587,55 @@ export class ThrowRenderer {
     }
   }
 
-  drawChargerShape(context, x, y) {
-    context.fillStyle = '#c9d4e0';
-    roundedRect(context, x - 8, y - 8, 16, 12, 3);
+  // 회복 아이템: 가로로 누운 AA 건전지(+극 캡, 초록 충전 띠, 번개). 충전 띠가 천천히 차오르며 반짝인다
+  drawBatteryShape(context, x, y, time) {
+    const width = 26;
+    const height = 13;
+    const left = x - width / 2;
+    const top = y - height / 2;
+    context.fillStyle = '#1b2430';
+    roundedRect(context, left, top, width, height, 3);
     context.fill();
-    context.fillRect(x - 5, y - 13, 2, 5);
-    context.fillRect(x + 3, y - 13, 2, 5);
-    context.strokeStyle = '#39ff88';
-    context.lineWidth = 2;
-    context.beginPath();
-    context.moveTo(x, y + 4);
-    context.quadraticCurveTo(x + 4, y + 10, x + 12, y + 8);
+    context.strokeStyle = '#c9d4e0';
+    context.lineWidth = 1.5;
     context.stroke();
-    context.fillStyle = '#123321';
+    context.fillStyle = '#c9d4e0';
+    context.fillRect(left + width, y - 3, 3, 6);
+    const level = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(time * 4));
+    context.fillStyle = '#39ff88';
+    roundedRect(context, left + 2, top + 2, (width - 4) * level, height - 4, 2);
+    context.fill();
+    context.fillStyle = '#0b1a12';
     context.beginPath();
-    context.moveTo(x + 1, y - 6);
-    context.lineTo(x - 3, y - 1);
-    context.lineTo(x, y - 1);
-    context.lineTo(x - 1, y + 3);
-    context.lineTo(x + 3, y - 2);
-    context.lineTo(x, y - 2);
+    context.moveTo(x + 2, top + 1.5);
+    context.lineTo(x - 4, y + 1);
+    context.lineTo(x - 0.5, y + 1);
+    context.lineTo(x - 2, top + height - 1.5);
+    context.lineTo(x + 4, y - 1);
+    context.lineTo(x + 0.5, y - 1);
     context.closePath();
     context.fill();
   }
+
+  // HUD 생명 칸: 건전지 아이콘. 남은 칸은 초록(1칸 남으면 빨간 깜빡임), 잃은 칸은 빈 껍데기
+  drawLifeBattery(context, x, y, state, time) {
+    const width = 20;
+    const height = 11;
+    context.strokeStyle = state === 'empty' ? '#3a4656' : '#c9d4e0';
+    context.lineWidth = 1.5;
+    roundedRect(context, x, y - height / 2, width, height, 2.5);
+    context.stroke();
+    context.fillStyle = context.strokeStyle;
+    context.fillRect(x + width, y - 2.5, 2.5, 5);
+    if (state === 'empty') return;
+    const low = state === 'low';
+    context.globalAlpha = low ? 0.55 + 0.45 * Math.abs(Math.sin(time * 6)) : 1;
+    context.fillStyle = low ? '#ff4d6d' : '#39ff88';
+    roundedRect(context, x + 2, y - height / 2 + 2, width - 4, height - 4, 1.5);
+    context.fill();
+    context.globalAlpha = 1;
+  }
+
 
   drawLaptopShape(context, x, y, scale, angle) {
     context.save();
@@ -620,20 +653,40 @@ export class ThrowRenderer {
     context.restore();
   }
 
-  drawPhoneShape(context, x, y, angle) {
+  // 휴대폰: 잃은 건전지 칸 수(cracks 0~3)만큼 화면에 금이 간다. 금 무늬는 고정 좌표라 매 프레임 같은 모양 — O(1)
+  drawPhoneShape(context, x, y, angle, cracks = 0, scale = 1) {
     context.save();
     context.translate(x, y);
     context.rotate(angle);
+    context.scale(scale, scale);
     context.fillStyle = '#0f141b';
     roundedRect(context, -6, -10, 12, 20, 3);
     context.fill();
     context.strokeStyle = '#8a98aa';
     context.lineWidth = 1;
     context.stroke();
-    context.fillStyle = '#36e2ff';
+    context.fillStyle = PHONE_SCREEN_COLORS[Math.min(cracks, PHONE_SCREEN_COLORS.length - 1)];
     context.fillRect(-4.5, -8, 9, 14);
+    if (cracks > 0) this.drawPhoneCracks(context, cracks);
     context.restore();
   }
+
+  drawPhoneCracks(context, cracks) {
+    context.save();
+    context.beginPath();
+    context.rect(-4.5, -8, 9, 14);
+    context.clip();
+    context.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    context.lineWidth = 0.7;
+    context.lineCap = 'round';
+    for (const path of PHONE_CRACK_PATHS.slice(0, Math.min(cracks, PHONE_CRACK_PATHS.length)).flat()) {
+      context.beginPath();
+      path.forEach(([pointX, pointY], index) => (index === 0 ? context.moveTo(pointX, pointY) : context.lineTo(pointX, pointY)));
+      context.stroke();
+    }
+    context.restore();
+  }
+
 
   // 아래 가운데에서 목표까지 포물선(위로 솟았다 떨어짐) + 회전 + 잔상
   drawProjectile(context, projectile, engine) {
@@ -662,10 +715,15 @@ export class ThrowRenderer {
     const { x, y } = pointAt(raw);
     const angle = raw * Math.PI * (projectile.weapon === 'laptop' ? 3 : 5);
     if (projectile.weapon === 'laptop') this.drawLaptopShape(context, x, y, 1.15, angle);
-    else this.drawPhoneShape(context, x, y, angle);
+    else this.drawPhoneShape(context, x, y, angle, this.phoneCracks(engine), 1.15);
   }
 
-  // 원작처럼 왼쪽 위 하트, 오른쪽 위 현재 무기
+  // 잃은 건전지 칸 수 = 휴대폰 금 단계(0 멀쩡 · 1 한 줄 · 2 거미줄 · 3 산산조각)
+  phoneCracks(engine) {
+    return Math.max(0, ARCADE_RULES.startLives - engine.lives);
+  }
+
+  // 원작의 하트 자리(왼쪽 위)에 건전지 생명, 오른쪽 위 현재 무기
   drawHud(context, engine) {
     const { width } = this.surface;
     context.fillStyle = 'rgba(7, 10, 15, 0.85)';
@@ -673,8 +731,8 @@ export class ThrowRenderer {
     context.font = "700 18px 'JetBrains Mono', ui-monospace, monospace";
     context.textBaseline = 'middle';
     for (let index = 0; index < ARCADE_RULES.startLives; index++) {
-      context.fillStyle = index < engine.lives ? '#ff4d6d' : '#2b3442';
-      context.fillText('♥', 10 + index * 22, HUD_HEIGHT / 2 + 1);
+      const state = index >= engine.lives ? 'empty' : engine.lives === 1 ? 'low' : 'full';
+      this.drawLifeBattery(context, 10 + index * 30, HUD_HEIGHT / 2, state, engine.gameTime);
     }
     const laptop = engine.laptopRemaining();
     context.textAlign = 'right';

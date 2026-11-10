@@ -197,6 +197,14 @@ const SOUNDS = {
     engine.tone(context, { frequency: 440, sweepTo: 110, startTime: time, peak: 0.09, decay: 0.45, waveform: 'sawtooth', filter: { type: 'lowpass', frequency: 1200 } });
     engine.noise(context, { startTime: time, peak: 0.08, decay: 0.2, filterType: 'lowpass', frequency: 600 });
   },
+  // 휴대폰 화면 금: 높은 유리 '쩍' + 잔금이 퍼지는 짧은 딸깍 몇 번
+  glassCrack(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.12, decay: 0.06, filterType: 'highpass', frequency: 3800 });
+    engine.tone(context, { frequency: 2600, sweepTo: 1700, startTime: time, peak: 0.03, decay: 0.08, waveform: 'square' });
+    for (let index = 1; index <= 3; index++) {
+      engine.noise(context, { startTime: time + index * 0.035, peak: 0.05 / index, decay: 0.02, filterType: 'bandpass', frequency: 5200 - index * 600, q: 3 });
+    }
+  },
   // 패치 튜브 투하: '퐁' 하는 물소리
   splash(engine, context, time) {
     engine.tone(context, { frequency: 520, sweepTo: 1300, startTime: time, peak: 0.07, decay: 0.12 });
