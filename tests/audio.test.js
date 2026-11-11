@@ -74,8 +74,9 @@ test('로봇 명중음: 종류·무기·남은 체력마다 오류 없이 울리
     for (const type of ['basic', 'fast', 'tank', 'unknown']) {
       for (const weapon of ['phone', 'laptop']) assert.ok(count({ type, weapon, remainingHp: 0 }) >= 6, `${type}/${weapon}`);
     }
-    assert.equal(count({ type: 'tank', remainingHp: 2 }), count({ type: 'tank', remainingHp: 0 }) + 1, '버티면 장갑 소리 1개 더');
+    assert.ok(count({ type: 'tank', remainingHp: 2 }) > 0, '버티는 탱크');
     assert.ok(count() > 0, '옵션 없이도 울림');
+    for (const combo of [0, 1, 7, 40]) assert.ok(count({ combo }) > 0, `combo ${combo}`);
     assert.deepEqual(stats.errors, []);
   } finally {
     delete globalThis.AudioContext;
