@@ -143,7 +143,8 @@ export class ThrowRenderer {
     // 먼 것(위)부터 그려 가까운 로봇이 앞을 가리게 한다
     const sorted = [...engine.robots].sort((first, second) => second.x - first.x);
     for (const item of engine.items) if (!item.consumed || engine.projectiles.some(projectile => projectile.targetId === item.id)) this.drawItem(context, item, engine);
-    for (const robot of sorted) this.drawRobot(context, robot, engine);
+    const hidden = this.hiddenRobotIds(engine.robots, engine.targetId);
+    for (const robot of sorted) this.drawRobot(context, robot, engine, hidden.has(robot.id));
     this.drawDangerLine(context, width, engine);
     this.drawPlayer(context, engine);
     for (const projectile of engine.projectiles) this.drawProjectile(context, projectile, engine);
@@ -318,7 +319,25 @@ export class ThrowRenderer {
     return Math.max(0, Math.min(1, 1 - (nearest - THROW_RULES.playerX) / 0.3));
   }
 
-  drawRobot(context, robot, engine) {
+  // 같은 줄에서 더 가까운(아래) 로봇 몸에 가려진 로봇: 몸이 안 보이는데 낱말만 떠 있지 않게 낱말을 숨긴다.
+  // 가린 로봇이 부서지거나 서로 벌어지면 다시 보인다. 지금 치고 있는 대상은 숨기지 않는다. O(n²), n = 화면의 로봇 수(작음)
+  hiddenRobotIds(robots, targetId) {
+    const hidden = new Set();
+    const blockers = robots.filter(robot => robot.state === 'walking');
+    for (const robot of blockers) {
+      if (robot.id === targetId) continue;
+      const footY = this.toY(robot.x);
+      const covered = blockers.some(front => {
+        if (front === robot || front.lane !== robot.lane || front.x >= robot.x) return false;
+        const frontBody = ROBOT_STYLE[front.type].height * this.depthScale(front.x);
+        return this.toY(front.x) - footY < frontBody * 0.85;
+      });
+      if (covered) hidden.add(robot.id);
+    }
+    return hidden;
+  }
+
+  drawRobot(context, robot, engine, labelHidden = false) {
     const style = ROBOT_STYLE[robot.type];
     const visual = this.visuals.get(robot.id);
     const age = engine.gameTime - robot.spawnedAt;
@@ -347,7 +366,7 @@ export class ThrowRenderer {
     const stunned = engine.gameTime - robot.hitAt < 0.25;
 
     // 낱말 발판(원작: 로봇이 단어를 타고 온다) — 로봇 발밑에 먼저 그린다
-    if (robot.state === 'walking' && !robot.doomed) {
+    if (robot.state === 'walking' && !robot.doomed && !labelHidden) {
       const pop = visual.labelPop.value * 0.4;
       context.save();
       context.globalAlpha = Math.min(1, age / 0.3);
