@@ -326,9 +326,11 @@ export function drawDeveloper(context, {
     // 어깨 끝 둥근 마개를 그리지 않고 몸통 안쪽에서 시작해 어깨 바깥으로 혹이 생기지 않게
     const { shoulder, elbow } = armGeometry;
     const inward = { x: shoulder.x - 3, y: shoulder.y + 1.5 };
-    drawShoulderBlend(context, { x: shoulder.x, y: shoulder.y - raise * 0.7 }, elbow, THROW_ARM_WIDTHS[0], { x: 5.5, y: NECK_BASE_Y - rise - 0.2 }, hoodieFront);
-    drawLimb(context, [inward, shoulder, elbow, armGeometry.hand], [THROW_ARM_WIDTHS[0], ...THROW_ARM_WIDTHS], hoodieFront, { startCap: false });
-    hand = drawThrowingHand(context, armGeometry, { aim, pose, gameOver, laptopMode, drawHeld });
+    const drawArm = () => {
+      drawShoulderBlend(context, { x: shoulder.x, y: shoulder.y - raise * 0.7 }, elbow, THROW_ARM_WIDTHS[0], { x: 5.5, y: NECK_BASE_Y - rise - 0.2 }, hoodieFront);
+      drawLimb(context, [inward, shoulder, elbow, armGeometry.hand], [THROW_ARM_WIDTHS[0], ...THROW_ARM_WIDTHS], hoodieFront, { startCap: false });
+    };
+    hand = drawThrowingHand(context, armGeometry, { aim, pose, gameOver, laptopMode, drawHeld, drawArm });
   }
   drawReaction(context, { headX, headY, hurt, lives, time, gameOver });
   context.restore();
@@ -651,12 +653,15 @@ function throwingArmGeometry({ aim, pose, twist = 0, rise = 0, gameOver, slump =
 }
 
 // 손(휴대폰). 투사체 출발점(휴대폰 중심 또는 손)을 돌려준다
-function drawThrowingHand(context, { hand, foreAngle, droop, nearness }, { aim, pose, gameOver, laptopMode, drawHeld }) {
+// 휴대폰을 쥔 동안은 손·휴대폰을 먼저 그리고 팔(소매)을 그 위에 그린다: 뒤에서 보면 팔이 카메라에 더 가깝고
+// 손·휴대폰은 팔 너머(화면 쪽)에 있으므로, 소맷부리가 손목을 덮어 손이 소매 안에서 나오는 것처럼 보인다
+function drawThrowingHand(context, { hand, foreAngle, droop, nearness }, { aim, pose, gameOver, laptopMode, drawHeld, drawArm }) {
   const directionX = Math.cos(foreAngle);
   const directionY = Math.sin(foreAngle);
   const holding = gameOver || pose.held > 0.01;
   const phoneGrip = !laptopMode && (gameOver || pose.held > 0.6);
   if (laptopMode || !phoneGrip) {
+    drawArm();
     if (holding) drawHeld(context, hand.x + directionX * GRIP_OFFSET, hand.y + directionY * GRIP_OFFSET, foreAngle + Math.PI / 2, pose.held * nearness, laptopMode, false);
     drawHand(context, hand, foreAngle, holding);
     return hand;
@@ -679,13 +684,14 @@ function drawThrowingHand(context, { hand, foreAngle, droop, nearness }, { aim, 
     y: hand.y - (localX * Math.sin(phoneAngle) + localY * Math.cos(phoneAngle))
   };
   drawHeld(context, center.x, center.y, phoneAngle, gameOver ? 1 : pose.held * nearness, false, true);
+  drawArm();
   return center;
 }
 
 // 휴대폰을 쥐지 않은 손: 가볍게 쥔 주먹(손등 + 손가락 마디 줄). holding이면(노트북) 손가락을 앞으로 말아 쥔다
 const GRIP_OFFSET = 9;
 // 쥔 휴대폰 배율(throw-view의 휴대폰 그리기와 같은 값), 휴대폰 좌표계에서 손목 점(엄지 쪽 아래), 손목이 꺾일 수 있는 한도(rad)
-export const PHONE_HELD_SCALE = 1.45;
+export const PHONE_HELD_SCALE = 1.1;
 const WRIST_IN_PHONE = Object.freeze({ x: -3.6, y: 13.6 });
 const WRIST_LIMIT = 0.7;
 function drawHand(context, hand, foreAngle, holding) {
