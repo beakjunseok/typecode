@@ -3,10 +3,11 @@
 // 좌표 원점 = 개발자 위치(playerPosition). 그리기는 프레임마다 O(1)(코드 줄 수 고정).
 import { roundedRect, easeOutBack, easeOutCubic, easeInOutSine } from './game-view.js';
 
-export const SKIN = Object.freeze({ base: '#eab995', shade: '#c99572', light: '#f6d2b4' });
+// 피부: 어두운 남색 화면에서도 칙칙하지 않게 밝은 톤. shade는 윤곽·주름용으로 연하게
+export const SKIN = Object.freeze({ base: '#ffd8bc', shade: '#efb894', light: '#fff1e6' });
 const COLORS = Object.freeze({
   hoodie: '#2f4a63', hoodieLight: '#46698a', hoodieDark: '#203447',
-  hair: '#161b28', hairLight: '#2a3346', skin: '#eab995', skinShade: '#c99572',
+  hair: '#161b28', hairLight: '#2a3346', skin: SKIN.base, skinShade: SKIN.shade,
   silver: '#c9d4e0', chair: '#141a23', chairLight: '#222b37', desk: '#1e2547', deskEdge: '#ffb547'
 });
 // 모니터 코드 줄: [들여쓰기, [폭, 색] …] — 문법 색(키워드 보라·함수 하늘·문자열 초록·숫자 주황)
@@ -366,7 +367,7 @@ function drawKeyboardHand(context, x, y, { press, keySide, relaxed }) {
     context.fill();
   });
   // 손가락 사이 홈
-  context.strokeStyle = 'rgba(160, 110, 80, 0.45)';
+  context.strokeStyle = 'rgba(214, 150, 112, 0.4)';
   context.lineWidth = 0.4;
   for (const offsetX of [-1.7, 0, 1.7]) {
     context.beginPath();
@@ -393,7 +394,7 @@ function drawKeyboardHand(context, x, y, { press, keySide, relaxed }) {
   roundedRect(context, -0.65, -3.6, 1.3, 0.9, 0.45);
   context.fill();
   context.restore();
-  context.fillStyle = 'rgba(201, 149, 114, 0.5)';
+  context.fillStyle = 'rgba(239, 184, 148, 0.45)';
   context.fillRect(-3.2, 1.5, 6.4, 0.9);
   context.restore();
 }
@@ -622,7 +623,7 @@ function drawHand(context, hand, foreAngle, holding) {
   context.fillStyle = SKIN.shade;
   roundedRect(context, holding ? 2.6 : 1.8, -3.4, 1.8, 6.8, 0.9);
   context.fill();
-  context.strokeStyle = 'rgba(160, 110, 80, 0.55)';
+  context.strokeStyle = 'rgba(214, 150, 112, 0.5)';
   context.lineWidth = 0.6;
   for (const offset of [-1.7, 0, 1.7]) {
     context.beginPath();
