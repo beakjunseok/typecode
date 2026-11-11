@@ -605,7 +605,10 @@ function drawThrowingArm(context, { aim, pose, twist = 0, rise = 0, gameOver, sl
   if (gameOver && droop > 0.95) {
     drawHeld(context, hand.x + 4, hand.y + 7, 1.2, 1, false, true);
   } else if (holding) {
-    drawHeld(context, hand.x + directionX * GRIP_OFFSET, hand.y + directionY * GRIP_OFFSET, foreAngle + Math.PI / 2, pose.held * nearness, laptopMode, phoneGrip);
+    // 손목은 엄지 쪽 아래에 오므로 휴대폰을 팔 축에서 반대쪽(휴대폰 기준 왼쪽)으로 조금 비켜 쥔다
+    const sideShift = laptopMode ? 0 : GRIP_SIDE_SHIFT * pose.held * nearness;
+    drawHeld(context, hand.x + directionX * GRIP_OFFSET + directionY * sideShift, hand.y + directionY * GRIP_OFFSET - directionX * sideShift,
+      foreAngle + Math.PI / 2, pose.held * nearness, laptopMode, phoneGrip);
   }
   if (!(holding && phoneGrip)) drawHand(context, hand, foreAngle, holding);
   return hand;
@@ -613,6 +616,8 @@ function drawThrowingArm(context, { aim, pose, twist = 0, rise = 0, gameOver, sl
 
 // 휴대폰을 쥐지 않은 손: 가볍게 쥔 주먹(손등 + 손가락 마디 줄). holding이면(노트북) 손가락을 앞으로 말아 쥔다
 const GRIP_OFFSET = 9;
+// 휴대폰 좌표 1.6칸(× 휴대폰 배율 1.45)만큼: 팔 축이 휴대폰 아래 엄지 쪽 손목과 맞는다
+const GRIP_SIDE_SHIFT = 1.6 * 1.45;
 function drawHand(context, hand, foreAngle, holding) {
   context.save();
   context.translate(hand.x, hand.y);
