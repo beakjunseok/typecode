@@ -714,11 +714,11 @@ export class ThrowRenderer {
   drawGripBack(context) {
     context.fillStyle = SKIN.shade;
     context.beginPath();
-    context.ellipse(0.4, 8.4, 7.4, 5.4, 0, 0, Math.PI * 2);
+    context.ellipse(0.6, 8.6, 7.4, 5.6, 0, 0, Math.PI * 2);
     context.fill();
     context.fillStyle = SKIN.base;
     context.beginPath();
-    context.ellipse(0.4, 9.6, 6.2, 4, 0, 0, Math.PI * 2);
+    context.ellipse(0.9, 10, 6.6, 4, 0, 0, Math.PI * 2);
     context.fill();
   }
 
@@ -736,18 +736,29 @@ export class ThrowRenderer {
     fingertip(1.9, 3.2);
     fingertip(4.4, 3.1);
     fingertip(6.9, 2.6);
-    // 엄지: 반대편 테두리 아래쪽에서 끝만 보인다(나머지는 휴대폰 뒤)
-    context.save();
-    context.translate(6.3, 6.4);
-    context.rotate(-0.5);
+    // 엄지: 손바닥 아래(손목 쪽)에서 엄지 두덩이 오른쪽 테두리 밖으로 부풀며 올라와, 끝이 테두리를 넘어 앞면에 걸친다.
+    // 손바닥과 끊기지 않게 한 덩어리로 그린다
     context.fillStyle = SKIN.base;
-    roundedRect(context, -1.5, -2.6, 3, 4.6, 1.5);
+    context.beginPath();
+    context.moveTo(3.2, 13.2);
+    context.bezierCurveTo(9.4, 13.4, 9.6, 7.4, 8.3, 4.4);
+    context.bezierCurveTo(7.6, 2.6, 5.6, 1.5, 4.4, 2.5);
+    context.bezierCurveTo(3.7, 3.2, 4.4, 5, 5.3, 6.9);
+    context.bezierCurveTo(5.9, 8.4, 5, 9.9, 3.2, 10.6);
+    context.closePath();
     context.fill();
+    // 엄지 안쪽 주름 + 손톱
+    context.strokeStyle = SKIN.shade;
+    context.lineWidth = 0.55;
+    context.lineCap = 'round';
+    context.beginPath();
+    context.moveTo(5.4, 7.2);
+    context.quadraticCurveTo(6.6, 9.4, 5.2, 11.4);
+    context.stroke();
     context.fillStyle = SKIN.light;
     context.beginPath();
-    context.ellipse(-0.2, -1.6, 0.7, 0.55, 0, 0, Math.PI * 2);
+    context.ellipse(5.3, 3.1, 0.75, 0.55, -0.6, 0, Math.PI * 2);
     context.fill();
-    context.restore();
   }
 
   drawPhoneCracks(context, cracks) {
