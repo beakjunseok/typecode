@@ -315,13 +315,16 @@ export function drawDeveloper(context, {
   // 팔은 몸통과 같은 그라데이션의 '살 있는' 면(어깨 → 팔꿈치 → 손목으로 가늘어짐)으로 몸 앞에 그린다.
   // 어깨 관절은 몸통의 둥근 어깨 안쪽에 두어 팔이 어깨에서 그대로 자라 나오고, 겹친 곳은 색이 같아 경계가 없다
   const hoodieFront = hoodieFill(context, rise);
+  // 왼팔: 위팔은 옆구리 쪽으로 내려가 팔꿈치가 옆에 오고, 아래팔이 앞(키보드)으로 올라간다
   const typingShoulder = { x: -19.5, y: -9.6 - rise };
-  const typingElbow = { x: -27.5, y: -8 - rise * 0.6 };
+  const typingElbow = { x: -27.6, y: -5.2 - rise * 0.5 };
   const typingWrist = { x: typingHand.x + 0.6, y: typingHand.y + 2.6 };
+  drawShoulderBlend(context, typingShoulder, typingElbow, TYPE_ARM_WIDTHS[0], { x: -8, y: -16.4 - rise }, hoodieFront);
   drawLimb(context, [typingShoulder, typingElbow, typingWrist], TYPE_ARM_WIDTHS, hoodieFront);
   drawKeyboardHand(context, typingHand.x, typingHand.y, { press: typingHand.press, keySide, relaxed: gameOver });
   let hand = armGeometry.hand;
   if (!behind) {
+    drawShoulderBlend(context, armGeometry.shoulder, armGeometry.elbow, THROW_ARM_WIDTHS[0], { x: 8, y: -16.4 - rise + twist * 2.5 }, hoodieFront);
     drawLimb(context, [armGeometry.shoulder, armGeometry.elbow, armGeometry.hand], THROW_ARM_WIDTHS, hoodieFront);
     hand = drawThrowingHand(context, armGeometry, { aim, pose, gameOver, laptopMode, drawHeld });
   }
@@ -362,6 +365,33 @@ function hoodieFill(context, rise) {
 // 팔 굵기(어깨 · 팔꿈치 · 손목): 어깨에서 손목으로 가늘어진다
 const THROW_ARM_WIDTHS = Object.freeze([10, 8, 6.4]);
 const TYPE_ARM_WIDTHS = Object.freeze([9.4, 7.6, 6]);
+
+// 어깨 이음(필렛): 목 밑 승모근 선(neck)에서 팔 윗가장자리로 부드러운 곡선을 이어 그 사이의 턱·홈을 메운다.
+// 몸통·팔과 같은 그라데이션이라 겹쳐도 경계가 없다
+function drawShoulderBlend(context, shoulder, elbow, width, neck, fill) {
+  const length = Math.hypot(elbow.x - shoulder.x, elbow.y - shoulder.y) || 1;
+  const directionX = (elbow.x - shoulder.x) / length;
+  const directionY = (elbow.y - shoulder.y) / length;
+  let normalX = -directionY;
+  let normalY = directionX;
+  // 목 쪽을 향한 가장자리를 고른다
+  if ((neck.x - shoulder.x) * normalX + (neck.y - shoulder.y) * normalY < 0) {
+    normalX = -normalX;
+    normalY = -normalY;
+  }
+  const half = width / 2;
+  const atShoulder = { x: shoulder.x + normalX * half, y: shoulder.y + normalY * half };
+  const along = Math.min(6, length * 0.45);
+  const onArm = { x: shoulder.x + directionX * along + normalX * (half - 0.2), y: shoulder.y + directionY * along + normalY * (half - 0.2) };
+  context.fillStyle = fill;
+  context.beginPath();
+  context.moveTo(neck.x, neck.y + 2.5);
+  context.lineTo(neck.x, neck.y);
+  context.quadraticCurveTo(atShoulder.x, atShoulder.y, onArm.x, onArm.y);
+  context.lineTo(shoulder.x, shoulder.y);
+  context.closePath();
+  context.fill();
+}
 
 // 마디가 이어진 팔 한 덩어리: 마디마다 굵기가 다른 사다리꼴 + 관절 원을 같은 색으로 칠해 이음선이 없다. O(마디 수)
 function drawLimb(context, points, widths, fill) {
