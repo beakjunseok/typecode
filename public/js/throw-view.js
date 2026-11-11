@@ -18,6 +18,13 @@ const ITEM_STYLE = {
   battery: { color: '#39ff88', fill: '#123321', label: 'HP +1' }
 };
 // 금 단계별 화면색(금이 갈수록 어두워지고 붉어진다)과 금 무늬(단계마다 누적되는 선분 묶음, 화면 좌표 -4.5~4.5 × -8~6)
+// 휴대폰을 쥔 손가락(휴대폰 좌표계, 위 → 아래 = 검지 → 새끼): 세로 위치 · 테두리 밖으로 나온 마디 위치 · 손끝 x · 굵기
+const GRIP_FINGERS = Object.freeze([
+  Object.freeze({ y: 0.2, reach: 8.7, tip: -4.3, width: 2.35 }),
+  Object.freeze({ y: 2.75, reach: 9.1, tip: -4.1, width: 2.4 }),
+  Object.freeze({ y: 5.3, reach: 8.9, tip: -4.3, width: 2.3 }),
+  Object.freeze({ y: 7.7, reach: 8.3, tip: -4.8, width: 2.05 })
+]);
 const PHONE_SCREEN_COLORS = ['#36e2ff', '#2fb8d1', '#2a7f95', '#5a2b3a'];
 const PHONE_CRACK_PATHS = [
   [[[4.5, -8], [1.5, -4], [2.5, -1], [-0.5, 2]], [[1.5, -4], [-2, -5.5]]],
@@ -710,43 +717,10 @@ export class ThrowRenderer {
     context.restore();
   }
 
-  // 손바닥은 휴대폰 아래쪽 뒤에 있어 테두리 밖(아래 손목 쪽·양옆)만 보인다
+  // 손바닥은 휴대폰 아래쪽 뒤에 있어 테두리 밖(아래 손목 쪽·양옆)만 보인다.
+  // 말린 네 손가락의 가운데 마디도 뒤에서 왼쪽 테두리 밖으로 나와 둥근 마디를 이루고(여기),
+  // 끝마디가 테두리를 넘어 앞면에 얹힌다(drawGripFront) — 손바닥 → 마디 → 손끝이 끊기지 않게
   drawGripBack(context) {
-    context.fillStyle = SKIN.base;
-    context.beginPath();
-    context.ellipse(0.6, 8.6, 7.4, 5.6, 0, 0, Math.PI * 2);
-    context.fill();
-    context.fillStyle = SKIN.light;
-    context.beginPath();
-    context.ellipse(1.4, 10.4, 3.6, 1.8, 0, 0, Math.PI * 2);
-    context.fill();
-  }
-
-  // 왼쪽 테두리를 감싼 손가락 끝 넷 + 오른쪽 테두리를 감싼 엄지
-  drawGripFront(context) {
-    const fingertip = (top, length) => {
-      context.fillStyle = SKIN.base;
-      roundedRect(context, -7.2, top, length, 2.35, 1.15);
-      context.fill();
-      context.fillStyle = SKIN.shade;
-      context.fillRect(-7.2 + length - 0.8, top + 0.5, 0.45, 1.35);
-    };
-    // 검지 · 중지 · 약지 · 새끼(아래로 갈수록 짧고 가늘게) — 엄지까지 다섯
-    fingertip(-0.6, 2.9);
-    fingertip(1.9, 3.2);
-    fingertip(4.4, 3.1);
-    fingertip(6.9, 2.6);
-    this.drawGripThumb(context);
-  }
-
-  // 엄지(휴대폰 좌표계): 손바닥 아래에서 엄지 두덩(중수골 위 살)이 오른쪽 테두리 밖으로 부풀어 올라
-  // 첫째 마디 관절(MCP) → 첫마디뼈 → 끝마디 관절(IP)에서 안쪽으로 꺾여 → 끝마디가 테두리를 넘어 앞면을 누른다.
-  // 마디마다 굵기를 달리하고 관절 주름·손등 쪽 관절 하이라이트·손톱으로 뼈대가 보이게 한다
-  drawGripThumb(context) {
-    const wrist = { x: 3.2, y: 12.8 };
-    const knuckle = { x: 8.5, y: 5.6 }; // MCP
-    const joint = { x: 7.1, y: 2.4 }; // IP
-    const tip = { x: 4.9, y: 0.9 };
     const capsule = (from, to, width, color) => {
       context.strokeStyle = color;
       context.lineWidth = width;
@@ -756,59 +730,100 @@ export class ThrowRenderer {
       context.lineTo(to.x, to.y);
       context.stroke();
     };
-    // 윤곽(살짝 어두운 테두리) → 살. 같은 순서로 두 번 그려 마디가 이어지는 곳엔 선이 생기지 않는다
-    const thenar = () => {
+    for (const pass of [{ extra: 0.5, color: SKIN.shade }, { extra: 0, color: SKIN.base }]) {
+      GRIP_FINGERS.forEach(({ y, reach, width }) => {
+        capsule({ x: -0.5, y: y + 3 }, { x: -reach + width / 2, y }, width + pass.extra, pass.color);
+      });
+    }
+    context.fillStyle = SKIN.base;
+    context.beginPath();
+    context.ellipse(0.6, 8.6, 7.4, 5.6, 0, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 0.45;
+    context.fillStyle = SKIN.light;
+    context.beginPath();
+    context.ellipse(0.6, 11.4, 3.4, 1.4, 0, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 1;
+  }
+
+  // 왼쪽 테두리를 넘어온 손가락 끝마디 넷(뒤의 마디에서 이어짐, 손톱이 보임) + 오른쪽 테두리를 감싼 엄지
+  drawGripFront(context) {
+    for (const { y, tip, width } of GRIP_FINGERS) {
+      const left = -7.9;
+      context.fillStyle = SKIN.shade;
+      roundedRect(context, left - 0.2, y - width / 2 - 0.25, tip - left + 0.45, width + 0.5, (width + 0.5) / 2);
+      context.fill();
+      context.fillStyle = SKIN.base;
+      roundedRect(context, left, y - width / 2, tip - left, width, width / 2);
+      context.fill();
+      // 손톱
+      context.fillStyle = '#fff4ec';
+      roundedRect(context, tip - 1.75, y - width / 2 + 0.35, 1.4, width - 0.7, 0.55);
+      context.fill();
+      context.strokeStyle = 'rgba(214, 150, 112, 0.6)';
+      context.lineWidth = 0.25;
+      context.stroke();
+    }
+    this.drawGripThumb(context);
+  }
+
+  // 엄지(휴대폰 좌표계): 손바닥 아래에서 엄지 두덩 → 첫째 관절(MCP) → 첫마디 → 끝마디 관절(IP) → 끝마디가
+  // 테두리를 넘어 앞면을 누른다. 관절 표시 없이 매끈하게 이어지는 윤곽 하나로 그린다
+  drawGripThumb(context) {
+    const outline = () => {
       context.beginPath();
-      context.moveTo(wrist.x, wrist.y);
-      context.bezierCurveTo(7.6, 13.6, 9.9, 10.4, 9.6, 7.6);
-      context.quadraticCurveTo(9.4, 6, knuckle.x, knuckle.y - 0.6);
-      context.lineTo(6.4, 6.8);
-      context.bezierCurveTo(6.2, 8.6, 5.2, 10.2, 3, 10.8);
+      context.moveTo(2.4, 13.4);
+      // 바깥쪽: 엄지 두덩 → MCP 볼록 → 첫마디 → IP → 끝마디 둥근 끝
+      context.quadraticCurveTo(8.7, 13.8, 9.3, 9.4);
+      context.quadraticCurveTo(9.75, 7.2, 9.1, 5.3);
+      context.quadraticCurveTo(8.75, 3.7, 8, 2.6);
+      context.quadraticCurveTo(7, 0.55, 5.1, 0.6);
+      context.quadraticCurveTo(3.8, 0.75, 4, 1.9);
+      // 안쪽: 끝마디 아래 → IP 주름(살짝 오목) → 첫마디 → MCP → 엄지 두덩 안쪽
+      context.quadraticCurveTo(4.5, 3, 5.9, 3.65);
+      context.quadraticCurveTo(6.5, 4.05, 6.5, 5);
+      context.quadraticCurveTo(6.55, 7.4, 5.6, 9.2);
+      context.quadraticCurveTo(4.6, 10.6, 2.6, 10.9);
       context.closePath();
     };
-    context.fillStyle = SKIN.shade;
-    context.save();
-    context.translate(0.15, 0.12);
-    thenar();
-    context.fill();
-    context.restore();
-    capsule(knuckle, joint, 3.2, SKIN.shade);
-    capsule(joint, tip, 2.8, SKIN.shade);
     context.fillStyle = SKIN.base;
-    thenar();
+    outline();
     context.fill();
-    capsule(knuckle, joint, 2.9, SKIN.base);
-    capsule(joint, tip, 2.5, SKIN.base);
-    // 엄지 두덩 볼록함(빛)
-    context.fillStyle = SKIN.light;
-    context.beginPath();
-    context.ellipse(8.1, 9.2, 1, 1.9, -0.25, 0, Math.PI * 2);
-    context.fill();
-    // 관절: 바깥쪽(손등 쪽) 마디 하이라이트 + 안쪽 주름
-    context.fillStyle = SKIN.light;
-    context.beginPath();
-    context.ellipse(knuckle.x + 0.7, knuckle.y - 0.2, 0.55, 0.75, -0.4, 0, Math.PI * 2);
-    context.ellipse(joint.x + 0.5, joint.y - 0.6, 0.45, 0.55, -0.8, 0, Math.PI * 2);
-    context.fill();
-    context.strokeStyle = SKIN.shade;
-    context.lineWidth = 0.45;
+    // 윤곽선은 엄지가 보이는 가장자리에만(손바닥과 붙는 아래쪽엔 선을 긋지 않아 이음매가 없다)
+    context.strokeStyle = 'rgba(214, 150, 112, 0.65)';
+    context.lineWidth = 0.4;
+    context.lineJoin = 'round';
     context.lineCap = 'round';
     context.beginPath();
-    context.moveTo(joint.x - 1.3, joint.y + 0.5);
-    context.lineTo(joint.x - 0.3, joint.y + 1.3);
-    context.moveTo(knuckle.x - 1.4, knuckle.y + 0.3);
-    context.lineTo(knuckle.x - 0.5, knuckle.y + 1.2);
+    context.moveTo(9.3, 9.4);
+    context.quadraticCurveTo(9.75, 7.2, 9.1, 5.3);
+    context.quadraticCurveTo(8.75, 3.7, 8, 2.6);
+    context.quadraticCurveTo(7, 0.55, 5.1, 0.6);
+    context.quadraticCurveTo(3.8, 0.75, 4, 1.9);
+    context.quadraticCurveTo(4.5, 3, 5.9, 3.65);
+    context.quadraticCurveTo(6.5, 4.05, 6.5, 5);
+    context.quadraticCurveTo(6.55, 7.4, 5.6, 9.2);
     context.stroke();
-    // 손톱: 끝마디 방향으로 놓인 둥근 판
-    const angle = Math.atan2(tip.y - joint.y, tip.x - joint.x);
+    // 바깥 가장자리 빛: 엄지 두덩부터 끝까지 끊김 없이 한 줄
+    context.strokeStyle = SKIN.light;
+    context.lineWidth = 0.9;
+    context.lineCap = 'round';
+    context.beginPath();
+    context.moveTo(8.2, 11.2);
+    context.quadraticCurveTo(9, 8.4, 8.6, 5.6);
+    context.quadraticCurveTo(8.3, 3.8, 7.4, 2.5);
+    context.quadraticCurveTo(6.6, 1.5, 5.6, 1.4);
+    context.stroke();
+    // 손톱: 끝마디 등 쪽, 끝마디 방향으로
     context.save();
-    context.translate(tip.x + (joint.x - tip.x) * 0.35, tip.y + (joint.y - tip.y) * 0.35 - 0.35);
-    context.rotate(angle);
+    context.translate(5.75, 1.45);
+    context.rotate(-2.75);
     context.fillStyle = '#fff4ec';
-    roundedRect(context, -0.9, -0.85, 1.9, 1.5, 0.7);
+    roundedRect(context, -1, -0.72, 2, 1.44, 0.65);
     context.fill();
     context.strokeStyle = 'rgba(214, 150, 112, 0.6)';
-    context.lineWidth = 0.3;
+    context.lineWidth = 0.25;
     context.stroke();
     context.restore();
   }
