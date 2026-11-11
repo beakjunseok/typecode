@@ -293,8 +293,11 @@ export class SoundEngine {
   }
 }
 
-// 로봇 반응음·점수음은 콤보 1·2단계 음높이까지만 쓴다(그 위는 귀에 쨍해서): 홀짝 콤보로 두 음을 번갈아
+// 로봇 반응음·점수음은 콤보 1·2단계 두 음을 번갈아 쓰고, 5콤보마다 한 번만 약간 높은 4단계 음(솔)을 포인트로 낸다.
+// 그보다 높은 음은 귀에 쨍해서 쓰지 않는다
+const ROBOT_ACCENT_EVERY = 5;
 function robotVoiceFrequency(combo) {
+  if (combo > 0 && combo % ROBOT_ACCENT_EVERY === 0) return comboFrequency(4);
   return comboFrequency(combo % 2 === 0 ? 2 : 1);
 }
 
@@ -398,7 +401,7 @@ const SOUNDS = {
   },
   // 로봇 명중(레트로 아케이드풍): ① 8비트 '퍽'(사각파가 520→90Hz로 곤두박질) ② 부서지는 '빡'(대역 잡음)
   // ③ 몸통 '퉁' ④ 전기 스파크 '지직'(무작위 간격 고역 틱 3개) ⑤ 로봇 반응음 — 처치되면 위로 '삐빅!', 버티면 아래로 '삐-익'.
-  // 반응음은 콤보 1·2단계 두 음을 번갈아 써서 너무 높아지지 않는다. 종류별로 탱크는 낮고 굵게, 빠른 로봇은 높고 가볍게,
+  // 반응음은 콤보 1·2단계 두 음을 번갈아 쓰고 5콤보마다 한 번 약간 높은 음으로 포인트를 준다. 종류별로 탱크는 낮고 굵게, 빠른 로봇은 높고 가볍게,
   // 노트북은 더 세게. 매 타 음높이 ±4% 흔들기. 노드 약 12개, O(1)
   robotHit(engine, context, time, { type = 'basic', weapon = 'phone', remainingHp = 0, combo = 1 } = {}) {
     const body = ROBOT_HIT_BODIES[type] ?? ROBOT_HIT_BODIES.basic;
