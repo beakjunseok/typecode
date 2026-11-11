@@ -1,7 +1,7 @@
 // 아케이드 모드(휴대폰 던지기 · 에러 구조 SOS) 공통 엔진.
 // 화면에 뜬 목표들 중 첫 글자로 하나를 조준하고, 토큰을 다 맞게 치면 '발사'하는 규칙과
 // 입력 버퍼·오타·Backspace·콤보·생명·게임 시간·요약을 담당한다. 모드별 규칙은 하위 클래스의 훅으로 넣는다.
-import { SCORING, getMultiplier, getTierProgress, calculateWordsPerMinute, calculateAccuracy } from './engine.js';
+import { SCORING, getMultiplier, getTierProgress, calculateWordsPerMinute, calculateCharactersPerMinute, calculateAccuracy } from './engine.js';
 
 export const ARCADE_RULES = Object.freeze({
   minTokenLength: 2,
@@ -294,6 +294,7 @@ export class TargetGameEngine {
       status: this.status,
       elapsedSeconds: this.gameTime,
       wordsPerMinute: this.status === 'ready' ? 0 : calculateWordsPerMinute(this.correctKeystrokes, this.gameTime),
+      charactersPerMinute: this.status === 'ready' ? 0 : calculateCharactersPerMinute(this.correctKeystrokes, this.gameTime),
       accuracy: calculateAccuracy(this.correctKeystrokes, this.wrongKeystrokes),
       combo: this.combo,
       multiplier: getMultiplier(this.combo),
@@ -326,6 +327,7 @@ export class TargetGameEngine {
       survivedSeconds,
       score: this.score,
       wordsPerMinute: calculateWordsPerMinute(this.correctKeystrokes, this.gameTime),
+      charactersPerMinute: calculateCharactersPerMinute(this.correctKeystrokes, this.gameTime),
       accuracy: calculateAccuracy(this.correctKeystrokes, this.wrongKeystrokes),
       maxCombo: this.maxCombo,
       itemsCollected: this.itemsCollected,

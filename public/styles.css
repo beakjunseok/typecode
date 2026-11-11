@@ -291,3 +291,45 @@ tr.rank1 td:first-child { color: var(--warn); }
   .spark { display: none; }
   .stage.shake, .stage.tier-flash, .current.enter, .stat.time.low .value, .key .glow, .key .base { animation: none; }
 }
+
+/* ---------- 배터리 구조 PvP 로비 ---------- */
+.stage.arcade { position: relative; }
+.pvp-lobby {
+  position: absolute; inset: 34px 0 0 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+  background: rgba(5, 8, 12, 0.88); backdrop-filter: blur(3px); padding: 16px;
+}
+.pvp-card {
+  width: min(360px, 100%); background: #0f1620; border: 1px solid var(--line); border-radius: 12px;
+  padding: 18px 18px 16px; text-align: center; display: flex; flex-direction: column; gap: 10px;
+}
+.pvp-card h3 { margin: 0; font-size: 16px; color: #ffb86c; }
+.pvp-card [data-view] { display: flex; flex-direction: column; gap: 10px; }
+.pvp-card [data-view][hidden] { display: none !important; }
+.pvp-card p { margin: 0; }
+.pvp-sub, .pvp-hint, .pvp-or { font-size: 12px; color: #8a98aa; }
+.pvp-field { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #8a98aa; text-align: left; }
+.pvp-field input { flex: 1; min-width: 0; }
+.pvp-wide { width: 100%; padding: 10px; font-size: 14px; }
+.pvp-join { display: flex; gap: 8px; }
+.pvp-join input {
+  flex: 1; min-width: 0; text-align: center; font-size: 20px; letter-spacing: 8px; text-transform: uppercase; font-weight: 800;
+}
+.pvp-code { font-size: 44px; font-weight: 800; letter-spacing: 12px; color: #39ff88; text-shadow: 0 0 16px rgba(57, 255, 136, 0.45); padding-left: 12px; }
+.pvp-actions { display: flex; gap: 8px; justify-content: center; }
+.pvp-actions button { flex: 1; }
+.pvp-status { color: #c9d4e0; font-size: 13px; }
+.pvp-status::after { content: ''; display: inline-block; width: 1em; text-align: left; animation: pvp-dots 1.2s steps(4) infinite; }
+@keyframes pvp-dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+.pvp-countdown { font-size: 72px; font-weight: 900; color: #ffb86c; line-height: 1; }
+.pvp-countdown.pop { animation: pvp-pop 0.6s ease-out; }
+@keyframes pvp-pop { 0% { transform: scale(1.6); opacity: 0; } 40% { transform: scale(0.95); opacity: 1; } 100% { transform: scale(1); } }
+.pvp-error { color: #ff8a9c; font-size: 13px; line-height: 1.5; }
+.pvp-result-note { text-align: center; color: #8a98aa; font-size: 12px; margin: 8px 0 0; }
+.pvp-card input {
+  background: #0a0d12; border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 10px 12px;
+  font-family: inherit; font-size: 14px; outline: none;
+}
+.pvp-card input:focus { border-color: #ffb86c; box-shadow: 0 0 0 2px rgba(255, 184, 108, 0.2); }
+.pvp-card input::placeholder { color: #4b5767; letter-spacing: 2px; }
+.pvp-join input { font-size: 20px; letter-spacing: 8px; padding: 8px 12px; }
+.pvp-join button { min-width: 72px; }

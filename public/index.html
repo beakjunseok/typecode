@@ -32,6 +32,10 @@
         <button type="button" data-seconds="120">120s</button>
         <button type="button" data-variant="timeattack" title="시간 연장: 20초로 시작, 토큰을 맞출 때마다 시간 추가">⏳연장</button>
       </div>
+      <div class="segmented" id="batteryVariantGroup" role="group" aria-label="대전 상대" hidden>
+        <button type="button" data-battery-variant="ai" title="방전봇(AI)과 대결">🤖 AI</button>
+        <button type="button" data-battery-variant="pvp" title="친구와 1:1 대결(방 코드)">👥 PvP</button>
+      </div>
       <div class="icon-buttons">
         <button type="button" class="icon" id="soundToggle" aria-pressed="true" title="효과음">🔊</button>
         <button type="button" class="icon" id="bgmToggle" aria-pressed="true" title="배경음악">♫</button>
@@ -73,6 +77,50 @@
     <div class="input-bar" id="inputBar" hidden aria-live="off">
       <span class="prompt">&gt;</span><span class="typed" id="inputTyped"></span><span class="wrong" id="inputWrong"></span><span class="caret"></span><span class="rest" id="inputRest"></span><span class="target-hint" id="inputTarget"></span>
     </div>
+    <div class="pvp-lobby" id="pvpLobby" hidden>
+      <div class="pvp-card">
+        <h3>👥 친구와 배터리 구조 대결</h3>
+        <p class="pvp-sub">1:1 · 3판 2선승 · 서로 다른 기기 · 방장의 언어·난이도로 진행</p>
+        <div data-view="menu">
+          <label class="pvp-field">내 이름 <input id="pvpName" maxlength="16" placeholder="anonymous" autocomplete="off"></label>
+          <button type="button" class="primary pvp-wide" id="pvpCreate">방 만들기</button>
+          <div class="pvp-or">또는 친구 방 코드로 참가</div>
+          <div class="pvp-join">
+            <input id="pvpCodeInput" maxlength="4" placeholder="코드 4자리" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text">
+            <button type="button" id="pvpJoin" disabled>참가</button>
+          </div>
+        </div>
+        <div data-view="hosting" hidden>
+          <p>친구에게 이 코드를 알려 주세요</p>
+          <div class="pvp-code" id="pvpCode">----</div>
+          <p class="pvp-hint" id="pvpExpires"></p>
+          <div class="pvp-actions">
+            <button type="button" id="pvpCopy">링크 복사</button>
+            <button type="button" id="pvpShare">공유</button>
+          </div>
+          <p class="pvp-status" data-pvp-status>상대를 기다리는 중…</p>
+          <button type="button" data-pvp-cancel>취소</button>
+        </div>
+        <div data-view="joining" hidden>
+          <p class="pvp-status" data-pvp-status>방 찾는 중…</p>
+          <button type="button" data-pvp-cancel>취소</button>
+        </div>
+        <div data-view="countdown" hidden>
+          <p>vs <b id="pvpOpponent"></b></p>
+          <div class="pvp-countdown" id="pvpCountdown">3</div>
+          <p class="pvp-hint">화면을 탭하면 입력 준비</p>
+        </div>
+        <div data-view="rematch" hidden>
+          <p id="pvpRematchText"></p>
+          <button type="button" class="primary pvp-wide" id="pvpRematch">한 판 더</button>
+          <button type="button" id="pvpLeave">나가기</button>
+        </div>
+        <div data-view="error" hidden>
+          <p class="pvp-error" id="pvpError"></p>
+          <button type="button" class="primary" id="pvpBack">돌아가기</button>
+        </div>
+      </div>
+    </div>
     <div class="overlay" id="arcadeOverlay">여기를 클릭(탭)해서 시작 준비<br><span id="arcadeOverlayHint">첫 글자를 치면 게임이 시작됩니다</span></div>
   </section>
 
@@ -99,7 +147,8 @@
   <p class="hint" id="batteryHint" hidden>
     왼쪽 내 폰 vs 오른쪽 방전봇 · 두 배터리 탑은 계속 방전 · <kbd>Enter</kbd> 친 낱말 지우기 · 지나가는 아이템 낱말을 치면 내 탑 충전(셀 +0.5 · 보조배터리 +1)<br>
     방전봇 탑 위 낱말을 치면 상대 −0.5 · 방전봇도 같은 낱말을 노림(빨간 밑줄) · 100%(8칸) 충전하면 스테이지 클리어 · 0%면 패배<br>
-    🍃 저전력: 내 방전 4초 감속 · 🔥 발열: 상대 4초 급방전 · 🌙 화면 꺼짐: 방전봇 3초 정지
+    🍃 저전력: 내 방전 4초 감속 · 🔥 발열: 상대 4초 급방전 · 🌙 화면 꺼짐: 방전봇 3초 정지<br>
+    👥 PvP: 방을 만들어 코드(또는 링크)를 친구에게 보내면 1:1 대결 · 3판 2선승 · 같은 아이템은 먼저 다 친 사람 것 · 🌙 화면 꺼짐은 상대 입력 3초 막기 · 랭킹에는 안 올라감
   </p>
 </div>
 
@@ -122,6 +171,7 @@
       <div class="section-head"><span>자주 틀린 토큰</span></div>
       <div class="chips" id="weakTokens"></div>
     </div>
+    <p class="pvp-result-note" id="pvpResultNote" hidden>PvP 결과는 랭킹에 올라가지 않아요</p>
     <form id="saveForm">
       <label for="playerName">랭킹에 남길 이름</label>
       <input id="playerName" maxlength="16" placeholder="anonymous" autocomplete="off">
