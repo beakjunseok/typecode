@@ -300,6 +300,15 @@ function robotVoiceFrequency(combo) {
   return comboFrequency(combo % 2 === 0 ? 2 : 1);
 }
 
+// 거꾸로 감은 '띠링': 원래 동전음(짧은 음 → 4도 위 긴 음)을 뒤집은 모양. 4도 위 음이 0.2초 동안 '스으읍' 차오르다
+// 뚝 끊기며 아래 음이 짧게 빨려 들어가고, 끝에 작은 '틱'으로 마침표. 시작 시각 + 약 0.28초에 끝난다. O(1)
+function reverseChime(engine, context, frequency, startTime, peak, brightness) {
+  const filter = { type: 'lowpass', frequency: brightness };
+  engine.tone(context, { frequency: frequency * 4 / 3, startTime, peak, attack: 0.2, decay: 0.012, waveform: 'square', filter });
+  engine.tone(context, { frequency, startTime: startTime + 0.205, peak, attack: 0.05, decay: 0.01, waveform: 'square', filter });
+  engine.tone(context, { frequency: frequency * 2, startTime: startTime + 0.265, peak: peak * 0.6, attack: 0.001, decay: 0.015 });
+}
+
 function comboFrequency(combo) {
   const step = Math.max(0, combo - 1) % (PENTATONIC_STEPS.length * 2);
   const semitones = PENTATONIC_STEPS[step % PENTATONIC_STEPS.length] + 12 * Math.floor(step / PENTATONIC_STEPS.length);
@@ -424,7 +433,7 @@ const SOUNDS = {
     }
   },
   // 로봇 처치(휴대폰 던지기): 펑 터지는 폭발 + 로봇이 꺼지는 '뿌우웅↓'(톱니파 하강) + 파편 '찰랑'(중고역 틱 5개)
-  // + 점수 '띠링'(반응음과 같은 두 음), 5콤보마다 높은 '띠링'을 하나 더. O(1)
+  // + 거꾸로 차오르는 점수 '띠링'(반응음과 같은 두 음), 5콤보마다 높은 '띠링'을 하나 더. O(1)
   robotKill(engine, context, time, { type = 'basic', combo = 1 } = {}) {
     const big = type === 'tank' ? 1.3 : 1;
     engine.noise(context, { startTime: time, peak: 0.14 * big, decay: 0.38 * big, filterType: 'lowpass', frequency: 1800, sweepTo: 120 });
@@ -433,13 +442,8 @@ const SOUNDS = {
       engine.tone(context, { frequency: 1400 + Math.random() * 900, startTime: time + 0.08 + index * 0.04 + Math.random() * 0.02, peak: 0.012, decay: 0.05 });
     }
     const coin = robotVoiceFrequency(combo);
-    engine.tone(context, { frequency: coin, startTime: time + 0.16, peak: 0.035, decay: 0.05, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
-    engine.tone(context, { frequency: coin * 4 / 3, startTime: time + 0.21, peak: 0.035, decay: 0.2, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
-    if (combo > 0 && combo % ROBOT_ACCENT_EVERY === 0) {
-      const high = comboFrequency(combo) * 2;
-      engine.tone(context, { frequency: high, startTime: time + 0.3, peak: 0.03, decay: 0.05, waveform: 'square', filter: { type: 'lowpass', frequency: 5000 } });
-      engine.tone(context, { frequency: high * 4 / 3, startTime: time + 0.35, peak: 0.03, decay: 0.22, waveform: 'square', filter: { type: 'lowpass', frequency: 5000 } });
-    }
+    reverseChime(engine, context, coin, time + 0.12, 0.035, 4000);
+    if (combo > 0 && combo % ROBOT_ACCENT_EVERY === 0) reverseChime(engine, context, comboFrequency(combo) * 2, time + 0.36, 0.03, 5000);
   },
   // 처치: 저역 폭발 + 낮게 떨어지는 톤
   explode(engine, context, time) {
