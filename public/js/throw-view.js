@@ -730,8 +730,8 @@ export class ThrowRenderer {
     for (const { y, reach, width } of fingers) {
       context.quadraticCurveTo(-reach - 0.5, y, -reach + 1.2, y + width / 2);
     }
-    context.bezierCurveTo(-8.3, 11.2, -6.2, 12.9, -2.8, 13);
-    context.bezierCurveTo(0.4, 13.1, 3.6, 12.6, 5.6, 11.6);
+    context.bezierCurveTo(-7.3, 9.9, -7, 11.3, -5.2, 11.9);
+    context.bezierCurveTo(-2.6, 12.6, 2.2, 12.6, 5.6, 11.6);
     context.lineTo(6.5, fingers[0].y - 1.6);
     context.closePath();
     context.fill();
@@ -742,8 +742,8 @@ export class ThrowRenderer {
     context.beginPath();
     context.moveTo(-fingers[0].reach + 1.2, fingers[0].y - fingers[0].width / 2);
     for (const { y, reach, width } of fingers) context.quadraticCurveTo(-reach - 0.5, y, -reach + 1.2, y + width / 2);
-    context.bezierCurveTo(-8.3, 11.2, -6.2, 12.9, -2.8, 13);
-    context.bezierCurveTo(0.4, 13.1, 3.6, 12.6, 5.6, 11.6);
+    context.bezierCurveTo(-7.3, 9.9, -7, 11.3, -5.2, 11.9);
+    context.bezierCurveTo(-2.6, 12.6, 2.2, 12.6, 5.6, 11.6);
     context.stroke();
     context.beginPath();
     for (const { y, reach, width } of fingers.slice(0, -1)) {
@@ -754,7 +754,7 @@ export class ThrowRenderer {
     context.globalAlpha = 0.45;
     context.fillStyle = SKIN.light;
     context.beginPath();
-    context.ellipse(-0.6, 11.8, 2.6, 0.7, 0, 0, Math.PI * 2);
+    context.ellipse(-0.4, 11.4, 2.4, 0.55, 0, 0, Math.PI * 2);
     context.fill();
     context.globalAlpha = 1;
   }
@@ -790,9 +790,9 @@ export class ThrowRenderer {
   drawGripThumb(context) {
     const outline = () => {
       context.beginPath();
-      context.moveTo(1.4, 12.9);
-      // 바깥쪽: 엄지 두덩(둥글게) → MCP 볼록 → 첫마디 → IP → 끝마디 둥근 끝
-      context.bezierCurveTo(5.4, 13.2, 8.8, 12.2, 9.2, 9.4);
+      // 손바닥 아랫선(drawGripBack)과 같은 높이에서 시작해 이음매 없이 엄지 두덩으로 이어진다
+      context.moveTo(-1, 12.4);
+      context.bezierCurveTo(3.4, 12.6, 8.6, 12.1, 9.2, 9.4);
       context.quadraticCurveTo(9.75, 7.2, 9.1, 5.3);
       context.quadraticCurveTo(8.75, 3.7, 8, 2.6);
       context.quadraticCurveTo(7, 0.55, 5.1, 0.6);
