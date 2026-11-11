@@ -730,8 +730,8 @@ export class ThrowRenderer {
     for (const { y, reach, width } of fingers) {
       context.quadraticCurveTo(-reach - 0.5, y, -reach + 1.2, y + width / 2);
     }
-    context.quadraticCurveTo(-8.6, 11.8, -4.6, 13.9);
-    context.quadraticCurveTo(0.8, 15.2, 6, 13.2);
+    context.quadraticCurveTo(-7.9, 10.6, -5, 11.6);
+    context.quadraticCurveTo(0.6, 12.6, 6, 11.4);
     context.lineTo(6.5, fingers[0].y - 1.6);
     context.closePath();
     context.fill();
@@ -742,8 +742,8 @@ export class ThrowRenderer {
     context.beginPath();
     context.moveTo(-fingers[0].reach + 1.2, fingers[0].y - fingers[0].width / 2);
     for (const { y, reach, width } of fingers) context.quadraticCurveTo(-reach - 0.5, y, -reach + 1.2, y + width / 2);
-    context.quadraticCurveTo(-8.6, 11.8, -4.6, 13.9);
-    context.quadraticCurveTo(0.8, 15.2, 6, 13.2);
+    context.quadraticCurveTo(-7.9, 10.6, -5, 11.6);
+    context.quadraticCurveTo(0.6, 12.6, 6, 11.4);
     context.stroke();
     context.beginPath();
     for (const { y, reach, width } of fingers.slice(0, -1)) {
@@ -754,7 +754,7 @@ export class ThrowRenderer {
     context.globalAlpha = 0.45;
     context.fillStyle = SKIN.light;
     context.beginPath();
-    context.ellipse(0.6, 12.2, 3.4, 1.2, 0, 0, Math.PI * 2);
+    context.ellipse(0.2, 10.9, 2.8, 0.7, 0, 0, Math.PI * 2);
     context.fill();
     context.globalAlpha = 1;
   }
@@ -790,9 +790,9 @@ export class ThrowRenderer {
   drawGripThumb(context) {
     const outline = () => {
       context.beginPath();
-      context.moveTo(2.4, 13.4);
+      context.moveTo(2.4, 11.9);
       // 바깥쪽: 엄지 두덩 → MCP 볼록 → 첫마디 → IP → 끝마디 둥근 끝
-      context.quadraticCurveTo(8.7, 13.8, 9.3, 9.4);
+      context.quadraticCurveTo(8.2, 12.3, 9.2, 9.4);
       context.quadraticCurveTo(9.75, 7.2, 9.1, 5.3);
       context.quadraticCurveTo(8.75, 3.7, 8, 2.6);
       context.quadraticCurveTo(7, 0.55, 5.1, 0.6);
@@ -801,7 +801,7 @@ export class ThrowRenderer {
       context.quadraticCurveTo(4.5, 3, 5.9, 3.65);
       context.quadraticCurveTo(6.5, 4.05, 6.5, 5);
       context.quadraticCurveTo(6.55, 7.4, 5.6, 9.2);
-      context.quadraticCurveTo(4.6, 10.6, 2.6, 10.9);
+      context.quadraticCurveTo(4.6, 10.4, 2.6, 10.6);
       context.closePath();
     };
     context.fillStyle = SKIN.base;
@@ -813,7 +813,7 @@ export class ThrowRenderer {
     context.lineJoin = 'round';
     context.lineCap = 'round';
     context.beginPath();
-    context.moveTo(9.3, 9.4);
+    context.moveTo(9.2, 9.4);
     context.quadraticCurveTo(9.75, 7.2, 9.1, 5.3);
     context.quadraticCurveTo(8.75, 3.7, 8, 2.6);
     context.quadraticCurveTo(7, 0.55, 5.1, 0.6);
@@ -827,8 +827,8 @@ export class ThrowRenderer {
     context.lineWidth = 0.9;
     context.lineCap = 'round';
     context.beginPath();
-    context.moveTo(8.2, 11.2);
-    context.quadraticCurveTo(9, 8.4, 8.6, 5.6);
+    context.moveTo(8.5, 9.6);
+    context.quadraticCurveTo(9, 7.6, 8.6, 5.6);
     context.quadraticCurveTo(8.3, 3.8, 7.4, 2.5);
     context.quadraticCurveTo(6.6, 1.5, 5.6, 1.4);
     context.stroke();
