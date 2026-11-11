@@ -303,17 +303,28 @@ export function drawDeveloper(context, {
   const typingHand = typingHandPosition({ time, keyPulse, keySide, typing, rise, slump, gameOver });
   context.save();
   leanUpperBody();
-  drawTypingSleeve(context, typingHand, rise);
-  drawThrowingSleeve(context, armGeometry);
+  // 따라 휘두르는 동안(팔이 몸 앞으로 넘어감)은 팔이 몸통·머리 뒤로 가려진다
+  if (behind) drawLimb(context, [armGeometry.shoulder, armGeometry.elbow, armGeometry.hand], THROW_ARM_WIDTHS);
   drawTorso(context, { rise, twist });
-  drawKeyboardHand(context, typingHand.x, typingHand.y, { press: typingHand.press, keySide, relaxed: gameOver });
   drawHead(context, { headX, headY, headTilt, lookSide, time, armSwing: (pose.upper - POSES.ready.upper) * -25 + keyPulse * 4, lives, laptopMode, gameOver, rise, twist });
   context.restore();
   drawChairBack(context, time, lives);
   context.save();
   leanUpperBody();
-  // 따라 휘두르는 동안(팔이 몸 앞으로 넘어감)은 손이 몸에 가려 보이지 않는다
-  const hand = behind ? armGeometry.hand : drawThrowingHand(context, armGeometry, { aim, pose, gameOver, laptopMode, drawHeld });
+  // 팔은 몸통과 같은 색의 '살 있는' 면(어깨 → 팔꿈치 → 손목으로 가늘어짐)으로 몸 앞에 그린다.
+  // 어깨는 둥근 어깨 머리(삼각근)로 몸통 윤곽에 이어지고, 겨드랑이 아래 반투명 그늘만으로 앞뒤를 나눈다(선 없음)
+  const typingShoulder = { x: -19, y: -11 - rise };
+  const typingElbow = { x: -27.5, y: -8 - rise * 0.6 };
+  const typingWrist = { x: typingHand.x + 0.6, y: typingHand.y + 2.6 };
+  drawArmpitShade(context, typingShoulder, -1);
+  drawLimb(context, [typingShoulder, typingElbow, typingWrist], TYPE_ARM_WIDTHS);
+  drawKeyboardHand(context, typingHand.x, typingHand.y, { press: typingHand.press, keySide, relaxed: gameOver });
+  let hand = armGeometry.hand;
+  if (!behind) {
+    drawArmpitShade(context, armGeometry.shoulder, 1);
+    drawLimb(context, [armGeometry.shoulder, armGeometry.elbow, armGeometry.hand], THROW_ARM_WIDTHS);
+    hand = drawThrowingHand(context, armGeometry, { aim, pose, gameOver, laptopMode, drawHeld });
+  }
   drawReaction(context, { headX, headY, hurt, lives, time, gameOver });
   context.restore();
   context.restore();
@@ -340,15 +351,44 @@ function typingHandPosition({ time, keyPulse, keySide, typing, rise, slump, game
   };
 }
 
-// 왼팔 소매: 몸통 안(어깨)에서 시작해 손목까지 한 줄. 몸통이 위에 덮여 어깨 이음선이 생기지 않는다
-function drawTypingSleeve(context, hand, rise) {
-  context.lineCap = 'round';
-  context.strokeStyle = COLORS.hoodie;
-  context.lineWidth = 7;
-  context.beginPath();
-  context.moveTo(-16, -9 - rise * 0.5);
-  context.quadraticCurveTo(-26, -9, hand.x + 1.5, hand.y + 3);
-  context.stroke();
+// 팔 굵기(어깨 · 팔꿈치 · 손목): 어깨에서 손목으로 가늘어진다
+const THROW_ARM_WIDTHS = Object.freeze([10, 8, 6.4]);
+const TYPE_ARM_WIDTHS = Object.freeze([9.4, 7.6, 6]);
+const ARM_COLOR = '#436586';
+
+// 마디가 이어진 팔 한 덩어리: 마디마다 굵기가 다른 사다리꼴 + 관절 원을 같은 색으로 칠해 이음선이 없다. O(마디 수)
+function drawLimb(context, points, widths) {
+  context.fillStyle = ARM_COLOR;
+  for (let index = 0; index < points.length - 1; index++) {
+    const from = points[index];
+    const to = points[index + 1];
+    const length = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+    const normalX = -(to.y - from.y) / length;
+    const normalY = (to.x - from.x) / length;
+    const half0 = widths[index] / 2;
+    const half1 = widths[index + 1] / 2;
+    context.beginPath();
+    context.moveTo(from.x + normalX * half0, from.y + normalY * half0);
+    context.lineTo(to.x + normalX * half1, to.y + normalY * half1);
+    context.lineTo(to.x - normalX * half1, to.y - normalY * half1);
+    context.lineTo(from.x - normalX * half0, from.y - normalY * half0);
+    context.closePath();
+    context.fill();
+  }
+  points.forEach((point, index) => {
+    context.beginPath();
+    context.arc(point.x, point.y, widths[index] / 2, 0, Math.PI * 2);
+    context.fill();
+  });
+}
+
+// 팔이 몸 앞에 있음을 보여 주는 겨드랑이 아래 반투명 그늘(side: -1 왼쪽, 1 오른쪽)
+function drawArmpitShade(context, shoulder, side) {
+  const shade = context.createRadialGradient(shoulder.x - side * 2, shoulder.y + 4, 0.5, shoulder.x - side * 2, shoulder.y + 4, 7);
+  shade.addColorStop(0, 'rgba(18, 30, 44, 0.32)');
+  shade.addColorStop(1, 'rgba(18, 30, 44, 0)');
+  context.fillStyle = shade;
+  context.fillRect(shoulder.x - 9, shoulder.y - 3, 18, 14);
 }
 
 // 키보드 위 왼손(뒤 위에서 본 손등): 손가락 넷이 앞(화면 위)으로 뻗어 키에 얹히고, 엄지는 안쪽(오른쪽)으로.
@@ -567,7 +607,7 @@ function drawChairBack(context, time, lives) {
 // 던지는 오른팔 관절 위치(어깨 → 팔꿈치 → 손목). pose.upper는 조준 방향 기준 오프셋, pose.bend는 팔꿈치 굽힘.
 // 어깨는 비틀면 앞(위)·뒤(아래)로, 원근 때문에 몸 쪽으로 붙어 보인다
 function throwingArmGeometry({ aim, pose, twist = 0, rise = 0, gameOver, slump = 1 }) {
-  const shoulder = { x: 17 - Math.abs(twist) * 2, y: -10 + twist * 3 - rise };
+  const shoulder = { x: 19 - Math.abs(twist) * 2, y: -11 + twist * 3 - rise };
   const upperLength = 15;
   const foreLength = 14;
   const aimAngle = -Math.PI / 2 + aim * 0.75;
@@ -582,20 +622,7 @@ function throwingArmGeometry({ aim, pose, twist = 0, rise = 0, gameOver, slump =
   return { shoulder, elbow, hand, foreAngle, droop, nearness: 1 + 0.16 * Math.max(0, twist) };
 }
 
-// 던지는 팔 소매: 몸통보다 먼저(아래에) 그려 어깨에서 이음선 없이 나온다
-function drawThrowingSleeve(context, { shoulder, elbow, hand }) {
-  context.lineCap = 'round';
-  context.lineJoin = 'round';
-  context.strokeStyle = COLORS.hoodie;
-  context.lineWidth = 7.5;
-  context.beginPath();
-  context.moveTo(shoulder.x - 3, shoulder.y + 2);
-  context.lineTo(elbow.x, elbow.y);
-  context.lineTo(hand.x, hand.y);
-  context.stroke();
-}
-
-// 손목 소맷부리 + 손(휴대폰). 투사체 출발점(휴대폰 중심 또는 손)을 돌려준다
+// 손(휴대폰). 투사체 출발점(휴대폰 중심 또는 손)을 돌려준다
 function drawThrowingHand(context, { hand, foreAngle, droop, nearness }, { aim, pose, gameOver, laptopMode, drawHeld }) {
   const directionX = Math.cos(foreAngle);
   const directionY = Math.sin(foreAngle);
@@ -608,7 +635,6 @@ function drawThrowingHand(context, { hand, foreAngle, droop, nearness }, { aim, 
   }
   // 손목 관절: 팔(소매)은 손목에서 끝나고 소맷부리를 두른다. 손은 손목을 축으로 휴대폰이 대체로 서 있도록 꺾이되
   // 실제 손목처럼 팔 방향에서 ±WRIST_LIMIT 안에서만 꺾인다(휴대폰이 팔에 붙어 같이 돌아가지 않게)
-  drawCuff(context, hand, foreAngle);
   // 휴대폰은 대체로 서 있되 위쪽이 살짝 오른쪽으로 기운다(손이 왼쪽 아래 모서리를 받쳐 쥐므로)
   const upright = -Math.PI / 2 + aim * 0.5 + 0.16;
   const wanted = Math.atan2(Math.sin(upright - foreAngle), Math.cos(upright - foreAngle));
@@ -626,17 +652,6 @@ function drawThrowingHand(context, { hand, foreAngle, droop, nearness }, { aim, 
   };
   drawHeld(context, center.x, center.y, phoneAngle, gameOver ? 1 : pose.held * nearness, false, true);
   return center;
-}
-
-// 소맷부리: 팔 끝(손목)에 두르는 후드 소매 끝단
-function drawCuff(context, wrist, foreAngle) {
-  context.save();
-  context.translate(wrist.x, wrist.y);
-  context.rotate(foreAngle);
-  context.fillStyle = COLORS.hoodieLight;
-  roundedRect(context, -4.6, -4.6, 5.4, 9.2, 2.6);
-  context.fill();
-  context.restore();
 }
 
 // 휴대폰을 쥐지 않은 손: 가볍게 쥔 주먹(손등 + 손가락 마디 줄). holding이면(노트북) 손가락을 앞으로 말아 쥔다
