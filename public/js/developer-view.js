@@ -6,7 +6,7 @@ import { roundedRect, easeOutBack, easeOutCubic, easeInOutSine } from './game-vi
 const COLORS = Object.freeze({
   hoodie: '#2f4a63', hoodieLight: '#46698a', hoodieDark: '#203447',
   hair: '#161b28', hairLight: '#2a3346', skin: '#eab995', skinShade: '#c99572',
-  silver: '#c9d4e0', chair: '#141a23', chairLight: '#222b37', desk: '#1d2836', deskEdge: '#36e2ff'
+  silver: '#c9d4e0', chair: '#141a23', chairLight: '#222b37', desk: '#1e2547', deskEdge: '#ffb547'
 });
 // 모니터 코드 줄: [들여쓰기, [폭, 색] …] — 문법 색(키워드 보라·함수 하늘·문자열 초록·숫자 주황)
 const CODE_LINES = Object.freeze([
@@ -71,7 +71,7 @@ export function drawDeskSetup(context, { x, y, width, time, laptopMode, hurt, ga
   const deskFar = y - 26;
   const deskNear = y - 10;
   const gradient = context.createLinearGradient(0, deskFar, 0, deskNear);
-  gradient.addColorStop(0, '#16202c');
+  gradient.addColorStop(0, '#161c3a');
   gradient.addColorStop(1, COLORS.desk);
   context.fillStyle = gradient;
   context.beginPath();
@@ -81,9 +81,9 @@ export function drawDeskSetup(context, { x, y, width, time, laptopMode, hurt, ga
   context.lineTo(0, deskNear);
   context.closePath();
   context.fill();
-  context.fillStyle = 'rgba(54, 226, 255, 0.4)';
+  context.fillStyle = 'rgba(255, 181, 71, 0.35)';
   context.fillRect(0, deskNear - 1, width, 1.5);
-  context.fillStyle = '#080c12';
+  context.fillStyle = '#090c1c';
   context.fillRect(0, deskNear + 0.5, width, 200);
 
   const monitorOffset = Math.min(122, width * 0.3);
