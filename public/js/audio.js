@@ -293,11 +293,10 @@ export class SoundEngine {
   }
 }
 
-// 로봇 반응음·점수음은 콤보 1·2단계 두 음을 번갈아 쓰고, 5콤보마다 한 번만 약간 높은 4단계 음(솔)을 포인트로 낸다.
-// 그보다 높은 음은 귀에 쨍해서 쓰지 않는다
+// 로봇 반응음·점수음은 콤보 1·2단계 두 음을 번갈아 쓴다. 5콤보마다 처치 때는 이 소리는 그대로 두고
+// 예전의 높은 '띠링'(한 옥타브 위 동전음)을 하나 더 얹어 포인트를 준다
 const ROBOT_ACCENT_EVERY = 5;
 function robotVoiceFrequency(combo) {
-  if (combo > 0 && combo % ROBOT_ACCENT_EVERY === 0) return comboFrequency(4);
   return comboFrequency(combo % 2 === 0 ? 2 : 1);
 }
 
@@ -401,7 +400,7 @@ const SOUNDS = {
   },
   // 로봇 명중(레트로 아케이드풍): ① 8비트 '퍽'(사각파가 520→90Hz로 곤두박질) ② 부서지는 '빡'(대역 잡음)
   // ③ 몸통 '퉁' ④ 전기 스파크 '지직'(무작위 간격 고역 틱 3개) ⑤ 로봇 반응음 — 처치되면 위로 '삐빅!', 버티면 아래로 '삐-익'.
-  // 반응음은 콤보 1·2단계 두 음을 번갈아 쓰고 5콤보마다 한 번 약간 높은 음으로 포인트를 준다. 종류별로 탱크는 낮고 굵게, 빠른 로봇은 높고 가볍게,
+  // 반응음은 콤보 1·2단계 두 음을 번갈아 쓴다. 종류별로 탱크는 낮고 굵게, 빠른 로봇은 높고 가볍게,
   // 노트북은 더 세게. 매 타 음높이 ±4% 흔들기. 노드 약 12개, O(1)
   robotHit(engine, context, time, { type = 'basic', weapon = 'phone', remainingHp = 0, combo = 1 } = {}) {
     const body = ROBOT_HIT_BODIES[type] ?? ROBOT_HIT_BODIES.basic;
@@ -425,7 +424,7 @@ const SOUNDS = {
     }
   },
   // 로봇 처치(휴대폰 던지기): 펑 터지는 폭발 + 로봇이 꺼지는 '뿌우웅↓'(톱니파 하강) + 파편 '찰랑'(중고역 틱 5개)
-  // + 점수 '띠링'(반응음과 같은 두 음). O(1)
+  // + 점수 '띠링'(반응음과 같은 두 음), 5콤보마다 높은 '띠링'을 하나 더. O(1)
   robotKill(engine, context, time, { type = 'basic', combo = 1 } = {}) {
     const big = type === 'tank' ? 1.3 : 1;
     engine.noise(context, { startTime: time, peak: 0.14 * big, decay: 0.38 * big, filterType: 'lowpass', frequency: 1800, sweepTo: 120 });
@@ -436,6 +435,11 @@ const SOUNDS = {
     const coin = robotVoiceFrequency(combo);
     engine.tone(context, { frequency: coin, startTime: time + 0.16, peak: 0.035, decay: 0.05, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
     engine.tone(context, { frequency: coin * 4 / 3, startTime: time + 0.21, peak: 0.035, decay: 0.2, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
+    if (combo > 0 && combo % ROBOT_ACCENT_EVERY === 0) {
+      const high = comboFrequency(combo) * 2;
+      engine.tone(context, { frequency: high, startTime: time + 0.3, peak: 0.03, decay: 0.05, waveform: 'square', filter: { type: 'lowpass', frequency: 5000 } });
+      engine.tone(context, { frequency: high * 4 / 3, startTime: time + 0.35, peak: 0.03, decay: 0.22, waveform: 'square', filter: { type: 'lowpass', frequency: 5000 } });
+    }
   },
   // 처치: 저역 폭발 + 낮게 떨어지는 톤
   explode(engine, context, time) {
