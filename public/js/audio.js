@@ -297,10 +297,12 @@ export class SoundEngine {
 // 콤보 배율 단계(×1 / ×1.5 / ×2)마다 사이 음이 늘어난다: '띠리링' → '띠리리링' → '띠리리리링'(5음 음계).
 // 꼭대기 음은 세 단계 모두 같아서 단계가 올라도 귀가 아플 만큼 높아지지 않고, 3단계는 반짝임이 조금 더 길다
 const ROBOT_REWARD_NOTES = Object.freeze([523.25, 587.33]);
+// 음 사이 간격, 사이 음 길이, 꼭대기 음 울림(초)
+const ROBOT_REWARD_TIMING = Object.freeze({ gap: 0.075, note: 0.09, ring: 0.65 });
 const ROBOT_REWARD_TIERS = Object.freeze([
-  Object.freeze({ steps: Object.freeze([1, 1.26, 2]), sparkle: 0.18 }),
-  Object.freeze({ steps: Object.freeze([1, 1.26, 1.5, 2]), sparkle: 0.22 }),
-  Object.freeze({ steps: Object.freeze([1, 1.26, 1.5, 1.68, 2]), sparkle: 0.3 })
+  Object.freeze({ steps: Object.freeze([1, 1.26, 2]), sparkle: 0.36 }),
+  Object.freeze({ steps: Object.freeze([1, 1.26, 1.5, 2]), sparkle: 0.44 }),
+  Object.freeze({ steps: Object.freeze([1, 1.26, 1.5, 1.68, 2]), sparkle: 0.56 })
 ]);
 
 // 링 변조 음: 음 × 저주파(45Hz 안팎) 사인 → '부르르' 떠는 로봇 질감(sfxr 타격음 계열). 노드 4개, O(1)
@@ -456,8 +458,8 @@ const SOUNDS = {
     const sparkle = { type: 'lowpass', frequency: 3600 };
     steps.forEach((step, index) => {
       const last = index === steps.length - 1;
-      const startTime = time + 0.07 + index * 0.045;
-      engine.tone(context, { frequency: note * step, startTime, peak: 0.05, decay: last ? 0.32 : 0.05, waveform: 'triangle' });
+      const startTime = time + 0.07 + index * ROBOT_REWARD_TIMING.gap;
+      engine.tone(context, { frequency: note * step, startTime, peak: 0.05, decay: last ? ROBOT_REWARD_TIMING.ring : ROBOT_REWARD_TIMING.note, waveform: 'triangle' });
       // 꼭대기 음에만 옅은 사각파를 겹쳐 '링' 하고 반짝이게
       if (last) engine.tone(context, { frequency: note * step, startTime, peak: 0.018, decay: reward.sparkle, waveform: 'square', filter: sparkle });
     });
