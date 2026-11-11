@@ -6,6 +6,13 @@ import { BATTERY_RULES } from './battery-engine.js';
 import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates } from './game-view.js';
 
 const BEAM_SECONDS = 0.35;
+// 폰 마스코트 색: 나(하늘색) / PvP 상대(주황 — 방전봇 대신 또 하나의 폰)
+const MASCOT_PALETTES = Object.freeze({
+  me: Object.freeze({ screenTop: '#36e2ff', screenBottom: '#1a7fa0', body: '#1b2430', trim: '#8a98aa' }),
+  opponent: Object.freeze({ screenTop: '#ffb86c', screenBottom: '#c2563a', body: '#2a1c1c', trim: '#c9a08a' })
+});
+const isPvp = engine => engine.mode === 'battery-pvp';
+const rivalLabel = engine => engine.rivalName ?? '방전봇';
 const wallSeconds = () => performance.now() / 1000;
 
 const HUD_HEIGHT = 34;
@@ -78,6 +85,11 @@ export class BatteryRenderer {
     else if (type === 'item' || type === 'drain') this.bounce[type === 'item' ? 'me' : 'rival'].kick(type === 'item' ? -140 : 160);
     else if (type === 'rival-take') this.bounce.rival.kick(-140);
     else if (type === 'rival-attack') this.bounce.me.kick(160);
+    else if (type === 'round-end') this.banner = {
+      text: `ROUND ${payload.round} ${payload.mine ? 'WIN' : 'LOSE'}`,
+      sub: `${payload.wins.mine} : ${payload.wins.theirs} · ${payload.how === 'charged' ? '100% 충전' : '상대 방전'}`,
+      at: wallSeconds(), color: payload.mine ? '#39ff88' : '#ff4d6d'
+    };
     else if (type === 'stage-clear') this.banner = { text: `STAGE ${payload.stage} CLEAR`, sub: payload.how === 'charged' ? '100% 충전 완료! 충전 드론이 구조했습니다' : '방전봇 침몰!', at: wallSeconds() };
 
     if (!this.context) return;
@@ -144,6 +156,7 @@ export class BatteryRenderer {
     for (const beam of this.beams) this.drawBeam(context, beam, engine);
     this.particles.draw(context);
     this.drawHud(context, width, engine);
+    this.drawBlackout(context, width, engine);
     this.drawBanner(context, width, engine);
   }
 
@@ -303,12 +316,18 @@ export class BatteryRenderer {
     const bob = Math.sin(engine.gameTime * 3 + (side === 'me' ? 0 : 1.5)) * 2;
     context.save();
     context.translate(x, y - 4 + bob + bounce);
-    if (side === 'me') this.drawPhoneMascot(context, engine, worried);
-    else this.drawDrainBot(context, engine, worried);
+    if (side === 'me') this.drawPhoneMascot(context, engine, worried, 'me');
+    else if (isPvp(engine)) {
+      context.scale(-1, 1);
+      this.drawPhoneMascot(context, engine, worried, 'rival');
+    } else this.drawDrainBot(context, engine, worried);
     context.restore();
   }
 
-  drawPhoneMascot(context, engine, worried) {
+  // side: 'me' | 'rival'(PvP 상대 — 좌우 반전·주황 화면, 화면 꺼짐이면 잠든 얼굴)
+  drawPhoneMascot(context, engine, worried, side = 'me') {
+    const palette = side === 'me' ? MASCOT_PALETTES.me : MASCOT_PALETTES.opponent;
+    const sleeping = side === 'rival' && engine.gameTime < engine.ai.pausedUntil;
     // 다리
     context.strokeStyle = '#c9d4e0';
     context.lineWidth = 3;
@@ -320,21 +339,21 @@ export class BatteryRenderer {
     context.lineTo(7, 0);
     context.stroke();
     // 몸(폰)
-    context.fillStyle = '#1b2430';
+    context.fillStyle = palette.body;
     roundedRect(context, -15, -44, 30, 42, 7);
     context.fill();
-    context.strokeStyle = '#8a98aa';
+    context.strokeStyle = palette.trim;
     context.lineWidth = 1.5;
     context.stroke();
     const screen = context.createLinearGradient(0, -40, 0, -8);
-    screen.addColorStop(0, '#36e2ff');
-    screen.addColorStop(1, '#1a7fa0');
+    screen.addColorStop(0, sleeping ? '#2a2f3a' : palette.screenTop);
+    screen.addColorStop(1, sleeping ? '#151922' : palette.screenBottom);
     context.fillStyle = screen;
     roundedRect(context, -12, -40, 24, 32, 4);
     context.fill();
     // 얼굴
-    context.fillStyle = '#05111a';
-    const blink = (engine.gameTime % 3.4) < 0.12;
+    context.fillStyle = sleeping ? '#8a98aa' : '#05111a';
+    const blink = sleeping || (engine.gameTime % 3.4) < 0.12;
     if (blink) {
       context.fillRect(-7, -29, 5, 2);
       context.fillRect(2, -29, 5, 2);
@@ -351,7 +370,7 @@ export class BatteryRenderer {
     else context.arc(0, -20, 4, Math.PI * 0.15, Math.PI * 0.85);
     context.stroke();
     // 배터리 표시(머리 위 상태바)
-    const percent = Math.max(0, Math.min(1, engine.me.cells / BATTERY_RULES.goalCells));
+    const percent = Math.max(0, Math.min(1, engine[side].cells / BATTERY_RULES.goalCells));
     context.fillStyle = '#0b1017';
     context.fillRect(-9, -38, 14, 5);
     context.fillStyle = percent < 0.2 ? '#ff4d6d' : '#39ff88';
@@ -462,7 +481,7 @@ export class BatteryRenderer {
       context.font = "600 10px 'JetBrains Mono', monospace";
       context.fillStyle = '#ff4d6d';
       context.textAlign = 'center';
-      context.fillText('⚠ 방전봇 공격 중', meX, me.y - 84);
+      context.fillText(`⚠ ${rivalLabel(engine)} 공격 중`, meX, me.y - 84);
       context.textAlign = 'start';
     }
   }
@@ -656,11 +675,27 @@ export class BatteryRenderer {
     context.fillText(`📱 나 ${percent('me')}%`, 10, HUD_HEIGHT / 2);
     context.textAlign = 'right';
     context.fillStyle = '#ff4d6d';
-    context.fillText(`방전봇 ${percent('rival')}% 🔌`, width - 10, HUD_HEIGHT / 2);
+    context.fillText(isPvp(engine) ? `${rivalLabel(engine).slice(0, 8)} ${percent('rival')}% 📱` : `방전봇 ${percent('rival')}% 🔌`, width - 10, HUD_HEIGHT / 2);
     context.textAlign = 'center';
     context.fillStyle = '#c9d4e0';
     context.font = "700 12px 'JetBrains Mono', monospace";
-    context.fillText(`STAGE ${engine.stage}`, width / 2, HUD_HEIGHT / 2);
+    context.fillText(isPvp(engine) ? `R${engine.round} · ${engine.wins.mine}:${engine.wins.theirs}` : `STAGE ${engine.stage}`, width / 2, HUD_HEIGHT / 2);
+    context.textAlign = 'start';
+  }
+
+  // PvP: 상대가 '화면 꺼짐'을 가져가면 내 화면이 3초 동안 어두워지고 입력이 막힌다
+  drawBlackout(context, width, engine) {
+    const remaining = (engine.blockedUntil ?? 0) - engine.gameTime;
+    if (!isPvp(engine) || remaining <= 0 || engine.status !== 'running') return;
+    context.fillStyle = `rgba(3, 5, 9, ${Math.min(0.82, remaining * 2)})`;
+    context.fillRect(0, HUD_HEIGHT, width, this.surface.height - HUD_HEIGHT);
+    context.textAlign = 'center';
+    context.fillStyle = '#c792ea';
+    context.font = "800 20px 'JetBrains Mono', monospace";
+    context.fillText(`🌙 화면 꺼짐 ${remaining.toFixed(1)}s`, width / 2, this.surface.height * 0.45);
+    context.fillStyle = '#8a98aa';
+    context.font = "600 12px 'JetBrains Mono', monospace";
+    context.fillText(`${rivalLabel(engine)}이(가) 화면 꺼짐을 가져갔습니다`, width / 2, this.surface.height * 0.45 + 24);
     context.textAlign = 'start';
   }
 
@@ -680,11 +715,12 @@ export class BatteryRenderer {
     context.fillStyle = 'rgba(7, 10, 15, 0.85)';
     roundedRect(context, -150, -34, 300, 68, 12);
     context.fill();
-    context.strokeStyle = '#39ff88';
+    const bannerColor = this.banner.color ?? '#39ff88';
+    context.strokeStyle = bannerColor;
     context.lineWidth = 2;
     context.stroke();
     context.textAlign = 'center';
-    context.fillStyle = '#39ff88';
+    context.fillStyle = bannerColor;
     context.font = "800 22px 'JetBrains Mono', monospace";
     context.fillText(this.banner.text, 0, -8);
     context.fillStyle = '#c9d4e0';

@@ -41,7 +41,8 @@ export function createUi(root = document) {
     resultWpm: byId('resultWpm'), resultWpmSub: byId('resultWpmSub'), resultAccuracy: byId('resultAccuracy'), resultCombo: byId('resultCombo'),
     wpmChart: byId('wpmChart'), wpmChartPeak: byId('wpmChartPeak'), weakTokens: byId('weakTokens'),
     saveForm: byId('saveForm'), playerName: byId('playerName'), saveStatus: byId('saveStatus'),
-    saveButton: byId('saveButton'), retryButton: byId('retryButton')
+    saveButton: byId('saveButton'), retryButton: byId('retryButton'), pvpResultNote: byId('pvpResultNote'),
+    batteryVariantGroup: byId('batteryVariantGroup'), batteryVariantButtons: root.querySelectorAll('[data-battery-variant]')
   };
 
   function populateLanguages(selectedKey) {
@@ -198,7 +199,13 @@ export function createUi(root = document) {
     }));
   }
 
-  function showResult(summary, { languageKey, playerName, title = 'BUILD FINISHED', subtitle = null }) {
+  // saveable: false면 랭킹 등록 폼을 숨긴다(PvP 결과)
+  function showResult(summary, { languageKey, playerName, title = 'BUILD FINISHED', subtitle = null, saveable = true }) {
+    elements.saveForm.querySelector('label').hidden = !saveable;
+    elements.playerName.hidden = !saveable;
+    elements.saveButton.hidden = !saveable;
+    elements.saveStatus.hidden = !saveable;
+    elements.pvpResultNote.hidden = saveable;
     elements.resultTitle.textContent = title;
     elements.resultSub.textContent = subtitle ??
       `${languageLabel(languageKey)} · ${summary.durationSeconds}s · 토큰 ${summary.completedTokens}개 (클린 ${summary.cleanTokens})${summary.skippedTokens ? ` · 건너뜀 ${summary.skippedTokens}` : ''}`;

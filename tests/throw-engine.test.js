@@ -282,3 +282,14 @@ test('Enter(clearInput): 친 낱말을 한 번에 지우고 조준을 푼다 —
   assert.ok(events.some(event => event.type === 'unlock'));
   assert.equal(engine.clearInput(clock.now).accepted, false, '지울 게 없으면 무시');
 });
+
+test('게임 모드도 타수를 계산한다(스냅샷·요약)', async () => {
+  const { calculateCharactersPerMinute } = await import('../public/js/engine.js');
+  const { engine } = createEngine();
+  const clock = { now: 0 };
+  const robot = startWithRobot(engine, clock);
+  advance(engine, clock, 2);
+  typeText(engine, clock, robot.token.text);
+  assert.equal(engine.snapshot().charactersPerMinute, calculateCharactersPerMinute(engine.correctKeystrokes, engine.gameTime));
+  assert.equal(typeof engine.summary().charactersPerMinute, 'number');
+});

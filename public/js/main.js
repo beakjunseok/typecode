@@ -4,6 +4,9 @@ import { TimeAttackEngine, TIME_ATTACK_RULES } from './time-attack-engine.js';
 import { LANGUAGES, getTokenPool } from './tokens.js';
 import { ThrowEngine, ROBOT_TYPES } from './throw-engine.js';
 import { BatteryEngine } from './battery-engine.js';
+import { BatteryPvpHostEngine, BatteryPvpGuestEngine, PVP_RULES, PVP_PROTOCOL_VERSION } from './battery-pvp.js';
+import { hostRoom, joinRoom } from './pvp-connection.js';
+import { createPvpLobby } from './pvp-lobby.js';
 import { DIFFICULTY_LEVELS } from './target-game.js';
 import { ThrowRenderer } from './throw-view.js';
 import { BatteryRenderer } from './battery-view.js';
@@ -53,6 +56,7 @@ const settings = {
   durationSeconds: DURATIONS.includes(preferences.get('duration', 60)) ? preferences.get('duration', 60) : 60,
   practiceVariant: PRACTICE_VARIANTS.includes(preferences.get('practiceVariant', 'timed')) ? preferences.get('practiceVariant', 'timed') : 'timed',
   level: DIFFICULTY_LEVELS[preferences.get('level', 2)] ? Number(preferences.get('level', 2)) : 2,
+  batteryVariant: preferences.get('batteryVariant', 'ai') === 'pvp' ? 'pvp' : 'ai',
   keyboardVisible: preferences.get('keyboard', true) !== false
 };
 const run = { engine: null, generation: 0, sessionPromise: null, submitted: false, tickId: null, frameId: null, highlightId: null, lastTier: 0, powerActive: false, lastImeWarning: 0 };
@@ -63,6 +67,14 @@ const isTimeAttack = () => settings.mode === 'practice' && settings.practiceVari
 // 서버·로컬 랭킹에서 쓰는 모드 이름(연습의 시간 연장은 'timeattack')
 const boardMode = () => (isTimeAttack() ? 'timeattack' : settings.mode);
 const boardLabel = (mode = boardMode()) => BOARD_LABELS[mode] ?? mode;
+// 배터리 구조 PvP(친구와 1:1). 연결·경기 단계는 pvp 객체 하나에 모은다
+const isPvp = () => settings.mode === 'battery' && settings.batteryVariant === 'pvp';
+const pvp = {
+  connection: null, role: null, opponentName: '상대', hostSettings: null, phase: 'menu',
+  abort: null, countdownTimer: null, lastStateSentAt: 0, finalStateSent: false, rematchRequested: false, lastOutcome: null
+};
+const pvpConnected = () => pvp.connection !== null;
+const rivalName = () => run.engine?.rivalName ?? '방전봇';
 
 function visible(character) {
   return { ' ': '␣', '\n': '↵', '\t': '⇥' }[character] ?? character;
@@ -135,8 +147,12 @@ function handleArcadeEvent(type, payload) {
   const battery = settings.mode === 'battery';
   switch (type) {
     case 'start':
-      run.sessionPromise = startSession(run.generation);
       sound.play('gameStart');
+      if (isPvp()) {
+        ui.log('sys', `PvP 시작 · vs ${pvp.opponentName} · ${LANGUAGES[pvp.hostSettings.language].label} · ${DIFFICULTY_LEVELS[pvp.hostSettings.level].label}`);
+        break;
+      }
+      run.sessionPromise = startSession(run.generation);
       ui.log('sys', `${modeConfig().label} started · ${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[settings.level].label}`);
       break;
     case 'spawn':
@@ -182,24 +198,34 @@ function handleArcadeEvent(type, payload) {
       break;
     case 'item':
       sound.play(battery && payload.item.item === 'heat' ? 'explode' : 'powerUp');
-      ui.log('ok', battery ? `${BATTERY_ITEM_LOG[payload.item.item]}`
+      ui.log('ok', battery ? BATTERY_ITEM_LOG[payload.item.item](rivalName())
         : payload.item.item === 'battery' ? `건전지 충전 — 생명 ${payload.lives}칸` : '노트북 장착 — 8초간 위력 ×3');
       break;
     case 'drain':
       sound.play('hit');
-      ui.log('ok', '방전봇 탑 −0.5칸');
+      ui.log('ok', `${rivalName()} 탑 −0.5칸`);
       break;
     case 'rival-take':
       sound.play('error');
-      ui.log('warn', `방전봇이 ${BATTERY_ITEM_NAMES[payload.item.item]}을(를) 가져갔습니다`);
+      ui.log('warn', `${rivalName()}이(가) ${BATTERY_ITEM_NAMES[payload.item.item]}을(를) 가져갔습니다`);
       break;
     case 'rival-attack':
       sound.play('lifeLost');
       pulseClass(ui.elements.arcadeStage, 'shake', 260);
-      ui.log('err', '방전봇 공격 — 내 탑 −0.5칸');
+      ui.log('err', `${rivalName()} 공격 — 내 탑 −0.5칸`);
       break;
     case 'target-lost':
-      if (payload.reason === 'stolen') ui.log('warn', '치던 낱말을 방전봇이 먼저 쳤습니다!');
+      if (payload.reason === 'stolen') ui.log('warn', `치던 낱말을 ${rivalName()}이(가) 먼저 쳤습니다!`);
+      break;
+    case 'claim-rejected':
+      sound.play('error');
+      ui.log('warn', `'${payload.text}' — ${rivalName()}이(가) 한발 먼저 쳤습니다`);
+      break;
+    case 'round-end':
+      sound.play(payload.mine ? 'newRecord' : 'sink');
+      pulseClass(ui.elements.arcadeStage, payload.mine ? 'tier-flash' : 'shake', 700);
+      ui.log(payload.mine ? 'ok' : 'err', `ROUND ${payload.round} ${payload.mine ? '승리' : '패배'} — ${payload.how === 'charged' ? '100% 충전' : '상대 방전'} (${payload.wins.mine}:${payload.wins.theirs})`);
+      run.lastTier = 0;
       break;
     case 'stage-clear':
       sound.play('newRecord');
@@ -223,9 +249,11 @@ function handleArcadeEvent(type, payload) {
 }
 
 const BATTERY_ITEM_NAMES = { cell: '배터리 셀', powerbank: '보조배터리', eco: '저전력 모드', heat: '발열 폭탄', blackout: '화면 꺼짐' };
+// 아이템 획득 로그(상대 이름은 AI면 '방전봇', PvP면 상대 이름)
 const BATTERY_ITEM_LOG = {
-  cell: '배터리 셀 획득 — +0.5칸', powerbank: '보조배터리 드론 — +1칸', eco: '저전력 모드 — 4초간 방전 감속',
-  heat: '발열 폭탄 — 방전봇 4초간 급방전', blackout: '화면 꺼짐 — 방전봇 3초 정지'
+  cell: () => '배터리 셀 획득 — +0.5칸', powerbank: () => '보조배터리 드론 — +1칸', eco: () => '저전력 모드 — 4초간 방전 감속',
+  heat: rival => `발열 폭탄 — ${rival} 4초간 급방전`,
+  blackout: rival => (isPvp() ? `화면 꺼짐 — ${rival} 3초 입력 막힘` : `화면 꺼짐 — ${rival} 3초 정지`)
 };
 
 // ---------- 세션 · 제출 ----------
@@ -322,9 +350,30 @@ function timeAttackSubtitle(summary) {
   return `${LANGUAGES[settings.languageKey].label} · ⏳ 시간 연장 · 생존 ${summary.survivedSeconds}s (시작 ${summary.startSeconds}s + 획득 ${summary.timeBonusTotal}s) · 토큰 ${summary.completedTokens}개 (클린 ${summary.cleanTokens})${summary.skippedTokens ? ` · 건너뜀 ${summary.skippedTokens}` : ''}`;
 }
 
+const PVP_RESULT_TITLES = Object.freeze({ win: 'YOU WIN 🏆', lose: 'YOU LOSE', disconnect: '연결 끊김' });
+
+function pvpSubtitle(summary) {
+  const wins = summary.pvp?.wins ?? { mine: 0, theirs: 0 };
+  const opponent = summary.pvp?.opponentName ?? pvp.opponentName;
+  if (summary.outcome === 'disconnect') return `vs ${opponent} · ${wins.mine}:${wins.theirs}에서 상대와 연결이 끊겼습니다`;
+  return `vs ${opponent} · 라운드 ${wins.mine}:${wins.theirs} · 공격 ${summary.drains} · 아이템 ${summary.itemsCollected} · 뺏김 ${summary.stolen}`;
+}
+
+// 결과창 제목·부제(모드별). PvP는 랭킹 등록 폼을 숨긴다
+function resultHeading(summary) {
+  if (summary.mode === 'battery-pvp') return { title: PVP_RESULT_TITLES[summary.outcome] ?? 'PvP', subtitle: pvpSubtitle(summary), saveable: false };
+  if (summary.mode === 'timeattack') return { title: 'TIME UP', subtitle: timeAttackSubtitle(summary) };
+  if (isArcade()) return { title: modeConfig().resultTitle, subtitle: arcadeSubtitle(summary) };
+  return {};
+}
+
 function handleFinish(summary) {
+  if (isPvp()) {
+    pvp.phase = 'ended';
+    pvp.lastOutcome = summary.outcome;
+  }
   stopTicking();
-  sound.play(isArcade() ? 'gameOver' : 'finish');
+  sound.play(isPvp() ? (summary.outcome === 'win' ? 'newRecord' : 'gameOver') : isArcade() ? 'gameOver' : 'finish');
   bgm.duck(true);
   ui.elements.hiddenInput.blur();
   renderStats();
@@ -334,8 +383,7 @@ function handleFinish(summary) {
   ui.showResult(summary, {
     languageKey: settings.languageKey,
     playerName: preferences.get('name', ''),
-    ...(isArcade() ? { title: modeConfig().resultTitle, subtitle: arcadeSubtitle(summary) } : {}),
-    ...(summary.mode === 'timeattack' ? { title: 'TIME UP', subtitle: timeAttackSubtitle(summary) } : {})
+    ...resultHeading(summary)
   });
 }
 
@@ -367,6 +415,7 @@ function startFrameLoop() {
     const engine = run.engine;
     if (!isArcade() || !engine) return;
     engine.update(now());
+    if (pvpConnected()) pumpPvp();
     const snapshot = engine.snapshot();
     renderers[settings.mode]?.render(engine, { accent: TIER_COLORS[snapshot.tierProgress.index] });
     if (engine.status === 'running') {
@@ -405,6 +454,7 @@ function createEngine() {
       onEvent: handlePracticeEvent
     });
   }
+  if (isPvp() && pvpConnected()) return createPvpEngine();
   const config = modeConfig();
   return config.createEngine({
     tokenPool: getTokenPool(settings.languageKey), level: settings.level, onEvent: handleArcadeEvent,
@@ -481,7 +531,11 @@ function warnIme() {
   ui.log('warn', '영문 자판에 없는 글자는 무시됩니다 — 키보드를 영문으로 바꿔 주세요');
 }
 
+// PvP는 카운트다운이 끝나야 입력을 받는다(로비·대기 중 입력이 엔진에 들어가지 않게)
+const pvpInputBlocked = () => isPvp() && pvp.phase !== 'playing';
+
 function applyCharacter(character) {
+  if (pvpInputBlocked()) return;
   run.lastCharacter = character;
   startMusic();
   const engine = run.engine;
@@ -502,6 +556,7 @@ function applyCharacter(character) {
 }
 
 function applyBackspace(wholeToken) {
+  if (pvpInputBlocked()) return;
   const engine = run.engine;
   if (!engine.backspace(now(), { wholeToken }).accepted) return;
   if (isArcade()) {
@@ -517,6 +572,7 @@ function applyBackspace(wholeToken) {
 // 데스크톱은 keydown, 모바일은 줄바꿈 문자로 들어올 수 있어 둘 다 받되, 50ms 안의 중복은 한 번으로 친다
 const ENTER_DEDUPE_MS = 50;
 function applyEnter() {
+  if (pvpInputBlocked()) return;
   const time = now();
   if (time - (run.lastEnterAt ?? -Infinity) < ENTER_DEDUPE_MS) return;
   run.lastEnterAt = time;
@@ -534,7 +590,7 @@ function applyEnter() {
 function handleKeyDown(event) {
   if (event.key === 'Escape') {
     event.preventDefault();
-    resetGame();
+    if (!isPvp()) resetGame();
     return;
   }
   if (event.key === 'Enter' && !event.isComposing) {
@@ -611,6 +667,7 @@ function fitArcadeCanvas() {
 function focusTypingArea() {
   startMusic();
   if (run.engine.status === 'finished') return;
+  if (isPvp() && !['countdown', 'playing'].includes(pvp.phase)) return;
   // 이미 입력 중이면 건드리지 않는다: 값을 되돌리면 모바일 키보드의 조합이 깨지고, 스크롤이 튀어 화면이 흔들린다
   if (document.activeElement === ui.elements.hiddenInput) return;
   resetInputBuffer();
@@ -632,6 +689,320 @@ function updateFocusState() {
   });
 }
 
+// ---------- 배터리 구조 PvP ----------
+const lobby = createPvpLobby(document.getElementById('pvpLobby'), {
+  onCreate: name => createPvpRoom(name),
+  onJoin: (code, name) => joinPvpRoom(code, name),
+  onCancel: () => cancelPvpSetup(),
+  onBack: () => showPvpMenu(),
+  onRematch: () => requestPvpRematch(),
+  onLeave: () => leavePvp()
+});
+
+function showPvpMenu() {
+  pvp.phase = 'menu';
+  lobby.setName(preferences.get('name', ''));
+  lobby.show('menu');
+}
+
+function renderBatteryVariant() {
+  ui.elements.batteryVariantButtons.forEach(button => {
+    const active = button.dataset.batteryVariant === settings.batteryVariant;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+// 대결 중 설정이 바뀌면 경기가 깨지므로 연결된 동안 잠근다
+function setPvpControlsLocked(locked) {
+  ui.elements.languageSelect.disabled = locked;
+  ui.elements.levelSelect.disabled = locked;
+  ui.elements.batteryVariantButtons.forEach(button => { button.disabled = locked; });
+}
+
+// 연결 중에 다른 화면으로 가려 하면 확인. 나가면 상대에게도 알린다
+function confirmLeavePvp() {
+  if (!pvpConnected()) return true;
+  if (!window.confirm(`${pvp.opponentName}와(과)의 대결에서 나갈까요?`)) return false;
+  leavePvp();
+  return true;
+}
+
+function leavePvp() {
+  const connection = pvp.connection;
+  pvp.connection = null;
+  connection?.close();
+  clearInterval(pvp.countdownTimer);
+  setPvpControlsLocked(false);
+  ui.hideResult();
+  resetGame();
+  if (isPvp()) showPvpMenu();
+}
+
+async function createPvpRoom(name) {
+  preferences.set('name', name);
+  sound.play('uiClick');
+  startMusic();
+  pvp.abort?.abort();
+  const abort = new AbortController();
+  pvp.abort = abort;
+  pvp.phase = 'hosting';
+  lobby.setStatus('연결 정보 만드는 중');
+  lobby.show('joining');
+  try {
+    const connection = await hostRoom({
+      name, settings: { language: settings.languageKey, level: settings.level }, signal: abort.signal,
+      onCode: ({ code, expiresAt }) => {
+        lobby.setCode(code, expiresAt);
+        lobby.setStatus('상대를 기다리는 중');
+        lobby.show('hosting');
+        ui.log('sys', `PvP 방 ${code} — 친구에게 코드나 링크를 보내 주세요`);
+      },
+      onStatus: text => lobby.setStatus(text.replace(/…$/, ''))
+    });
+    if (abort.signal.aborted) return connection.close();
+    onPvpConnected(connection);
+  } catch (error) {
+    handlePvpSetupError(error, abort);
+  }
+}
+
+async function joinPvpRoom(code, name) {
+  preferences.set('name', name);
+  sound.play('uiClick');
+  startMusic();
+  pvp.abort?.abort();
+  const abort = new AbortController();
+  pvp.abort = abort;
+  pvp.phase = 'joining';
+  lobby.setStatus('방 찾는 중');
+  lobby.show('joining');
+  try {
+    const connection = await joinRoom({ code, name, signal: abort.signal, onStatus: text => lobby.setStatus(text.replace(/…$/, '')) });
+    if (abort.signal.aborted) return connection.close();
+    onPvpConnected(connection);
+  } catch (error) {
+    handlePvpSetupError(error, abort);
+  }
+}
+
+function handlePvpSetupError(error, abort) {
+  if (error?.name === 'AbortError' || abort.signal.aborted) return;
+  pvp.phase = 'error';
+  ui.log('err', `PvP: ${error?.message ?? error}`);
+  lobby.showError(error?.message ?? '연결에 실패했습니다');
+}
+
+function cancelPvpSetup() {
+  pvp.abort?.abort();
+  pvp.abort = null;
+  if (pvpConnected()) leavePvp();
+  else showPvpMenu();
+}
+
+function onPvpConnected(connection) {
+  pvp.connection = connection;
+  pvp.role = connection.role;
+  pvp.opponentName = connection.opponentName ?? '상대';
+  pvp.hostSettings = connection.role === 'host' ? { language: settings.languageKey, level: settings.level } : connection.settings;
+  pvp.abort = null;
+  connection.onMessage(handlePvpMessage);
+  connection.onClose(handlePvpClose);
+  connection.send({ t: 'hello', v: PVP_PROTOCOL_VERSION, name: lobby.getName() });
+  setPvpControlsLocked(true);
+  sound.play('rescued');
+  ui.log('ok', `PvP 연결 — vs ${pvp.opponentName} (${connection.role === 'host' ? '내가 방장' : '손님으로 참가'})`);
+  if (connection.role === 'host') startPvpCountdown();
+  else {
+    lobby.setStatus('방장이 시작하길 기다리는 중');
+    lobby.show('joining');
+  }
+}
+
+function createPvpEngine() {
+  const common = { onEvent: handleArcadeEvent, maxTokenLength: 14, opponentName: pvp.opponentName };
+  if (pvp.role === 'host') {
+    return new BatteryPvpHostEngine({ ...common, tokenPool: getTokenPool(pvp.hostSettings.language), level: pvp.hostSettings.level });
+  }
+  return new BatteryPvpGuestEngine({
+    ...common, tokenPool: getTokenPool(pvp.hostSettings.language), level: pvp.hostSettings.level,
+    send: message => pvp.connection?.send(message)
+  });
+}
+
+// 방장: 카운트다운을 보내고 같이 센다. 손님은 countdown 메시지를 받아 센다
+function startPvpCountdown() {
+  pvp.connection.send({ t: 'countdown', seconds: PVP_RULES.countdownSeconds });
+  beginPvpCountdown(PVP_RULES.countdownSeconds);
+}
+
+function beginPvpCountdown(seconds) {
+  clearInterval(pvp.countdownTimer);
+  pvp.phase = 'countdown';
+  pvp.finalStateSent = false;
+  pvp.rematchRequested = false;
+  pvp.lastStateSentAt = 0;
+  resetGame();
+  ui.elements.arcadeHint.textContent = `vs ${pvp.opponentName} · ${LANGUAGES[pvp.hostSettings.language].label} · ${DIFFICULTY_LEVELS[pvp.hostSettings.level].label}`;
+  lobby.setOpponent(pvp.opponentName);
+  lobby.show('countdown');
+  let remaining = seconds;
+  lobby.setCountdown(remaining);
+  sound.play('warning', { remainingSeconds: remaining });
+  pvp.countdownTimer = setInterval(() => {
+    remaining--;
+    if (remaining > 0) {
+      lobby.setCountdown(remaining);
+      sound.play('warning', { remainingSeconds: remaining });
+      return;
+    }
+    clearInterval(pvp.countdownTimer);
+    pvp.phase = 'playing';
+    lobby.hide();
+    if (pvp.role === 'host') run.engine.start(now());
+    startMusic();
+    updateFocusState();
+  }, 1000);
+}
+
+// 프레임마다: 방장은 상태를 초당 20번 보내고(끝나면 마지막 상태 한 번), 손님은 상태가 끊기면 연결 끊김 처리
+function pumpPvp() {
+  const engine = run.engine;
+  const time = now();
+  if (engine instanceof BatteryPvpHostEngine) {
+    if (engine.status === 'ready') return;
+    if (engine.status === 'finished') {
+      if (!pvp.finalStateSent) {
+        pvp.finalStateSent = true;
+        pvp.connection.send(engine.stateMessage());
+      }
+      return;
+    }
+    if (time - pvp.lastStateSentAt >= PVP_RULES.stateIntervalMs) {
+      pvp.lastStateSentAt = time;
+      pvp.connection.send(engine.stateMessage());
+    }
+  } else if (engine instanceof BatteryPvpGuestEngine && engine.isStale(time)) {
+    handlePvpClose('timeout');
+  }
+}
+
+function handlePvpMessage(message) {
+  const engine = run.engine;
+  switch (message.t) {
+    case 'hello':
+      if (message.v !== PVP_PROTOCOL_VERSION) {
+        lobby.showError('상대와 게임 버전이 달라요. 두 기기 모두 새로고침한 뒤 다시 해 주세요');
+        leavePvp();
+        return;
+      }
+      if (message.name) pvp.opponentName = String(message.name).slice(0, 16);
+      if (run.engine) run.engine.opponentName = pvp.opponentName;
+      break;
+    case 'countdown':
+      if (pvp.role === 'guest') beginPvpCountdown(Math.max(1, Math.min(5, Number(message.seconds) || PVP_RULES.countdownSeconds)));
+      break;
+    case 'state':
+      if (engine instanceof BatteryPvpGuestEngine) engine.applyState(message, now());
+      break;
+    case 'claim-result':
+      if (engine instanceof BatteryPvpGuestEngine) engine.applyClaimResult(message);
+      break;
+    case 'progress':
+      if (engine instanceof BatteryPvpHostEngine) engine.applyRemoteProgress(message);
+      break;
+    case 'claim':
+      if (engine instanceof BatteryPvpHostEngine) pvp.connection?.send(engine.applyRemoteClaim(message));
+      break;
+    case 'rematch':
+      if (pvp.role === 'host') {
+        pvp.rematchRequested = true;
+        ui.log('info', `${pvp.opponentName}이(가) 한 판 더 원해요 — '한 판 더'를 누르면 시작`);
+        if (pvp.phase === 'ended' && lobby.visible) showPvpAfterMatch();
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+// 연결이 끊김: 경기 중이면 '연결 끊김'으로 끝내고, 대기 중이면 로비 오류 화면
+function handlePvpClose(reason) {
+  if (!pvpConnected()) return;
+  const connection = pvp.connection;
+  pvp.connection = null;
+  connection.close();
+  clearInterval(pvp.countdownTimer);
+  setPvpControlsLocked(false);
+  ui.log('warn', `PvP 연결 종료 — ${reason === 'remote-left' ? '상대가 나갔습니다' : '연결이 끊겼습니다'}`);
+  if (!isPvp()) return;
+  const engine = run.engine;
+  if ((pvp.phase === 'playing' || pvp.phase === 'countdown') && engine.status !== 'finished') {
+    lobby.hide();
+    engine.outcome = 'disconnect';
+    if (engine.status === 'ready') engine.status = 'running';
+    engine.finish();
+    return;
+  }
+  if (pvp.phase === 'ended') {
+    if (lobby.visible) showPvpAfterMatch();
+    return;
+  }
+  pvp.phase = 'error';
+  lobby.showError(reason === 'remote-left' ? '상대가 방에서 나갔습니다' : '상대와 연결이 끊겼습니다');
+}
+
+// 경기 뒤 로비: 연결돼 있으면 한 판 더(방장)/요청(손님), 끊겼으면 메뉴로
+function showPvpAfterMatch() {
+  if (!pvpConnected()) {
+    showPvpMenu();
+    return;
+  }
+  const outcome = PVP_RESULT_TITLES[pvp.lastOutcome] ?? '경기 끝';
+  if (pvp.role === 'host') {
+    lobby.showRematch({
+      text: `${outcome} · vs ${pvp.opponentName}${pvp.rematchRequested ? ' — 상대가 한 판 더 원해요!' : ''}`,
+      buttonLabel: '한 판 더'
+    });
+  } else {
+    lobby.showRematch({
+      text: `${outcome} · vs ${pvp.opponentName}`,
+      buttonLabel: pvp.rematchRequested ? '방장에게 요청함' : '한 판 더 요청', waiting: pvp.rematchRequested
+    });
+  }
+}
+
+function requestPvpRematch() {
+  if (!pvpConnected()) {
+    ui.hideResult();
+    showPvpMenu();
+    return;
+  }
+  sound.play('uiClick');
+  ui.hideResult();
+  if (pvp.role === 'host') {
+    startPvpCountdown();
+    return;
+  }
+  pvp.rematchRequested = true;
+  pvp.connection.send({ t: 'rematch' });
+  ui.log('info', '방장에게 한 판 더 요청했습니다');
+  showPvpAfterMatch();
+}
+
+// 초대 링크(?room=CODE)로 들어오면 배터리 구조 PvP로 열고 코드를 채워 둔다(참가는 사용자가 누른다)
+function applyInviteLink() {
+  const params = new URLSearchParams(location.search);
+  const code = params.get('room');
+  if (!code) return;
+  settings.mode = 'battery';
+  settings.batteryVariant = 'pvp';
+  lobby.prefillCode(code);
+  params.delete('room');
+  const query = params.toString();
+  history.replaceState(null, '', `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
+}
+
 // ---------- 모드 · 설정 ----------
 function applyMode() {
   const arcade = isArcade();
@@ -644,6 +1015,13 @@ function applyMode() {
   ui.elements.arcadeStage.hidden = !arcade;
   ui.elements.durationGroup.hidden = arcade;
   ui.elements.levelSelect.hidden = !arcade;
+  ui.elements.batteryVariantGroup.hidden = settings.mode !== 'battery';
+  renderBatteryVariant();
+  if (isPvp()) {
+    if (!pvpConnected() && !['hosting', 'joining', 'error'].includes(pvp.phase)) showPvpMenu();
+  } else {
+    lobby.hide();
+  }
   document.getElementById('practiceHint').hidden = arcade;
   document.getElementById('throwHint').hidden = settings.mode !== 'throw';
   document.getElementById('batteryHint').hidden = settings.mode !== 'battery';
@@ -656,6 +1034,7 @@ function applyMode() {
 
 function switchMode(mode) {
   if (!MODE_CONFIG[mode] || mode === settings.mode) return;
+  if (!confirmLeavePvp()) return;
   settings.mode = mode;
   preferences.set('mode', mode);
   run.highlightId = null;
@@ -707,6 +1086,15 @@ function bindSettings() {
       if (boardMode() !== previousBoard) refreshBoard();
     });
   });
+  ui.elements.batteryVariantButtons.forEach(button => button.addEventListener('click', () => {
+    const variant = button.dataset.batteryVariant;
+    if (variant === settings.batteryVariant || !confirmLeavePvp()) return;
+    settings.batteryVariant = variant;
+    preferences.set('batteryVariant', variant);
+    sound.play('uiClick');
+    applyMode();
+    resetGame();
+  }));
   ui.elements.languageSelect.addEventListener('change', () => {
     settings.languageKey = ui.elements.languageSelect.value;
     preferences.set('lang', settings.languageKey);
@@ -746,11 +1134,23 @@ function bindSettings() {
 
 function bindEvents() {
   const { elements } = ui;
-  const restart = () => { resetGame(); focusTypingArea(); };
+  const restart = () => {
+    if (isPvp()) {
+      if (confirmLeavePvp()) showPvpMenu();
+      return;
+    }
+    resetGame();
+    focusTypingArea();
+  };
   elements.restartButton.addEventListener('click', restart);
-  elements.retryButton.addEventListener('click', restart);
+  // PvP 결과창의 '다시 하기' = 한 판 더(방장 바로 시작, 손님 요청)
+  elements.retryButton.addEventListener('click', () => (isPvp() ? requestPvpRematch() : restart()));
   // 결과창 닫기: ✕ 버튼 · 바깥 어두운 영역 클릭. 기록은 그대로 두고 화면만 보여준다(↻로 재시작)
-  const closeResult = () => { sound.play('uiClick'); ui.hideResult(); };
+  const closeResult = () => {
+    sound.play('uiClick');
+    ui.hideResult();
+    if (isPvp()) showPvpAfterMatch();
+  };
   elements.resultClose.addEventListener('click', closeResult);
   elements.resultModal.addEventListener('click', event => { if (event.target === elements.resultModal) closeResult(); });
   document.addEventListener('keydown', event => {
@@ -770,13 +1170,14 @@ function bindEvents() {
   elements.hiddenInput.addEventListener('focus', updateFocusState);
   elements.hiddenInput.addEventListener('blur', updateFocusState);
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && document.activeElement !== elements.hiddenInput) restart();
+    if (event.key === 'Escape' && document.activeElement !== elements.hiddenInput && !isPvp()) restart();
   });
   window.visualViewport?.addEventListener('resize', fitArcadeCanvas);
   window.addEventListener('resize', fitArcadeCanvas);
   elements.inputBar?.addEventListener('click', focusTypingArea);
 }
 
+applyInviteLink();
 bindSettings();
 bindEvents();
 applyMode();
@@ -785,4 +1186,4 @@ resetGame();
 refreshBoard();
 
 // 자동화 테스트·디버깅용 읽기 창구(게임 상태 조회). 게임 로직은 이 값에 의존하지 않는다.
-globalThis.__TYPECODE__ = { run, settings, renderers };
+globalThis.__TYPECODE__ = { run, settings, renderers, pvp };
