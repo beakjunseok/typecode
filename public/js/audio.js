@@ -47,18 +47,11 @@ export function keyPan(character) {
   return 0;
 }
 const COMBO_BASE_FREQUENCY = 523.25; // C5
-// 두드린 금속판의 비조화 배음(원형 판 모드 비율 근사). decay는 기본 울림 길이에 곱하는 비율
-const METAL_PLATE_PARTIALS = Object.freeze([
-  { ratio: 1, gain: 1, decay: 1 },
-  { ratio: 1.59, gain: 0.55, decay: 0.7 },
-  { ratio: 2.14, gain: 0.38, decay: 0.5 },
-  { ratio: 2.83, gain: 0.22, decay: 0.32 }
-]);
-// 로봇 종류별 몸체: plate 금속판 기본음(Hz), thud 몸통 '퉁' 시작음(Hz), ring 울림 길이(초)
+// 로봇 종류별 몸체: plate 장갑 '팅' 기준음(Hz), thud 몸통 '퉁'(Hz), ring 울림(초), punch '퍽' 음높이 배율, voice 반응음 배율
 const ROBOT_HIT_BODIES = Object.freeze({
-  basic: Object.freeze({ plate: 760, thud: 150, ring: 0.16 }),
-  fast: Object.freeze({ plate: 1180, thud: 200, ring: 0.1 }),
-  tank: Object.freeze({ plate: 360, thud: 95, ring: 0.3 })
+  basic: Object.freeze({ plate: 760, thud: 150, ring: 0.16, punch: 1, voice: 1 }),
+  fast: Object.freeze({ plate: 1180, thud: 200, ring: 0.1, punch: 1.25, voice: 1.5 }),
+  tank: Object.freeze({ plate: 360, thud: 95, ring: 0.3, punch: 0.7, voice: 0.5 })
 });
 
 const BELL_PARTIALS = [
@@ -398,28 +391,43 @@ const SOUNDS = {
     engine.bell(context, { frequency: 520, startTime: time, peak: 0.06, length: 0.18 });
     engine.noise(context, { startTime: time, peak: 0.07, decay: 0.05, filterType: 'highpass', frequency: 2500 });
   },
-  // 로봇 명중: 던진 휴대폰이 금속 몸체에 부딪히는 '딱-깡'.
-  // ① 아주 짧은 플라스틱·유리 '딱'(대역 잡음) ② 몸통이 울리는 낮은 '퉁'(빠르게 떨어지는 사인) ③ 금속판 비조화 배음 '깡'.
-  // 빠른 로봇은 얇고 높게, 탱크는 두껍고 낮게 오래 울리고, 노트북은 더 낮고 세다. 아직 버티는 로봇은 장갑에 튕기는
-  // '팅'을 덧붙이고, 처치하는 한 방은 바로 폭발음이 이어지므로 울림을 짧게 끊는다. 매 타 ±4% 음높이 흔들기. 노드 약 8개, O(1)
-  robotHit(engine, context, time, { type = 'basic', weapon = 'phone', remainingHp = 0 } = {}) {
+  // 로봇 명중(레트로 아케이드풍): ① 8비트 '퍽'(사각파가 520→90Hz로 곤두박질) ② 부서지는 '빡'(대역 잡음)
+  // ③ 몸통 '퉁' ④ 전기 스파크 '지직'(무작위 간격 고역 틱 3개) ⑤ 로봇 반응음 — 처치되면 위로 '삐빅!', 버티면 아래로 '삐-익'.
+  // 반응음 음높이는 콤보마다 5음 음계로 올라가 연속 명중이 점점 신난다. 종류별로 탱크는 낮고 굵게, 빠른 로봇은 높고 가볍게,
+  // 노트북은 더 세게. 매 타 음높이 ±4% 흔들기. 노드 약 12개, O(1)
+  robotHit(engine, context, time, { type = 'basic', weapon = 'phone', remainingHp = 0, combo = 1 } = {}) {
     const body = ROBOT_HIT_BODIES[type] ?? ROBOT_HIT_BODIES.basic;
     const heavy = weapon === 'laptop';
     const weight = heavy ? 1.3 : 1;
     const pitch = (0.96 + Math.random() * 0.08) * (heavy ? 0.82 : 1);
-    const survived = remainingHp > 0;
-    const ring = body.ring * (survived ? 1 : 0.55);
-    engine.noise(context, { startTime: time, peak: 0.08 * weight, decay: 0.018, filterType: 'bandpass', frequency: heavy ? 2200 : 3600, q: 1.2 });
-    engine.tone(context, { frequency: body.thud * pitch, sweepTo: 45, startTime: time, peak: 0.12 * weight, decay: 0.09, attack: 0.002 });
-    for (const partial of METAL_PLATE_PARTIALS) {
-      engine.tone(context, {
-        frequency: body.plate * partial.ratio * pitch, startTime: time + 0.002,
-        peak: 0.045 * partial.gain * weight, decay: ring * partial.decay, attack: 0.001
-      });
+    const crunchy = { type: 'lowpass', frequency: 3200 };
+    engine.tone(context, { frequency: 520 * pitch * body.punch, sweepTo: 90, startTime: time, peak: 0.07 * weight, decay: 0.07, attack: 0.001, waveform: 'square', filter: crunchy });
+    engine.noise(context, { startTime: time, peak: 0.09 * weight, decay: 0.05, filterType: 'bandpass', frequency: heavy ? 1300 : 1900, q: 0.9 });
+    engine.tone(context, { frequency: body.thud * pitch, sweepTo: 45, startTime: time, peak: 0.1 * weight, decay: 0.1, attack: 0.002 });
+    for (let index = 0; index < 3; index++) {
+      engine.noise(context, { startTime: time + 0.03 + index * 0.018 + Math.random() * 0.012, peak: 0.035, decay: 0.008, filterType: 'highpass', frequency: 5000 + Math.random() * 2500 });
     }
-    if (survived) {
-      engine.tone(context, { frequency: body.plate * 3.1 * pitch, sweepTo: body.plate * 2.95 * pitch, startTime: time + 0.03, peak: 0.022, decay: 0.24, attack: 0.002 });
+    const voice = comboFrequency(combo) * body.voice * pitch;
+    if (remainingHp > 0) {
+      engine.tone(context, { frequency: voice * 1.5, sweepTo: voice * 0.7, startTime: time + 0.05, peak: 0.035, decay: 0.16, waveform: 'square', filter: crunchy });
+      engine.tone(context, { frequency: body.plate * 3.1 * pitch, sweepTo: body.plate * 2.95 * pitch, startTime: time + 0.02, peak: 0.02, decay: 0.22, attack: 0.002 });
+    } else {
+      engine.tone(context, { frequency: voice, startTime: time + 0.05, peak: 0.04, decay: 0.045, waveform: 'square', filter: crunchy });
+      engine.tone(context, { frequency: voice * 1.5, startTime: time + 0.1, peak: 0.04, decay: 0.07, waveform: 'square', filter: crunchy });
     }
+  },
+  // 로봇 처치(휴대폰 던지기): 펑 터지는 폭발 + 로봇이 꺼지는 '뿌우웅↓'(톱니파 하강) + 파편 '찰랑'(높은 틱 5개)
+  // + 점수 '띠링'(동전음, 콤보만큼 높아짐). O(1)
+  robotKill(engine, context, time, { type = 'basic', combo = 1 } = {}) {
+    const big = type === 'tank' ? 1.3 : 1;
+    engine.noise(context, { startTime: time, peak: 0.14 * big, decay: 0.38 * big, filterType: 'lowpass', frequency: 1800, sweepTo: 120 });
+    engine.tone(context, { frequency: 620, sweepTo: 70, startTime: time + 0.04, peak: 0.05, decay: 0.32 * big, waveform: 'sawtooth', filter: { type: 'lowpass', frequency: 1400 } });
+    for (let index = 0; index < 5; index++) {
+      engine.tone(context, { frequency: 2400 + Math.random() * 2200, startTime: time + 0.08 + index * 0.04 + Math.random() * 0.02, peak: 0.012, decay: 0.05 });
+    }
+    const coin = comboFrequency(combo) * 2;
+    engine.tone(context, { frequency: coin, startTime: time + 0.16, peak: 0.035, decay: 0.05, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
+    engine.tone(context, { frequency: coin * 4 / 3, startTime: time + 0.21, peak: 0.035, decay: 0.2, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
   },
   // 처치: 저역 폭발 + 낮게 떨어지는 톤
   explode(engine, context, time) {

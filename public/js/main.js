@@ -187,10 +187,10 @@ function handleArcadeEvent(type, payload) {
       break;
     case 'hit':
       if (battery) sound.play('hit');
-      else sound.play('robotHit', { type: payload.robot.type, weapon: payload.weapon, remainingHp: payload.robot.hp });
+      else sound.play('robotHit', { type: payload.robot.type, weapon: payload.weapon, remainingHp: payload.robot.hp, combo: run.engine?.combo ?? 1 });
       break;
     case 'kill':
-      sound.play('explode');
+      sound.play(battery ? 'explode' : 'robotKill', { type: payload.robot.type, combo: run.engine?.combo ?? 1 });
       ui.log('ok', `${ROBOT_TYPES[payload.robot.type].label} 처치 (+${payload.bounty})`);
       break;
     case 'item-spawn':
