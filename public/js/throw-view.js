@@ -691,55 +691,23 @@ export class ThrowRenderer {
 
   // 휴대폰: 잃은 건전지 칸 수(cracks 0~3)만큼 화면에 금이 간다. 금 무늬는 고정 좌표라 매 프레임 같은 모양 — O(1)
   // grip: 손에 쥔 모양까지 그린다(휴대폰 좌표계: 가로 12 · 세로 20, 아래쪽 +y가 손목 쪽)
-  // grip: 손에 쥔 휴대폰. 개발자를 뒤에서 보므로 화면은 개발자 쪽을 향하고 우리에겐 휴대폰 뒷면과
-  // 오른손 손등이 보인다(휴대폰 좌표계: 가로 12 · 세로 20, 아래쪽 +y가 손목·팔 쪽)
+  // grip: 손에 쥔 휴대폰(화면이 보이는 쪽) + 오른손 손등(휴대폰 좌표계: 가로 12 · 세로 20, 아래쪽 +y가 손목·팔 쪽)
   drawPhoneShape(context, x, y, angle, cracks = 0, scale = 1, grip = false) {
     context.save();
     context.translate(x, y);
     context.rotate(angle);
     context.scale(scale, scale);
-    if (grip) {
-      this.drawPhoneBack(context, cracks);
-      this.drawHandBack(context);
-    } else {
-      context.fillStyle = '#0f141b';
-      roundedRect(context, -6, -10, 12, 20, 3);
-      context.fill();
-      context.strokeStyle = '#8a98aa';
-      context.lineWidth = 1;
-      context.stroke();
-      context.fillStyle = PHONE_SCREEN_COLORS[Math.min(cracks, PHONE_SCREEN_COLORS.length - 1)];
-      context.fillRect(-4.5, -8, 9, 14);
-      if (cracks > 0) this.drawPhoneCracks(context, cracks);
-    }
-    context.restore();
-  }
-
-  // 휴대폰 뒷면: 케이스 + 왼쪽 위 카메라 모듈(렌즈 둘 + 플래시). 생명을 잃을수록 뒷유리에도 금이 간다
-  drawPhoneBack(context, cracks) {
-    context.fillStyle = '#2b3556';
+    context.fillStyle = '#0f141b';
     roundedRect(context, -6, -10, 12, 20, 3);
     context.fill();
     context.strokeStyle = '#8a98aa';
     context.lineWidth = 1;
     context.stroke();
-    context.fillStyle = 'rgba(255, 255, 255, 0.06)';
-    roundedRect(context, -4.6, -8.6, 2.2, 17, 1.1);
-    context.fill();
-    context.fillStyle = '#151b30';
-    roundedRect(context, -4.8, -8.8, 5, 5, 1.6);
-    context.fill();
-    context.fillStyle = '#05070d';
-    for (const [lensX, lensY] of [[-3.3, -7.3], [-3.3, -5.3]]) {
-      context.beginPath();
-      context.arc(lensX, lensY, 0.85, 0, Math.PI * 2);
-      context.fill();
-    }
-    context.fillStyle = '#ffe2a8';
-    context.beginPath();
-    context.arc(-1.4, -7.3, 0.45, 0, Math.PI * 2);
-    context.fill();
+    context.fillStyle = PHONE_SCREEN_COLORS[Math.min(cracks, PHONE_SCREEN_COLORS.length - 1)];
+    context.fillRect(-4.5, -8, 9, 14);
     if (cracks > 0) this.drawPhoneCracks(context, cracks);
+    if (grip) this.drawHandBack(context);
+    context.restore();
   }
 
   // 오른손 손등(뒤에서 봄): 팔(아래) → 손목 → 손등 → 오른쪽 테두리를 감아 넘어가는 네 손가락, 엄지는 왼쪽 테두리를 감싼다.
