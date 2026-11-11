@@ -712,17 +712,17 @@ export class ThrowRenderer {
 
   // 손바닥은 휴대폰 아래쪽 뒤에 있어 테두리 밖(아래 손목 쪽·양옆)만 보인다
   drawGripBack(context) {
-    context.fillStyle = SKIN.shade;
+    context.fillStyle = SKIN.base;
     context.beginPath();
     context.ellipse(0.6, 8.6, 7.4, 5.6, 0, 0, Math.PI * 2);
     context.fill();
-    context.fillStyle = SKIN.base;
+    context.fillStyle = SKIN.light;
     context.beginPath();
-    context.ellipse(0.9, 10, 6.6, 4, 0, 0, Math.PI * 2);
+    context.ellipse(1.4, 10.4, 3.6, 1.8, 0, 0, Math.PI * 2);
     context.fill();
   }
 
-  // 왼쪽 테두리를 감싼 손가락 끝 셋(손바닥 쪽으로 갈수록 조금 길게) + 오른쪽 아래 테두리에 살짝 걸친 엄지 끝
+  // 왼쪽 테두리를 감싼 손가락 끝 넷 + 오른쪽 테두리를 감싼 엄지
   drawGripFront(context) {
     const fingertip = (top, length) => {
       context.fillStyle = SKIN.base;
@@ -736,29 +736,81 @@ export class ThrowRenderer {
     fingertip(1.9, 3.2);
     fingertip(4.4, 3.1);
     fingertip(6.9, 2.6);
-    // 엄지: 손바닥 아래(손목 쪽)에서 엄지 두덩이 오른쪽 테두리 밖으로 부풀며 올라와, 끝이 테두리를 넘어 앞면에 걸친다.
-    // 손바닥과 끊기지 않게 한 덩어리로 그린다
-    context.fillStyle = SKIN.base;
-    context.beginPath();
-    context.moveTo(3.2, 13.2);
-    context.bezierCurveTo(9.4, 13.4, 9.6, 7.4, 8.3, 4.4);
-    context.bezierCurveTo(7.6, 2.6, 5.6, 1.5, 4.4, 2.5);
-    context.bezierCurveTo(3.7, 3.2, 4.4, 5, 5.3, 6.9);
-    context.bezierCurveTo(5.9, 8.4, 5, 9.9, 3.2, 10.6);
-    context.closePath();
+    this.drawGripThumb(context);
+  }
+
+  // 엄지(휴대폰 좌표계): 손바닥 아래에서 엄지 두덩(중수골 위 살)이 오른쪽 테두리 밖으로 부풀어 올라
+  // 첫째 마디 관절(MCP) → 첫마디뼈 → 끝마디 관절(IP)에서 안쪽으로 꺾여 → 끝마디가 테두리를 넘어 앞면을 누른다.
+  // 마디마다 굵기를 달리하고 관절 주름·손등 쪽 관절 하이라이트·손톱으로 뼈대가 보이게 한다
+  drawGripThumb(context) {
+    const wrist = { x: 3.2, y: 12.8 };
+    const knuckle = { x: 8.5, y: 5.6 }; // MCP
+    const joint = { x: 7.1, y: 2.4 }; // IP
+    const tip = { x: 4.9, y: 0.9 };
+    const capsule = (from, to, width, color) => {
+      context.strokeStyle = color;
+      context.lineWidth = width;
+      context.lineCap = 'round';
+      context.beginPath();
+      context.moveTo(from.x, from.y);
+      context.lineTo(to.x, to.y);
+      context.stroke();
+    };
+    // 윤곽(살짝 어두운 테두리) → 살. 같은 순서로 두 번 그려 마디가 이어지는 곳엔 선이 생기지 않는다
+    const thenar = () => {
+      context.beginPath();
+      context.moveTo(wrist.x, wrist.y);
+      context.bezierCurveTo(7.6, 13.6, 9.9, 10.4, 9.6, 7.6);
+      context.quadraticCurveTo(9.4, 6, knuckle.x, knuckle.y - 0.6);
+      context.lineTo(6.4, 6.8);
+      context.bezierCurveTo(6.2, 8.6, 5.2, 10.2, 3, 10.8);
+      context.closePath();
+    };
+    context.fillStyle = SKIN.shade;
+    context.save();
+    context.translate(0.15, 0.12);
+    thenar();
     context.fill();
-    // 엄지 안쪽 주름 + 손톱
-    context.strokeStyle = SKIN.shade;
-    context.lineWidth = 0.55;
-    context.lineCap = 'round';
-    context.beginPath();
-    context.moveTo(5.4, 7.2);
-    context.quadraticCurveTo(6.6, 9.4, 5.2, 11.4);
-    context.stroke();
+    context.restore();
+    capsule(knuckle, joint, 3.2, SKIN.shade);
+    capsule(joint, tip, 2.8, SKIN.shade);
+    context.fillStyle = SKIN.base;
+    thenar();
+    context.fill();
+    capsule(knuckle, joint, 2.9, SKIN.base);
+    capsule(joint, tip, 2.5, SKIN.base);
+    // 엄지 두덩 볼록함(빛)
     context.fillStyle = SKIN.light;
     context.beginPath();
-    context.ellipse(5.3, 3.1, 0.75, 0.55, -0.6, 0, Math.PI * 2);
+    context.ellipse(8.1, 9.2, 1, 1.9, -0.25, 0, Math.PI * 2);
     context.fill();
+    // 관절: 바깥쪽(손등 쪽) 마디 하이라이트 + 안쪽 주름
+    context.fillStyle = SKIN.light;
+    context.beginPath();
+    context.ellipse(knuckle.x + 0.7, knuckle.y - 0.2, 0.55, 0.75, -0.4, 0, Math.PI * 2);
+    context.ellipse(joint.x + 0.5, joint.y - 0.6, 0.45, 0.55, -0.8, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = SKIN.shade;
+    context.lineWidth = 0.45;
+    context.lineCap = 'round';
+    context.beginPath();
+    context.moveTo(joint.x - 1.3, joint.y + 0.5);
+    context.lineTo(joint.x - 0.3, joint.y + 1.3);
+    context.moveTo(knuckle.x - 1.4, knuckle.y + 0.3);
+    context.lineTo(knuckle.x - 0.5, knuckle.y + 1.2);
+    context.stroke();
+    // 손톱: 끝마디 방향으로 놓인 둥근 판
+    const angle = Math.atan2(tip.y - joint.y, tip.x - joint.x);
+    context.save();
+    context.translate(tip.x + (joint.x - tip.x) * 0.35, tip.y + (joint.y - tip.y) * 0.35 - 0.35);
+    context.rotate(angle);
+    context.fillStyle = '#fff4ec';
+    roundedRect(context, -0.9, -0.85, 1.9, 1.5, 0.7);
+    context.fill();
+    context.strokeStyle = 'rgba(214, 150, 112, 0.6)';
+    context.lineWidth = 0.3;
+    context.stroke();
+    context.restore();
   }
 
   drawPhoneCracks(context, cracks) {
