@@ -1,5 +1,5 @@
 // 진입점: 모드(연습 · 휴대폰 던지기 · 에러 구조 SOS)를 고르고, 엔진 이벤트를 화면·효과음·키보드·서버 호출에 연결한다.
-import { TypingEngine, DURATIONS } from './engine.js';
+import { TypingEngine, DURATIONS, getTierIndex } from './engine.js';
 import { TimeAttackEngine, TIME_ATTACK_RULES } from './time-attack-engine.js';
 import { LANGUAGES, getTokenPool } from './tokens.js';
 import { ThrowEngine, ROBOT_TYPES } from './throw-engine.js';
@@ -190,7 +190,10 @@ function handleArcadeEvent(type, payload) {
       else sound.play('robotHit', { type: payload.robot.type, weapon: payload.weapon, remainingHp: payload.robot.hp, combo: run.engine?.combo ?? 1 });
       break;
     case 'kill':
-      sound.play(battery ? 'explode' : 'robotKill', { type: payload.robot.type, combo: run.engine?.combo ?? 1 });
+      {
+        const combo = run.engine?.combo ?? 1;
+        sound.play(battery ? 'explode' : 'robotKill', { type: payload.robot.type, combo, tier: getTierIndex(combo) });
+      }
       ui.log('ok', `${ROBOT_TYPES[payload.robot.type].label} 처치 (+${payload.bounty})`);
       break;
     case 'item-spawn':
