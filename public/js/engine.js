@@ -102,6 +102,7 @@ export class TypingEngine {
     this.queue = [];
     this.history = [];
     this.weakTokens = new Map();
+    this.skippedTokens = 0;
     this.correctPerSecond = [];
     this.lastWarnedSecond = null;
     this.advanceToken();
@@ -216,6 +217,29 @@ export class TypingEngine {
     }
     this.emit('backspace', { cursor: this.cursor, deleted: deleteCount });
     return { accepted: true, deleted: deleteCount };
+  }
+
+  // Enter: 지금 토큰을 틀린 것으로 처리하고 다음 토큰으로 넘어간다.
+  // 콤보 끊김 · 틀린 타 +1(정확도 반영) · 자주 틀린 토큰에 기록(다시 출제 대상) · 점수·시간 보너스 없음.
+  // 시작 전이면 무시(첫 글자 입력이 타이머를 시작한다). O(1)
+  skipToken(nowMs) {
+    if (this.status !== 'running') return { accepted: false, reason: 'not_running' };
+    this.update(nowMs);
+    if (this.status === 'finished') return { accepted: false, reason: 'finished' };
+    const skipped = this.current;
+    const comboLost = this.combo;
+    this.wrongKeystrokes++;
+    this.combo = 0;
+    this.skippedTokens++;
+    const entry = this.weakTokens.get(skipped.text) ?? { token: skipped, misses: 0 };
+    entry.misses++;
+    this.weakTokens.set(skipped.text, entry);
+    this.history.push({ ...skipped, clean: false, skipped: true });
+    if (this.history.length > this.historyLength) this.history.shift();
+    const payload = { token: skipped, typedCount: this.typed.length, comboLost, tokenNumber: this.tokenNumber };
+    this.advanceToken();
+    this.emit('skip', payload);
+    return { accepted: true, skipped: true, ...payload };
   }
 
   // 점수는 토큰 완성 시점에 한 번만 준다(지우고 다시 쳐서 점수를 불리는 것 방지).
@@ -377,6 +401,7 @@ export class TypingEngine {
       correctKeystrokes: this.correctKeystrokes,
       wrongKeystrokes: this.wrongKeystrokes,
       weakTokens,
+      skippedTokens: this.skippedTokens,
       wordsPerMinuteTimeline: this.wordsPerMinuteTimeline(),
       ...this.summaryExtras()
     };

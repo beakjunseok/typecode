@@ -139,3 +139,11 @@ test('고정 시간 연습 모드도 타수를 계산한다', async () => {
   engine.update(31_000);
   assert.equal(engine.summary().charactersPerMinute, calculateCharactersPerMinute(engine.correctKeystrokes, 30));
 });
+
+test('시간 연장: Enter로 건너뛰면 시간이 늘지 않는다', () => {
+  const { engine } = createEngine();
+  typeCurrent(engine, 0);
+  const deadline = engine.deadlineSeconds();
+  assert.equal(engine.skipToken(1000).accepted, true);
+  assert.equal(engine.deadlineSeconds(), deadline);
+});

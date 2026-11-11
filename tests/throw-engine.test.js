@@ -264,3 +264,21 @@ test('세로 모바일 설정: 레인 3개, 토큰 14자 이하', () => {
   assert.ok(engine.robots.every(robot => robot.lane >= 0 && robot.lane < 3));
   assert.ok(engine.tokenPool.every(token => token.text.length <= 14));
 });
+
+test('Enter(clearInput): 친 낱말을 한 번에 지우고 조준을 푼다 — 콤보·점수 유지', () => {
+  const { engine, events } = createEngine();
+  const clock = { now: 0 };
+  const robot = startWithRobot(engine, clock);
+  typeText(engine, clock, robot.token.text.slice(0, 1));
+  assert.equal(engine.targetId, robot.id);
+  assert.equal(engine.typed.length, 1);
+  const score = engine.score;
+  const combo = engine.combo;
+  assert.equal(engine.clearInput(clock.now).accepted, true);
+  assert.equal(engine.targetId, null);
+  assert.deepEqual(engine.typed, []);
+  assert.equal(engine.score, score);
+  assert.equal(engine.combo, combo);
+  assert.ok(events.some(event => event.type === 'unlock'));
+  assert.equal(engine.clearInput(clock.now).accepted, false, '지울 게 없으면 무시');
+});

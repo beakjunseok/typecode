@@ -36,8 +36,8 @@ export function hangulToKeys(value) {
 
 // onCharacter(ch): 게임에 넘길 ASCII 글자, onBackspace(): 게임에 반영된 글자 하나 지우기,
 // onIgnored(ch): 한글 등 게임에서 쓰지 않는 글자(경고용).
-// onHangul(): 한글 자판 입력을 영문 키로 바꿨을 때(안내용).
-export function createInputDiffer({ onCharacter, onBackspace, onIgnored = () => {}, onHangul = () => {} }) {
+// onHangul(): 한글 자판 입력을 영문 키로 바꿨을 때(안내용). onEnter(): 줄바꿈(모바일 키보드의 Enter)이 들어왔을 때.
+export function createInputDiffer({ onCharacter, onBackspace, onIgnored = () => {}, onHangul = () => {}, onEnter = () => {} }) {
   // 센티널 자리는 true: 모바일에서 빈 칸에 Backspace를 누르면 센티널이 지워지는데, 그게 곧 '한 글자 지우기'다.
   let mirror = INPUT_SENTINEL;
   let applied = [true];
@@ -53,7 +53,10 @@ export function createInputDiffer({ onCharacter, onBackspace, onIgnored = () => 
     }
     applied = applied.slice(0, common);
     for (const character of value.slice(common)) {
-      if (TYPEABLE.test(character)) {
+      if (character === '\n' || character === '\r') {
+        onEnter();
+        applied.push(false);
+      } else if (TYPEABLE.test(character)) {
         onCharacter(character);
         applied.push(true);
       } else {

@@ -201,3 +201,32 @@ test('한 글자가 아닌 입력과 리스너 예외는 엔진을 깨뜨리지 
     console.error = originalError;
   }
 });
+
+test('Enter(skipToken): 틀린 토큰으로 기록하고 다음 토큰으로 — 콤보 끊김, 틀린 타 +1, 점수 없음', () => {
+  const { engine, events } = createEngine();
+  assert.equal(engine.skipToken(0).accepted, false, '시작 전에는 무시');
+  typeCurrentToken(engine, 0);
+  typeCurrentToken(engine, 500);
+  assert.equal(engine.combo, 2);
+  const skipped = engine.current;
+  const next = engine.queue[0];
+  engine.input(skipped.text[0], 900);
+  const before = { score: engine.score, wrong: engine.wrongKeystrokes, completed: engine.completedTokens };
+  const result = engine.skipToken(1000);
+  assert.equal(result.accepted, true);
+  assert.equal(result.comboLost, 2);
+  assert.equal(result.typedCount, 1);
+  assert.equal(engine.combo, 0);
+  assert.equal(engine.score, before.score, '점수 없음');
+  assert.equal(engine.wrongKeystrokes, before.wrong + 1, '정확도에 반영');
+  assert.equal(engine.completedTokens, before.completed, '완성 토큰 아님');
+  assert.equal(engine.current, next, '다음 토큰');
+  assert.deepEqual(engine.typed, []);
+  assert.equal(engine.history.at(-1).skipped, true);
+  assert.equal(engine.history.at(-1).clean, false);
+  assert.ok(engine.weakTokens.get(skipped.text).misses >= 1, '자주 틀린 토큰에 기록');
+  assert.equal(events.at(-1).type, 'skip');
+  engine.update(31_000);
+  assert.equal(engine.summary().skippedTokens, 1);
+  assert.equal(engine.skipToken(31_500).accepted, false, '끝난 뒤 무시');
+});

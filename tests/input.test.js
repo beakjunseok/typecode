@@ -7,7 +7,8 @@ function setup() {
   const differ = createInputDiffer({
     onCharacter: character => log.push(character),
     onBackspace: () => log.push('⌫'),
-    onIgnored: character => log.push(`?${character}`)
+    onIgnored: character => log.push(`?${character}`),
+    onEnter: () => log.push('↵')
   });
   return { differ, log };
 }
@@ -76,4 +77,15 @@ test('스와이프로 여러 글자가 한 번에 들어와도 순서대로', ()
   const { differ, log } = setup();
   differ.sync(' const');
   assert.deepEqual(log, ['c', 'o', 'n', 's', 't']);
+});
+
+test('모바일 Enter(줄바꿈 문자)는 onEnter로, 지워져도 Backspace로 세지 않는다', () => {
+  const { differ, log } = setup();
+  differ.sync(' ab');
+  differ.sync(' ab\n');
+  differ.sync(' ab');
+  assert.deepEqual(log, ['a', 'b', '↵']);
+  differ.reset();
+  differ.sync(' \r\n');
+  assert.deepEqual(log, ['a', 'b', '↵', '↵', '↵']);
 });
