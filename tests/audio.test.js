@@ -72,9 +72,9 @@ test('로봇 명중음: 종류·무기·남은 체력마다 오류 없이 울리
       return stats.oscillators + stats.noises - before;
     };
     for (const type of ['basic', 'fast', 'tank', 'unknown']) {
-      for (const weapon of ['phone', 'laptop']) assert.ok(count({ type, weapon, remainingHp: 0 }) >= 6, `${type}/${weapon}`);
+      for (const weapon of ['phone', 'laptop']) assert.ok(count({ type, weapon, remainingHp: 0 }) >= 4, `${type}/${weapon}`);
     }
-    assert.ok(count({ type: 'tank', remainingHp: 2 }) > 0, '버티는 탱크');
+    assert.equal(count({ type: 'tank', remainingHp: 2 }), count({ type: 'tank', remainingHp: 0 }) + 2, '버티면 장갑 "땡" 두 음이 더해짐');
     assert.ok(count() > 0, '옵션 없이도 울림');
     for (const combo of [0, 1, 7, 40]) assert.ok(count({ combo }) > 0, `combo ${combo}`);
     assert.deepEqual(stats.errors, []);
