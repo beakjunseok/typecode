@@ -82,6 +82,14 @@ function handlePracticeEvent(type, payload) {
     case 'backspace':
       sound.play('erase');
       break;
+    case 'skip':
+      sound.play('keyWrong');
+      sound.play('error');
+      bgm.setIntensity(0);
+      pulseClass(ui.elements.stage, 'shake', 200);
+      if (payload.comboLost >= 5) ui.log('warn', `combo ${payload.comboLost} dropped`);
+      ui.log('err', `SkipError: '${payload.token.text}' 건너뜀 — 틀린 토큰으로 기록 (#${payload.tokenNumber})`);
+      break;
     case 'mistake':
       sound.play('keyWrong', { character: payload.typed });
       sound.play('error');
@@ -311,7 +319,7 @@ function arcadeSubtitle(summary) {
 }
 
 function timeAttackSubtitle(summary) {
-  return `${LANGUAGES[settings.languageKey].label} · ⏳ 시간 연장 · 생존 ${summary.survivedSeconds}s (시작 ${summary.startSeconds}s + 획득 ${summary.timeBonusTotal}s) · 토큰 ${summary.completedTokens}개 (클린 ${summary.cleanTokens})`;
+  return `${LANGUAGES[settings.languageKey].label} · ⏳ 시간 연장 · 생존 ${summary.survivedSeconds}s (시작 ${summary.startSeconds}s + 획득 ${summary.timeBonusTotal}s) · 토큰 ${summary.completedTokens}개 (클린 ${summary.cleanTokens})${summary.skippedTokens ? ` · 건너뜀 ${summary.skippedTokens}` : ''}`;
 }
 
 function handleFinish(summary) {
@@ -458,7 +466,8 @@ const inputDiffer = createInputDiffer({
   onCharacter: character => applyCharacter(character),
   onBackspace: () => applyBackspace(false),
   onIgnored: () => warnIme(),
-  onHangul: () => showInputNotice('한→영 자동 변환 · 대문자는 영문 키보드')
+  onHangul: () => showInputNotice('한→영 자동 변환 · 대문자는 영문 키보드'),
+  onEnter: () => applyEnter()
 });
 
 function resetInputBuffer() {
@@ -504,10 +513,33 @@ function applyBackspace(wholeToken) {
   updateKeyboardHint();
 }
 
+// Enter — 연습: 지금 토큰을 틀린 것으로 하고 다음 토큰으로 / 게임: 친 낱말 지우기.
+// 데스크톱은 keydown, 모바일은 줄바꿈 문자로 들어올 수 있어 둘 다 받되, 50ms 안의 중복은 한 번으로 친다
+const ENTER_DEDUPE_MS = 50;
+function applyEnter() {
+  const time = now();
+  if (time - (run.lastEnterAt ?? -Infinity) < ENTER_DEDUPE_MS) return;
+  run.lastEnterAt = time;
+  const engine = run.engine;
+  if (isArcade()) {
+    if (engine.clearInput(time).accepted) renderInputBar();
+    return;
+  }
+  if (!engine.skipToken(time).accepted) return;
+  keyboard.press('Enter', false);
+  ui.renderToken(engine, { full: true });
+  updateKeyboardHint();
+}
+
 function handleKeyDown(event) {
   if (event.key === 'Escape') {
     event.preventDefault();
     resetGame();
+    return;
+  }
+  if (event.key === 'Enter' && !event.isComposing) {
+    event.preventDefault();
+    applyEnter();
     return;
   }
   if (event.isComposing) return;
@@ -516,7 +548,7 @@ function handleKeyDown(event) {
     applyBackspace(event.ctrlKey || event.altKey || event.metaKey);
     return;
   }
-  if (event.key === 'Enter' || event.key === 'Tab') event.preventDefault();
+  if (event.key === 'Tab') event.preventDefault();
 }
 
 function handleInput(event) {

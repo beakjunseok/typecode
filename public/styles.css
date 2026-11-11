@@ -85,6 +85,7 @@ button.active { color: var(--tier-color); border-color: var(--tier-color); posit
 .history { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; min-height: 20px; font-size: 13px; }
 .history .past { opacity: 0.45; }
 .history .past.dirty { color: #a04558; text-decoration: line-through; opacity: 0.7; }
+.history .past.skipped::after { content: ' ↵'; text-decoration: none; display: inline-block; opacity: 0.8; }
 .kind { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.85; min-height: 14px; }
 
 .current { font-size: 48px; font-weight: 600; letter-spacing: -0.3px; white-space: pre; text-align: center; min-height: 64px; }

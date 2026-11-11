@@ -77,7 +77,8 @@ export function createUi(root = document) {
       return span;
     }));
     elements.historyView.replaceChildren(...engine.history.map(token => {
-      const span = element('span', `past ${token.clean ? 'clean' : 'dirty'}`, token.text);
+      const span = element('span', `past ${token.clean ? 'clean' : 'dirty'}${token.skipped ? ' skipped' : ''}`, token.text);
+      if (token.skipped) span.title = 'Enter로 건너뜀';
       if (token.clean) span.style.color = kindColor(token.kind);
       return span;
     }));
@@ -200,7 +201,7 @@ export function createUi(root = document) {
   function showResult(summary, { languageKey, playerName, title = 'BUILD FINISHED', subtitle = null }) {
     elements.resultTitle.textContent = title;
     elements.resultSub.textContent = subtitle ??
-      `${languageLabel(languageKey)} · ${summary.durationSeconds}s · 토큰 ${summary.completedTokens}개 (클린 ${summary.cleanTokens})`;
+      `${languageLabel(languageKey)} · ${summary.durationSeconds}s · 토큰 ${summary.completedTokens}개 (클린 ${summary.cleanTokens})${summary.skippedTokens ? ` · 건너뜀 ${summary.skippedTokens}` : ''}`;
     elements.resultScore.textContent = summary.score.toLocaleString();
     elements.resultWpm.textContent = summary.charactersPerMinute ?? summary.wordsPerMinute * 5;
     elements.resultWpmSub.textContent = `· ${summary.wordsPerMinute} WPM`;

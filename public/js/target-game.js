@@ -224,6 +224,11 @@ export class TargetGameEngine {
     return { accepted: true, deleted: deleteCount };
   }
 
+  // Enter: 지금까지 친 낱말을 한 번에 지우고 조준을 푼다(다른 목표를 고를 수 있게). 콤보·점수는 그대로
+  clearInput(nowMs) {
+    return this.backspace(nowMs, { wholeToken: true });
+  }
+
   // 발사: 타격 점수는 지금 지급, 효과는 투사체가 닿을 때(onProjectileLanded) 적용한다.
   fire(target) {
     const weapon = this.currentWeapon();
