@@ -713,7 +713,6 @@ export class ThrowRenderer {
   // 오른손 손등(뒤에서 봄): 팔(아래) → 손목 → 손등 → 오른쪽 테두리를 감아 넘어가는 네 손가락, 엄지는 왼쪽 테두리를 감싼다.
   // 손가락 끝·엄지 끝은 화면 쪽으로 넘어가 보이지 않는다
   drawHandBack(context) {
-    const contour = 'rgba(214, 150, 112, 0.6)';
     // 네 손가락: 손등 마디(x≈2.6)에서 오른쪽 테두리 밖으로 둥글게 말려 넘어간다(검지 → 새끼, 위 → 아래)
     const fingers = [
       { y: 1.1, width: 2.55, reach: 7.6 },
@@ -722,7 +721,7 @@ export class ThrowRenderer {
       { y: 8.25, width: 2.15, reach: 7.2 }
     ];
     context.lineCap = 'round';
-    for (const pass of [{ extra: 0.5, color: SKIN.shade }, { extra: 0, color: SKIN.base }]) {
+    for (const pass of [{ extra: 0, color: SKIN.base }]) {
       for (const { y, width, reach } of fingers) {
         context.strokeStyle = pass.color;
         context.lineWidth = width + pass.extra;
@@ -731,13 +730,6 @@ export class ThrowRenderer {
         context.lineTo(reach - width / 2, y);
         context.stroke();
       }
-    }
-    // 테두리를 돌아 넘어가는 곳은 조금 어둡게(말려 들어가는 느낌)
-    context.fillStyle = 'rgba(239, 184, 148, 0.55)';
-    for (const { y, width, reach } of fingers) {
-      context.beginPath();
-      context.ellipse(reach - 0.55, y, 0.75, width / 2 - 0.15, 0, -Math.PI / 2, Math.PI / 2);
-      context.fill();
     }
     // 엄지: 손등 왼쪽 아래(엄지 두덩)에서 왼쪽 테두리를 따라 올라가 테두리 너머로 감긴다
     context.fillStyle = SKIN.base;
@@ -750,21 +742,13 @@ export class ThrowRenderer {
     context.bezierCurveTo(-3.8, 7.2, -2.4, 8.6, -0.4, 9);
     context.closePath();
     context.fill();
-    context.strokeStyle = contour;
-    context.lineWidth = 0.35;
-    context.beginPath();
-    context.moveTo(-0.8, 11.6);
-    context.bezierCurveTo(-4.4, 11, -5.8, 8.4, -6.4, 5.2);
-    context.quadraticCurveTo(-6.9, 2.6, -6.7, 1.2);
-    context.quadraticCurveTo(-6.4, 0.2, -5.4, 0.5);
-    context.stroke();
     // 손등 + 손목: 마디 줄(오른쪽)에서 손목(아래, 팔 축 x≈1.6)으로 좁아진다
     const handBack = () => {
       context.beginPath();
       context.moveTo(-1.4, 16);
-      context.bezierCurveTo(-1.6, 13.2, -3.4, 11.4, -3.9, 8.6);
-      context.bezierCurveTo(-4.3, 6, -3.9, 2.4, -2.6, 0.6);
-      context.quadraticCurveTo(-1.6, -0.5, 0.4, -0.3);
+      context.bezierCurveTo(-1.8, 13.2, -4.6, 11.8, -5.3, 8.6);
+      context.bezierCurveTo(-5.7, 6, -5.6, 2.6, -4.4, 0.9);
+      context.quadraticCurveTo(-2.8, -0.6, 0.4, -0.3);
       context.lineTo(2.2, -0.2);
       context.quadraticCurveTo(3.5, 0.6, 3, 2.3);
       context.quadraticCurveTo(3.6, 3.5, 3, 4.8);
@@ -776,10 +760,6 @@ export class ThrowRenderer {
     context.fillStyle = SKIN.base;
     handBack();
     context.fill();
-    context.strokeStyle = contour;
-    context.lineWidth = 0.35;
-    handBack();
-    context.stroke();
     // 손등 빛(넓고 은은하게)
     context.globalAlpha = 0.5;
     context.fillStyle = SKIN.light;
