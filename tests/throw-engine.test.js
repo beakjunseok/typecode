@@ -213,6 +213,33 @@ test('긴 플레이에서도 점수는 정타 × 글자당 상한 이하 (서버
   assert.equal(summary.totalKills, summary.kills.basic + summary.kills.fast + summary.kills.tank);
 });
 
+test('같은 줄의 로봇·아이템은 나올 때도, 빠른 로봇이 따라와도 서로 겹치지 않는다', () => {
+  for (const seed of [2, 9, 21]) {
+    const engine = new ThrowEngine({ tokenPool: getTokenPool('javascript'), random: seeded(seed) });
+    engine.start(0);
+    engine.lives = Infinity;
+    let now = 0;
+    let spawned = 0;
+    engine.onEvent = type => { if (type === 'spawn') spawned++; };
+    for (let frame = 0; frame < 2400; frame++) {
+      now += 50;
+      engine.update(now);
+      const moving = [
+        ...engine.robots.filter(robot => robot.state === 'walking'),
+        ...engine.items.filter(item => !item.consumed)
+      ];
+      for (const first of moving) {
+        for (const second of moving) {
+          if (first === second || first.lane !== second.lane) continue;
+          assert.ok(Math.abs(first.x - second.x) >= THROW_RULES.laneGap - 1e-6,
+            `seed ${seed} t=${engine.gameTime.toFixed(2)}: lane ${first.lane} ${first.x.toFixed(3)} vs ${second.x.toFixed(3)}`);
+        }
+      }
+    }
+    assert.ok(spawned > 40, `seed ${seed}: ${spawned}마리 — 자리를 기다리느라 너무 적게 나오지 않음`);
+  }
+});
+
 test('시간이 지나면 빠른 로봇·탱크 로봇이 등장한다', () => {
   const engine = new ThrowEngine({ tokenPool: getTokenPool('go'), random: seeded(9) });
   engine.start(0);

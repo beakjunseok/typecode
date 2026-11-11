@@ -14,6 +14,9 @@ export const ITEM_TYPES = Object.freeze({
   battery: Object.freeze({ label: '건전지', effect: '생명(건전지) 1칸 회복' })
 });
 
+// 시간이 지나면 로봇이 빨라진다: seconds초에 걸쳐 최대 (1 + max)배
+const SPEED_RAMP = Object.freeze({ seconds: 180, max: 0.8 });
+
 export const WEAPONS = Object.freeze({
   phone: Object.freeze({ label: '휴대폰', damage: 1 }),
   laptop: Object.freeze({ label: '노트북', damage: 3 })
@@ -30,6 +33,9 @@ export const THROW_RULES = Object.freeze({
   batteryFirstDelay: [6, 10],
   batteryInterval: [14, 22],
   itemSpeed: 0.06,
+  // 같은 줄 두 목표 사이에 늘 남겨 둘 거리(로봇 몸 + 낱말 발판 높이). 자리가 없으면 spawnRetrySeconds 뒤 다시 시도
+  laneGap: 0.15,
+  spawnRetrySeconds: 0.25,
   firstItemAt: [18, 26],
   itemInterval: [22, 32],
   maxFrameSeconds: ARCADE_RULES.maxFrameSeconds
@@ -80,7 +86,7 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   speedMultiplier() {
-    return (1 + Math.min(this.gameTime / 180, 0.8)) * this.difficulty.speed;
+    return (1 + Math.min(this.gameTime / SPEED_RAMP.seconds, SPEED_RAMP.max)) * this.difficulty.speed;
   }
 
   spawnInterval() {
@@ -105,30 +111,83 @@ export class ThrowEngine extends TargetGameEngine {
     return unlocked[unlocked.length - 1][0];
   }
 
-  // 오른쪽 끝 근처가 비어 있는 줄에 우선 배치해 로봇이 겹쳐 나오지 않게 한다.
-  chooseLane() {
-    const lanes = [...Array(this.lanes).keys()];
-    const free = lanes.filter(lane => !this.robots.some(robot => robot.lane === lane && robot.x > 0.82));
-    const candidates = free.length ? free : lanes;
-    return candidates[Math.floor(this.random() * candidates.length)];
+  // 줄 위의 움직이는 목표(걷는 로봇·안 먹은 아이템): 위치, 기본 속도, 로봇인지
+  laneOccupants(lane) {
+    const robots = this.robots
+      .filter(robot => robot.lane === lane && robot.state === 'walking')
+      .map(robot => ({ x: robot.x, speed: ROBOT_TYPES[robot.type].speed, robot: true }));
+    const items = this.items
+      .filter(item => item.lane === lane && !item.consumed)
+      .map(item => ({ x: item.x, speed: THROW_RULES.itemSpeed, robot: false }));
+    return [...robots, ...items];
+  }
+
+  // 새 목표를 이 줄 끝에 내보내도 겹치지 않는가: 출현 지점이 laneGap만큼 비어 있고, 더 빠르면 앞 목표가
+  // 내 책상에 닿기 전에 laneGap 안으로 따라잡지 않아야 한다. 로봇끼리는 속도 배율이 같아 기본 속도 비율만 보면 되고,
+  // 아이템은 배율을 안 받으므로 로봇 속도를 안전한 쪽(뒤 로봇은 최대 배율, 앞 로봇은 지금 배율)으로 잡는다. O(줄 위 목표 수)
+  laneFits(lane, speed, isRobot = true) {
+    const now = this.speedMultiplier();
+    const max = (1 + SPEED_RAMP.max) * this.difficulty.speed;
+    return this.laneOccupants(lane).every(ahead => {
+      const distance = THROW_RULES.spawnX - ahead.x;
+      if (distance < THROW_RULES.laneGap) return false;
+      const sameScale = isRobot && ahead.robot;
+      const mine = sameScale || !isRobot ? speed : speed * max;
+      const theirs = sameScale || !ahead.robot ? ahead.speed : ahead.speed * now;
+      if (mine <= theirs) return true;
+      const catchUpTime = (distance - THROW_RULES.laneGap) / (mine - theirs);
+      const arrivalTime = (ahead.x - THROW_RULES.playerX) / theirs;
+      return catchUpTime >= arrivalTime;
+    });
+  }
+
+  // 겹치지 않는 줄 가운데 무작위. 그런 줄이 없으면 null(조금 뒤 다시 시도)
+  chooseLane(speed = ROBOT_TYPES.basic.speed, isRobot = true) {
+    const lanes = [...Array(this.lanes).keys()].filter(lane => this.laneFits(lane, speed, isRobot));
+    if (!lanes.length) return null;
+    return lanes[Math.floor(this.random() * lanes.length)];
+  }
+
+  // 뽑힌 종류가 들어갈 줄이 없으면 느린 종류부터 대신 넣어 본다(빠른 로봇이 앞 로봇을 따라잡아 겹치지 않게)
+  chooseSpawn() {
+    const chosen = this.chooseRobotType();
+    const fallbacks = Object.entries(ROBOT_TYPES)
+      .filter(([key, type]) => key !== chosen && this.gameTime >= type.unlockAt)
+      .sort(([, first], [, second]) => first.speed - second.speed)
+      .map(([key]) => key);
+    for (const typeKey of [chosen, ...fallbacks]) {
+      const lane = this.chooseLane(ROBOT_TYPES[typeKey].speed);
+      if (lane !== null) return { typeKey, lane };
+    }
+    return null;
   }
 
   spawnIfDue() {
     if (this.gameTime >= this.nextSpawnAt) {
-      if (this.robots.filter(robot => robot.state === 'walking').length < THROW_RULES.maxRobots) this.spawnRobot();
-      this.nextSpawnAt = this.gameTime + this.spawnInterval();
+      const crowded = this.robots.filter(robot => robot.state === 'walking').length >= THROW_RULES.maxRobots;
+      const spawn = crowded ? null : this.chooseSpawn();
+      if (spawn) this.spawnRobot(spawn.typeKey, spawn.lane);
+      this.nextSpawnAt = this.gameTime + (spawn || crowded ? this.spawnInterval() : THROW_RULES.spawnRetrySeconds);
     }
     if (this.gameTime >= this.nextBatteryAt && !this.items.some(item => !item.consumed && item.item === 'battery')) {
-      this.spawnItem(this.chooseLane(), 'battery');
-      this.scheduleBattery(THROW_RULES.batteryInterval);
+      const lane = this.chooseLane(THROW_RULES.itemSpeed, false);
+      if (lane === null) this.nextBatteryAt = this.gameTime + THROW_RULES.spawnRetrySeconds;
+      else {
+        this.spawnItem(lane, 'battery');
+        this.scheduleBattery(THROW_RULES.batteryInterval);
+      }
     }
     if (this.gameTime >= this.nextItemAt && !this.items.some(item => !item.consumed && item.item === 'laptop')) {
-      this.spawnItem();
-      this.nextItemAt = this.gameTime + randomBetween(this.random, THROW_RULES.itemInterval);
+      const lane = this.chooseLane(THROW_RULES.itemSpeed, false);
+      if (lane === null) this.nextItemAt = this.gameTime + THROW_RULES.spawnRetrySeconds;
+      else {
+        this.spawnItem(lane);
+        this.nextItemAt = this.gameTime + randomBetween(this.random, THROW_RULES.itemInterval);
+      }
     }
   }
 
-  spawnRobot(typeKey = this.chooseRobotType(), lane = this.chooseLane()) {
+  spawnRobot(typeKey = this.chooseRobotType(), lane = this.chooseLane(ROBOT_TYPES[typeKey].speed) ?? 0) {
     const type = ROBOT_TYPES[typeKey];
     const robot = {
       id: this.nextId++, kind: 'robot', type: typeKey, lane, x: THROW_RULES.spawnX,
@@ -155,7 +214,7 @@ export class ThrowEngine extends TargetGameEngine {
     this.nextBatteryAt = this.isDamaged() ? this.gameTime + randomBetween(this.random, delayRange) : Infinity;
   }
 
-  spawnItem(lane = this.chooseLane(), itemType = this.chooseItemType()) {
+  spawnItem(lane = this.chooseLane(THROW_RULES.itemSpeed, false) ?? 0, itemType = this.chooseItemType()) {
     const item = { id: this.nextId++, kind: 'item', item: itemType, lane, x: THROW_RULES.spawnX, consumed: false, token: null };
     item.token = this.pickToken(item.id);
     this.items.push(item);
