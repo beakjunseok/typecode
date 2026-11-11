@@ -3,6 +3,7 @@
 // 좌표 원점 = 개발자 위치(playerPosition). 그리기는 프레임마다 O(1)(코드 줄 수 고정).
 import { roundedRect, easeOutBack, easeOutCubic, easeInOutSine } from './game-view.js';
 
+export const SKIN = Object.freeze({ base: '#eab995', shade: '#c99572', light: '#f6d2b4' });
 const COLORS = Object.freeze({
   hoodie: '#2f4a63', hoodieLight: '#46698a', hoodieDark: '#203447',
   hair: '#161b28', hairLight: '#2a3346', skin: '#eab995', skinShade: '#c99572',
@@ -20,24 +21,31 @@ const CODE_LINES = Object.freeze([
   [6, [16, '#eeffff'], [10, '#c3e88d']]
 ]);
 // ---------- 던지기 동작 ----------
-// 낱말을 칠수록 팔을 뒤로 당겨 '장전'(charge 0→1) → 마지막 글자에서 앞으로 채찍처럼 휘둘러 RELEASE 시점에 손을 떠남
-// → 목표를 지나 따라 휘두름(follow-through) → 준비 자세로 복귀하며 새 휴대폰이 손에 톡. 시간은 게임 시계(초).
-export const THROW_TIMING = Object.freeze({ release: 0.05, follow: 0.2, recover: 0.45, newPhone: 0.3, newPhonePop: 0.15 });
-// 자세 = 위팔 각도(조준 방향 기준 오프셋, rad) · 팔꿈치 굽힘(rad) · 상체 기울기(rad, +는 목표 쪽으로)
+// 카메라는 개발자 뒤쪽 위. 화면 위 = 앞(목표 쪽), 화면 아래 = 카메라 쪽(뒤).
+// 낱말을 칠수록 팔꿈치를 옆으로 어깨 높이까지 들고 휴대폰을 귀 뒤로 넘겨 '장전'(charge 0→1)
+// → 마지막 글자에서 몸통 → 위팔 → 아래팔 순서로 채찍처럼 휘둘러 RELEASE 시점에 손을 떠남
+// → 팔이 몸 앞을 가로질러 내려가 뒤에서는 몸에 가려지고(follow) → 몸 옆 아래로 돌아 나와 새 휴대폰을 쥐고(low)
+// → 오른쪽 옆으로 들어 올려 준비 자세로 복귀(recover). 머리 위를 가로지르지 않는다. 시간은 게임 시계(초).
+export const THROW_TIMING = Object.freeze({ release: 0.07, follow: 0.2, low: 0.32, recover: 0.6, newPhone: 0.3, newPhonePop: 0.16 });
+// 자세 = 위팔 각도(조준 방향 기준 오프셋, rad) · 팔꿈치 굽힘(rad, +면 아래팔이 머리 쪽으로 접힘)
+//      · 상체 기울기(rad, +는 목표 쪽으로) · 어깨 비틀기(+1 오른어깨가 뒤로, -1 앞으로)
 const POSES = Object.freeze({
-  ready: Object.freeze({ upper: 0.35, bend: 0.75, lean: 0 }),
-  // 장전: 팔꿈치를 옆으로 높이 들고, 아래팔을 접어 휴대폰을 머리 뒤(화면상 어깨 쪽 아래)로 넘긴다
-  cocked: Object.freeze({ upper: 0.95, bend: -2.3, lean: -0.06 }),
-  release: Object.freeze({ upper: -0.05, bend: 0.08, lean: 0.05 }),
-  follow: Object.freeze({ upper: -0.65, bend: 0.45, lean: 0.09 })
+  ready: Object.freeze({ upper: 0.35, bend: 0.75, lean: 0, twist: 0 }),
+  cocked: Object.freeze({ upper: 1.45, bend: 2.25, lean: -0.07, twist: 1 }),
+  release: Object.freeze({ upper: -0.05, bend: 0.1, lean: 0.06, twist: -0.7 }),
+  // 몸 앞을 가로질러 왼쪽 아래로: 뒤에서 보면 머리·몸통 뒤로 숨는다
+  follow: Object.freeze({ upper: -1.02, bend: 1.27, lean: 0.1, twist: -1 }),
+  // 몸 오른쪽 옆 아래(4시 방향). 같은 자세를 두 각도로 둔다: 따라 휘두르기에서 올 때는 반시계로(몸 뒤로) 돌아오고,
+  // 준비 자세로 갈 때는 오른쪽 옆을 따라 올라간다(어느 쪽도 머리 위를 지나지 않음)
+  low: Object.freeze({ upper: 2.17 - Math.PI * 2, bend: 1.7, lean: 0.03, twist: -0.3 }),
+  lowRising: Object.freeze({ upper: 2.17, bend: 1.7, lean: 0.03, twist: -0.3 })
 });
+const JOINTS = Object.freeze(['upper', 'bend', 'lean', 'twist']);
 
 function mixPose(from, to, amount) {
-  return {
-    upper: from.upper + (to.upper - from.upper) * amount,
-    bend: from.bend + (to.bend - from.bend) * amount,
-    lean: from.lean + (to.lean - from.lean) * amount
-  };
+  const pose = {};
+  for (const joint of JOINTS) pose[joint] = from[joint] + (to[joint] - from[joint]) * amount;
+  return pose;
 }
 
 // 장전 정도(0~1)에 따른 자세: 처음엔 천천히, 끝으로 갈수록 크게 당긴다
@@ -46,24 +54,42 @@ export function chargePose(charge) {
   return mixPose(POSES.ready, POSES.cocked, amount * amount * (3 - 2 * amount));
 }
 
-// 던진 뒤 경과 시간(sinceThrow)과 지금 장전 정도로 목표 자세 + 손에 든 휴대폰 크기(0 = 빈손)를 정한다. O(1)
+// 휘두르기(장전 → 놓기): 운동 사슬. 몸통이 먼저 돌고, 위팔이 따라가고, 아래팔은 늦게 출발해 마지막에 채찍처럼 펴진다
+function whipPose(progress) {
+  const { cocked, release } = POSES;
+  const lerp = (joint, amount) => cocked[joint] + (release[joint] - cocked[joint]) * amount;
+  return {
+    upper: lerp('upper', progress ** 1.6),
+    bend: lerp('bend', progress ** 2.6),
+    lean: lerp('lean', easeOutCubic(progress)),
+    twist: lerp('twist', easeOutCubic(progress))
+  };
+}
+
+// 던진 뒤 경과 시간(sinceThrow)과 지금 장전 정도로 목표 자세를 정한다. O(1)
+// held: 손에 든 휴대폰 크기(0 = 빈손), front: 1이면 팔을 몸 앞(카메라 쪽)에, 0이면 몸 뒤에 그린다
 export function throwPose({ charge, sinceThrow }) {
   const timing = THROW_TIMING;
   const resting = chargePose(charge);
-  if (!(sinceThrow >= 0) || sinceThrow >= timing.recover) return { ...resting, held: 1, released: true };
+  if (!(sinceThrow >= 0) || sinceThrow >= timing.recover) return { ...resting, held: 1, released: true, front: 1 };
   let pose;
+  let front = 1;
   if (sinceThrow < timing.release) {
-    const progress = sinceThrow / timing.release;
-    pose = mixPose(POSES.cocked, POSES.release, progress * progress);
+    pose = whipPose(sinceThrow / timing.release);
   } else if (sinceThrow < timing.follow) {
-    pose = mixPose(POSES.release, POSES.follow, easeOutCubic((sinceThrow - timing.release) / (timing.follow - timing.release)));
+    const progress = (sinceThrow - timing.release) / (timing.follow - timing.release);
+    pose = mixPose(POSES.release, POSES.follow, easeOutCubic(progress));
+    front = progress < 0.15 ? 1 : 0;
+  } else if (sinceThrow < timing.low) {
+    pose = mixPose(POSES.follow, POSES.low, easeInOutSine((sinceThrow - timing.follow) / (timing.low - timing.follow)));
+    front = 0;
   } else {
-    pose = mixPose(POSES.follow, resting, easeInOutSine((sinceThrow - timing.follow) / (timing.recover - timing.follow)));
+    pose = mixPose(POSES.lowRising, resting, easeInOutSine((sinceThrow - timing.low) / (timing.recover - timing.low)));
   }
   const held = sinceThrow < timing.release ? 1
     : sinceThrow < timing.newPhone ? 0
       : easeOutBack(Math.min(1, (sinceThrow - timing.newPhone) / timing.newPhonePop));
-  return { ...pose, held, released: sinceThrow >= timing.release };
+  return { ...pose, held, released: sinceThrow >= timing.release, front };
 }
 
 // 책상 상판(원근 사다리꼴) + 듀얼 모니터 + RGB 키보드 + 커피·러버덕. 개발자보다 먼저(뒤에) 그린다
@@ -236,19 +262,27 @@ function drawRubberDuck(context, x, y, time) {
 }
 
 // 개발자 + 의자 등받이 + 던지는 팔. 손 위치(투사체 출발점)를 돌려준다.
-// aim: -0.55~0.55 (목표 열 방향), armSwing: 던질 때 스프링 값, sinceThrow: 마지막 투척 후 경과(초)
-// pose: throwPose 결과를 부드럽게 따라간 값 { upper, bend, lean, held }. trail: 최근 손 위치(휘두르는 잔상)
+// aim: -0.55~0.55 (목표 열 방향). pose: throwPose를 부드럽게 따라간 값 { upper, bend, lean, twist, held, front }.
+// motion: 살아 있는 느낌을 내는 값들 — keyPulse(키를 칠 때 튀는 스프링), keySide(번갈아 치는 손가락 쪽 -1/1),
+//   typing(최근 타자 활동 0~1), tension(로봇이 가까울수록 0→1), recoil(맞았을 때 뒤로 젖혀지는 스프링), slump(게임 오버 후 0→1)
+// trail: 최근 손 위치(휘두르는 잔상)
 export function drawDeveloper(context, {
-  x, y, time, aim, pose, trail = [], hurt, lives, gameOver, laptopMode, drawHeld, scale = 1
+  x, y, time, aim, pose, trail = [], hurt, lives, gameOver, laptopMode, drawHeld, scale = 1, motion = {}
 }) {
-  const bob = gameOver ? 0 : Math.sin(time * 2.4) * 1.2;
+  const { keyPulse = 0, keySide = 1, typing = 0, tension = 0, recoil = 0, slump: slumpAmount = gameOver ? 1 : 0 } = motion;
+  const slump = easeOutCubic(Math.min(1, slumpAmount));
+  // 숨쉬기: 긴장하면 빨라지고 얕아진다. 어깨·머리가 함께 오르내린다
+  const breathRate = 1.6 + tension * 1.6;
+  const breath = Math.sin(time * breathRate) * (1 - slump * 0.6);
+  const rise = breath * (0.9 - tension * 0.3);
   const shake = Math.sin(hurt) * hurt * 0.2;
   const lookSide = aim >= 0 ? 1 : -1;
-  const slump = gameOver ? 5 : 0;
-  const lean = gameOver ? 0 : pose.lean;
+  // 상체 기울기 = 던지기 + 긴장(앞으로) + 맞음(뒤로 젖힘) + 게임 오버(앞으로 푹)
+  const lean = pose.lean * (1 - slump) + tension * 0.035 - recoil * 0.004 + slump * 0.12;
+  const twist = pose.twist * (1 - slump);
   drawSwoosh(context, trail, laptopMode);
   context.save();
-  context.translate(x + shake, y + bob);
+  context.translate(x + shake, y);
   context.scale(scale, scale);
   // 상체 기울기: 의자 쪽(아래) 축을 중심으로 목표 쪽 앞뒤로 젖힘. 의자는 기울지 않는다
   const leanUpperBody = () => {
@@ -256,18 +290,25 @@ export function drawDeveloper(context, {
     context.rotate(lean * lookSide);
     context.translate(0, -14);
   };
-  const headX = aim * 5 + (gameOver ? 0 : Math.sin(time * 1.1) * 0.6);
-  const headY = -27 + slump;
+  // 머리: 목표 쪽으로 돌리되 어깨 비틀림과 반대로 조금 버티고(시선 고정), 키를 칠 때마다 살짝 끄덕
+  const idleLook = Math.sin(time * 0.53) * 0.8 + Math.sin(time * 1.31) * 0.4;
+  const headX = aim * 5 - twist * 1.5 + idleLook * (1 - typing) * (1 - slump);
+  const headY = -27 - rise * 0.8 - keyPulse * 0.5 + slump * 7 - tension * 1.2;
+  const headTilt = aim * 0.08 + Math.sin(time * 0.71) * 0.03 * (1 - typing) - recoil * 0.002 * lookSide;
+  const behind = pose.front < 0.5 && !gameOver;
+  const arm = { aim, pose, twist, rise, gameOver, slump, laptopMode, drawHeld };
   context.save();
   leanUpperBody();
-  drawTorso(context);
-  drawTypingHand(context, time, gameOver);
-  drawHead(context, { headX, headY, lookSide, time, armSwing: (pose.upper - POSES.ready.upper) * -25, lives, laptopMode, gameOver });
+  let hand = null;
+  if (behind) hand = drawThrowingArm(context, arm);
+  drawTorso(context, { rise, twist });
+  drawTypingHand(context, { time, keyPulse, keySide, typing, rise, slump, gameOver });
+  drawHead(context, { headX, headY, headTilt, lookSide, time, armSwing: (pose.upper - POSES.ready.upper) * -25 + keyPulse * 4, lives, laptopMode, gameOver });
   context.restore();
   drawChairBack(context, time, lives);
   context.save();
   leanUpperBody();
-  const hand = drawThrowingArm(context, { aim, pose, gameOver, laptopMode, drawHeld });
+  if (!behind) hand = drawThrowingArm(context, arm);
   drawReaction(context, { headX, headY, hurt, lives, time, gameOver });
   context.restore();
   context.restore();
@@ -276,57 +317,129 @@ export function drawDeveloper(context, {
   const pivotY = 14;
   const rotatedX = Math.cos(angle) * hand.x - Math.sin(angle) * (hand.y - pivotY);
   const rotatedY = Math.sin(angle) * hand.x + Math.cos(angle) * (hand.y - pivotY) + pivotY;
-  return { x: x + shake + rotatedX * scale, y: y + bob + rotatedY * scale };
+  return { x: x + shake + rotatedX * scale, y: y + rotatedY * scale };
 }
 
-// 왼손: 키보드 위에 얹고 톡톡 친다(게임 오버면 축 늘어짐)
-function drawTypingHand(context, time, gameOver) {
-  const tap = gameOver ? 0 : Math.max(0, Math.sin(time * 14)) * 1.6;
-  const hand = gameOver ? { x: -24, y: -6 } : { x: -27, y: -19 + tap };
+// 왼손: 키를 칠 때마다 손끝이 톡 내려가고(keyPulse), 번갈아 옆 키로 조금씩 옮겨 간다.
+// 한동안 안 치면 손목을 내려 쉬고, 게임 오버면 축 늘어진다
+function drawTypingHand(context, { time, keyPulse, keySide, typing, rise, slump, gameOver }) {
+  const resting = { x: -25, y: -15 };
+  const hover = { x: -27 + keySide * 1.6, y: -20 };
+  const active = Math.min(1, typing);
+  const press = Math.max(0, keyPulse) * 0.9;
+  let hand = {
+    x: resting.x + (hover.x - resting.x) * active,
+    y: resting.y + (hover.y - resting.y) * active + press - rise * 0.4 + Math.sin(time * 0.9) * 0.4 * (1 - active)
+  };
+  if (gameOver) hand = { x: -24 + slump * 1, y: -14 + slump * 8 };
   context.lineCap = 'round';
   context.strokeStyle = COLORS.hoodieDark;
   context.lineWidth = 8;
   context.beginPath();
-  context.moveTo(-17, -8);
-  context.lineTo(hand.x + 2, hand.y + 3);
+  context.moveTo(-17, -8 - rise * 0.5);
+  context.quadraticCurveTo(-24, -9, hand.x + 2, hand.y + 3);
   context.stroke();
   context.strokeStyle = COLORS.hoodie;
   context.lineWidth = 6;
   context.stroke();
-  context.fillStyle = COLORS.skin;
-  context.beginPath();
-  context.ellipse(hand.x, hand.y, 3.6, 2.8, -0.4, 0, Math.PI * 2);
-  context.fill();
+  drawKeyboardHand(context, hand.x, hand.y, { press: gameOver ? 0 : press, keySide, relaxed: gameOver });
 }
 
-function drawTorso(context) {
-  const gradient = context.createLinearGradient(0, -16, 0, 10);
+// 키보드 위 왼손(뒤 위에서 본 손등): 손가락 넷이 앞(화면 위)으로 뻗어 키에 얹히고, 엄지는 안쪽(오른쪽)으로.
+// 키를 누르면 번갈아 검지·중지가 아래로 눌려 짧아 보인다
+function drawKeyboardHand(context, x, y, { press, keySide, relaxed }) {
+  context.save();
+  context.translate(x, y);
+  context.rotate(relaxed ? 0.5 : -0.18);
+  // 새끼 → 검지(왼손이라 바깥쪽이 왼편). 키 위에 말려 있어 위에서 보면 짧고 서로 붙어 있다. [가로 위치, 길이]
+  const fingers = [[-2.55, 1.5], [-0.85, 2], [0.85, 2.15], [2.55, 1.85]];
+  const pressedIndex = keySide > 0 ? 3 : 2;
+  fingers.forEach(([offsetX, length], index) => {
+    const shorten = index === pressedIndex ? Math.min(0.9, press * 0.5) : 0;
+    const fingerLength = (relaxed ? length * 0.6 : length) - shorten;
+    context.fillStyle = SKIN.base;
+    roundedRect(context, offsetX - 0.86, -1.4 - fingerLength, 1.72, fingerLength + 1.4, 0.86);
+    context.fill();
+    // 말린 손가락 끝(그늘)
+    context.fillStyle = SKIN.shade;
+    roundedRect(context, offsetX - 0.86, -1.4 - fingerLength, 1.72, 1.1, 0.55);
+    context.fill();
+  });
+  // 손가락 사이 홈
+  context.strokeStyle = 'rgba(160, 110, 80, 0.45)';
+  context.lineWidth = 0.4;
+  for (const offsetX of [-1.7, 0, 1.7]) {
+    context.beginPath();
+    context.moveTo(offsetX, -1.6);
+    context.lineTo(offsetX, -2.9);
+    context.stroke();
+  }
+  // 손등
+  context.fillStyle = SKIN.base;
+  roundedRect(context, -3.5, -2, 7, 4.4, 2);
+  context.fill();
+  context.fillStyle = SKIN.light;
+  context.beginPath();
+  context.ellipse(-0.6, -0.3, 1.8, 0.9, -0.1, 0, Math.PI * 2);
+  context.fill();
+  // 엄지: 손등 안쪽(오른쪽)에서 비스듬히 스페이스바 쪽으로 — 손등 위에 그려 다섯 손가락이 다 보이게
+  context.save();
+  context.translate(3, 0.6);
+  context.rotate(0.85);
+  context.fillStyle = SKIN.base;
+  roundedRect(context, -0.85, -3.6, 1.7, 3.9, 0.85);
+  context.fill();
+  context.fillStyle = SKIN.shade;
+  roundedRect(context, -0.65, -3.6, 1.3, 0.9, 0.45);
+  context.fill();
+  context.restore();
+  context.fillStyle = 'rgba(201, 149, 114, 0.5)';
+  context.fillRect(-3.2, 1.5, 6.4, 0.9);
+  context.restore();
+}
+
+function drawTorso(context, { rise = 0, twist = 0 } = {}) {
+  const shoulderY = -15 - rise;
+  const rightDrop = twist * 2.5;
+  const gradient = context.createLinearGradient(0, shoulderY, 0, 10);
   gradient.addColorStop(0, COLORS.hoodieLight);
   gradient.addColorStop(1, COLORS.hoodieDark);
   context.fillStyle = gradient;
   context.beginPath();
   context.moveTo(-27, 12);
-  context.quadraticCurveTo(-27, -12, -12, -15);
-  context.lineTo(12, -15);
-  context.quadraticCurveTo(27, -12, 27, 12);
+  context.quadraticCurveTo(-27, shoulderY + 3 - rightDrop * 0.4, -12, shoulderY - rightDrop * 0.4);
+  context.lineTo(12, shoulderY + rightDrop);
+  context.quadraticCurveTo(27 - Math.abs(twist) * 1.5, shoulderY + 3 + rightDrop, 27 - Math.abs(twist) * 1.5, 12);
   context.closePath();
   context.fill();
-  // 등에 늘어진 후드
+  // 등에 늘어진 후드: 몸보다 한 박자 늦게 흔들린다
+  const hoodY = shoulderY + 3 + rise * 0.3;
   context.fillStyle = COLORS.hoodieDark;
   context.beginPath();
-  context.ellipse(0, -12, 13, 7, 0, 0, Math.PI * 2);
+  context.ellipse(twist * -0.8, hoodY, 13, 7, twist * 0.05, 0, Math.PI * 2);
   context.fill();
   context.strokeStyle = COLORS.hoodieLight;
   context.lineWidth = 1;
   context.beginPath();
-  context.ellipse(0, -12.5, 10, 4.5, 0, 0.1 * Math.PI, 0.9 * Math.PI);
+  context.ellipse(twist * -0.8, hoodY - 0.5, 10, 4.5, twist * 0.05, 0.1 * Math.PI, 0.9 * Math.PI);
+  context.stroke();
+  // 어깨선 주름(빛)
+  context.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+  context.beginPath();
+  context.moveTo(-20, shoulderY + 6);
+  context.quadraticCurveTo(0, shoulderY + 3 + rise * 0.5, 20, shoulderY + 6 + rightDrop);
   context.stroke();
 }
 
 // 머리: 뒤통수 머리카락 + 바람에 흔들리는 바보털, 목표 쪽으로 살짝 돌린 얼굴(귀·볼·안경다리), 헤드폰
-function drawHead(context, { headX, headY, lookSide, time, armSwing, lives, laptopMode, gameOver }) {
+function drawHead(context, { headX, headY, headTilt = 0, lookSide, time, armSwing, lives, laptopMode, gameOver }) {
   context.fillStyle = COLORS.skinShade;
   context.fillRect(headX - 4, headY + 8, 8, 6);
+  // 고개 기울임: 목 밑동을 축으로 돌린다
+  context.save();
+  context.translate(headX, headY + 12);
+  context.rotate(headTilt);
+  context.translate(-headX, -(headY + 12));
   // 목표 쪽 볼·턱선(고개를 살짝 돌려 얼굴 옆이 조금 보인다)
   context.fillStyle = COLORS.skin;
   context.beginPath();
@@ -408,6 +521,7 @@ function drawHead(context, { headX, headY, lookSide, time, armSwing, lives, lapt
     context.shadowBlur = 0;
     context.globalAlpha = 1;
   }
+  context.restore();
 }
 
 // 게이밍 의자 등받이(가장 앞): 몸 아래쪽을 가리고, 하늘색 파이핑 + 등판 로고 </>. 마지막 생명이면 파이핑이 빨갛게 깜빡
@@ -447,16 +561,21 @@ function drawChairBack(context, time, lives) {
 
 // 던지는 오른팔: 어깨 → 팔꿈치 → 손 두 마디. pose.upper는 조준 방향 기준 오프셋, pose.bend는 팔꿈치 굽힘.
 // pose.held가 0이면 빈손(방금 던짐), 0→1로 커지며 새 휴대폰이 튀어나온다. 손 좌표(캐릭터 로컬)를 돌려준다
-function drawThrowingArm(context, { aim, pose, gameOver, laptopMode, drawHeld }) {
-  const shoulder = { x: 17, y: -9 };
+function drawThrowingArm(context, { aim, pose, twist = 0, rise = 0, gameOver, slump = 1, laptopMode, drawHeld }) {
+  // 어깨: 비틀면 앞(위)·뒤(아래)로, 앞뒤로 갈수록 원근 때문에 몸 쪽으로 붙어 보인다
+  const shoulder = { x: 17 - Math.abs(twist) * 2, y: -9 + twist * 3 - rise };
   const upperLength = 15;
   const foreLength = 14;
   const aimAngle = -Math.PI / 2 + aim * 0.75;
-  const upperAngle = gameOver ? 0.35 * Math.PI : aimAngle + pose.upper;
-  const bend = gameOver ? 0.6 : pose.bend;
+  // 게임 오버: 들고 있던 팔이 천천히 아래로 떨어진다
+  const droop = gameOver ? easeOutCubic(Math.min(1, slump)) : 0;
+  const upperAngle = aimAngle + pose.upper + (0.35 * Math.PI - aimAngle - pose.upper) * droop;
+  const bend = pose.bend + (0.6 - pose.bend) * droop;
   const elbow = { x: shoulder.x + Math.cos(upperAngle) * upperLength, y: shoulder.y + Math.sin(upperAngle) * upperLength };
   const foreAngle = upperAngle - bend;
   const hand = { x: elbow.x + Math.cos(foreAngle) * foreLength, y: elbow.y + Math.sin(foreAngle) * foreLength };
+  // 귀 뒤로 넘길수록 휴대폰이 카메라에 가까워져 조금 커 보인다
+  const nearness = 1 + 0.16 * Math.max(0, twist);
 
   context.lineCap = 'round';
   context.lineJoin = 'round';
@@ -479,47 +598,37 @@ function drawThrowingArm(context, { aim, pose, gameOver, laptopMode, drawHeld })
   const directionX = Math.cos(foreAngle);
   const directionY = Math.sin(foreAngle);
   const holding = gameOver || pose.held > 0.01;
-  if (gameOver) {
-    drawHeld(context, hand.x + 4, hand.y + 7, 1.2, 1, false);
+  // 휴대폰을 쥔 손은 휴대폰 그리기 쪽에서 함께 그린다(손바닥은 휴대폰 뒤, 손가락 끝·엄지는 양옆 테두리를 감쌈).
+  // 노트북이거나 새 휴대폰이 막 생기는 중(작음)이면 여기서 주먹을 그린다
+  const phoneGrip = !laptopMode && (gameOver || pose.held > 0.6);
+  if (gameOver && droop > 0.95) {
+    drawHeld(context, hand.x + 4, hand.y + 7, 1.2, 1, false, true);
   } else if (holding) {
-    drawHeld(context, hand.x + directionX * GRIP_OFFSET, hand.y + directionY * GRIP_OFFSET, foreAngle + Math.PI / 2, pose.held, laptopMode);
+    drawHeld(context, hand.x + directionX * GRIP_OFFSET, hand.y + directionY * GRIP_OFFSET, foreAngle + Math.PI / 2, pose.held * nearness, laptopMode, phoneGrip);
   }
-  drawHand(context, hand, foreAngle, holding && (gameOver || pose.held > 0.6));
+  if (!(holding && phoneGrip)) drawHand(context, hand, foreAngle, holding);
   return hand;
 }
 
-// 손: 손바닥 + (쥐고 있으면) 휴대폰 앞면을 가로질러 감싸는 손가락 네 마디와 엄지. 빈손이면 가볍게 쥔 주먹
+// 휴대폰을 쥐지 않은 손: 가볍게 쥔 주먹(손등 + 손가락 마디 줄). holding이면(노트북) 손가락을 앞으로 말아 쥔다
 const GRIP_OFFSET = 9;
-function drawHand(context, hand, foreAngle, gripping) {
-  context.fillStyle = COLORS.skin;
-  context.beginPath();
-  context.arc(hand.x, hand.y, 3.8, 0, Math.PI * 2);
-  context.fill();
+function drawHand(context, hand, foreAngle, holding) {
   context.save();
   context.translate(hand.x, hand.y);
   context.rotate(foreAngle);
-  if (gripping) {
-    // 손가락: 휴대폰 아래쪽 위에 가로로 얹힘(아래팔 방향 기준 앞쪽 3.5)
-    context.fillStyle = COLORS.skin;
-    roundedRect(context, 2, -5.5, 4.5, 11, 2.2);
-    context.fill();
-    context.strokeStyle = COLORS.skinShade;
-    context.lineWidth = 0.7;
-    for (const offset of [-2.6, 0, 2.6]) {
-      context.beginPath();
-      context.moveTo(2.6, offset);
-      context.lineTo(6, offset);
-      context.stroke();
-    }
-    // 엄지: 반대쪽 옆면을 누른다
-    context.fillStyle = COLORS.skin;
+  context.fillStyle = SKIN.base;
+  roundedRect(context, -3.2, -3.6, holding ? 7.4 : 6.6, 7.2, 3);
+  context.fill();
+  context.fillStyle = SKIN.shade;
+  roundedRect(context, holding ? 2.6 : 1.8, -3.4, 1.8, 6.8, 0.9);
+  context.fill();
+  context.strokeStyle = 'rgba(160, 110, 80, 0.55)';
+  context.lineWidth = 0.6;
+  for (const offset of [-1.7, 0, 1.7]) {
     context.beginPath();
-    context.ellipse(4.5, -6.2, 2.6, 1.6, 0.5, 0, Math.PI * 2);
-    context.fill();
-  } else {
-    context.fillStyle = COLORS.skinShade;
-    roundedRect(context, 1.5, -3, 3, 6, 1.5);
-    context.fill();
+    context.moveTo(holding ? 2.8 : 2, offset);
+    context.lineTo(holding ? 4.2 : 3.4, offset);
+    context.stroke();
   }
   context.restore();
 }

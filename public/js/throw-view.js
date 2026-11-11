@@ -3,7 +3,7 @@
 // 엔진 좌표 x(1=출현 지점 → playerX=책상)를 화면 y로, lane을 세로 열로 바꿔 그린다.
 import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
-import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING } from './developer-view.js';
+import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING, SKIN } from './developer-view.js';
 import { THROW_RULES } from './throw-engine.js';
 import {
   setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont } from './game-view.js';
@@ -44,8 +44,14 @@ export class ThrowRenderer {
       aimX: 0.5,
       aimTarget: 0.5,
       throwAt: -Infinity,
-      pose: { ...chargePose(0), held: 1 },
-      trail: []
+      pose: { ...chargePose(0), held: 1, front: 1 },
+      trail: [],
+      // 살아 있는 몸짓: 키 칠 때 손끝·고개 스프링, 최근 타자 활동, 번갈아 치는 손가락, 게임 오버 시각(실제 시계)
+      keyPulse: new Spring(0, { stiffness: 900, damping: 26 }),
+      typing: 0,
+      keySide: 1,
+      strokes: 0,
+      finishedAt: null
     };
     this.handPosition = null;
     this.projectileStarts = new WeakMap();
@@ -127,6 +133,7 @@ export class ThrowRenderer {
     this.particles.update(frameSeconds);
     this.visuals.step(frameSeconds, new Set([...engine.robots, ...engine.items].map(entity => entity.id)));
     this.player.hurt.step(frameSeconds);
+    this.updateBodyMotion(engine, frameSeconds);
 
     const { width, height } = this.surface;
     context.clearRect(0, 0, width, height);
@@ -234,13 +241,18 @@ export class ThrowRenderer {
     drawDeskSetup(context, { x, y, width, time: engine.gameTime, laptopMode, hurt: Math.abs(hurt), gameOver });
     const pose = this.updateThrowPose(engine);
     const cracks = this.phoneCracks(engine);
+    const slump = this.player.finishedAt === null ? 0 : (performance.now() - this.player.finishedAt) / 700;
     const hand = drawDeveloper(context, {
       x, y: y + 12, scale: 1.3, time: engine.gameTime, aim: (this.player.aimX - 0.5) * 1.1, pose, trail: this.player.trail,
       hurt, lives: engine.lives, gameOver, laptopMode,
-      drawHeld: (heldContext, heldX, heldY, angle, size, laptop) => {
+      motion: {
+        keyPulse: this.player.keyPulse.value, keySide: this.player.keySide, typing: this.player.typing,
+        tension: this.tension(engine), recoil: hurt, slump
+      },
+      drawHeld: (heldContext, heldX, heldY, angle, size, laptop, grip) => {
         const scale = Math.max(0.01, size);
         if (laptop) this.drawLaptopShape(heldContext, heldX, heldY, 0.6 * scale, angle);
-        else this.drawPhoneShape(heldContext, heldX, heldY, angle, cracks, 1.45 * scale);
+        else this.drawPhoneShape(heldContext, heldX, heldY, angle, cracks, 1.45 * scale, grip);
       }
     });
     this.handPosition = hand;
@@ -266,16 +278,42 @@ export class ThrowRenderer {
     const goal = throwPose({ charge, sinceThrow });
     const frameSeconds = Math.max(0, Math.min(0.05, engine.gameTime - (this.player.poseTime ?? engine.gameTime)));
     this.player.poseTime = engine.gameTime;
-    // 휘두르는 구간은 거의 즉시(빠른 동작), 그 밖에는 부드럽게 따라간다
-    const swinging = sinceThrow >= 0 && sinceThrow < THROW_TIMING.follow;
+    // 던지는 동작 전체(휘두르기~복귀)는 throwPose 곡선을 그대로 쓰고, 그 밖(장전·조준 변경)은 부드럽게 따라간다.
+    // 복귀 경로는 한 바퀴(2π) 다른 각도로 이어 붙이므로 평활하면 팔이 한 바퀴 돌아 버린다
+    const swinging = sinceThrow >= 0 && sinceThrow < THROW_TIMING.recover;
     const follow = swinging ? 1 : 1 - Math.exp(-frameSeconds * 22);
     const current = this.player.pose;
-    current.upper += (goal.upper - current.upper) * follow;
-    current.bend += (goal.bend - current.bend) * follow;
-    current.lean += (goal.lean - current.lean) * follow;
+    for (const joint of ['upper', 'bend', 'lean', 'twist']) current[joint] += (goal[joint] - current[joint]) * follow;
     current.held = goal.held;
+    current.front = goal.front;
     if (!swinging) this.player.aimX += (this.player.aimTarget - this.player.aimX) * (1 - Math.exp(-frameSeconds * 10));
     return current;
+  }
+
+  // 키를 칠 때마다 손끝 스프링을 튕기고 치는 손가락 쪽을 바꾼다. 최근 0.6초 안에 쳤으면 '타자 중'으로 서서히 올라간다. O(1)
+  updateBodyMotion(engine, frameSeconds) {
+    const player = this.player;
+    const strokes = engine.correctKeystrokes + engine.wrongKeystrokes;
+    if (strokes < player.strokes) player.strokes = strokes;
+    if (strokes > player.strokes) {
+      player.keyPulse.kick(70);
+      player.keySide = -player.keySide;
+      player.lastKeyAt = engine.gameTime;
+      player.strokes = strokes;
+    }
+    player.keyPulse.step(frameSeconds);
+    const typingNow = engine.status === 'running' && engine.gameTime - (player.lastKeyAt ?? -Infinity) < 0.6 ? 1 : 0;
+    player.typing += (typingNow - player.typing) * (1 - Math.exp(-frameSeconds * (typingNow ? 14 : 3)));
+    if (engine.status === 'finished') player.finishedAt ??= performance.now();
+    else player.finishedAt = null;
+  }
+
+  // 가장 가까운 로봇이 위험선에 다가올수록 0 → 1 (몸이 앞으로 굽고 숨이 빨라진다). 로봇 수 r에 대해 O(r)
+  tension(engine) {
+    if (engine.status !== 'running') return 0;
+    let nearest = 1;
+    for (const robot of engine.robots) if (robot.state === 'walking') nearest = Math.min(nearest, robot.x);
+    return Math.max(0, Math.min(1, 1 - (nearest - THROW_RULES.playerX) / 0.3));
   }
 
   drawRobot(context, robot, engine) {
@@ -652,11 +690,13 @@ export class ThrowRenderer {
   }
 
   // 휴대폰: 잃은 건전지 칸 수(cracks 0~3)만큼 화면에 금이 간다. 금 무늬는 고정 좌표라 매 프레임 같은 모양 — O(1)
-  drawPhoneShape(context, x, y, angle, cracks = 0, scale = 1) {
+  // grip: 손에 쥔 모양까지 그린다(휴대폰 좌표계: 가로 12 · 세로 20, 아래쪽 +y가 손목 쪽)
+  drawPhoneShape(context, x, y, angle, cracks = 0, scale = 1, grip = false) {
     context.save();
     context.translate(x, y);
     context.rotate(angle);
     context.scale(scale, scale);
+    if (grip) this.drawGripBack(context);
     context.fillStyle = '#0f141b';
     roundedRect(context, -6, -10, 12, 20, 3);
     context.fill();
@@ -666,6 +706,47 @@ export class ThrowRenderer {
     context.fillStyle = PHONE_SCREEN_COLORS[Math.min(cracks, PHONE_SCREEN_COLORS.length - 1)];
     context.fillRect(-4.5, -8, 9, 14);
     if (cracks > 0) this.drawPhoneCracks(context, cracks);
+    if (grip) this.drawGripFront(context);
+    context.restore();
+  }
+
+  // 손바닥은 휴대폰 아래쪽 뒤에 있어 테두리 밖(아래 손목 쪽·양옆)만 보인다
+  drawGripBack(context) {
+    context.fillStyle = SKIN.shade;
+    context.beginPath();
+    context.ellipse(0.4, 8.4, 7.4, 5.4, 0, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = SKIN.base;
+    context.beginPath();
+    context.ellipse(0.4, 9.6, 6.2, 4, 0, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  // 왼쪽 테두리를 감싼 손가락 끝 셋(손바닥 쪽으로 갈수록 조금 길게) + 오른쪽 아래 테두리에 살짝 걸친 엄지 끝
+  drawGripFront(context) {
+    const fingertip = (top, length) => {
+      context.fillStyle = SKIN.base;
+      roundedRect(context, -7.2, top, length, 2.35, 1.15);
+      context.fill();
+      context.fillStyle = SKIN.shade;
+      context.fillRect(-7.2 + length - 0.8, top + 0.5, 0.45, 1.35);
+    };
+    // 검지 · 중지 · 약지 · 새끼(아래로 갈수록 짧고 가늘게) — 엄지까지 다섯
+    fingertip(-0.6, 2.9);
+    fingertip(1.9, 3.2);
+    fingertip(4.4, 3.1);
+    fingertip(6.9, 2.6);
+    // 엄지: 반대편 테두리 아래쪽에서 끝만 보인다(나머지는 휴대폰 뒤)
+    context.save();
+    context.translate(6.3, 6.4);
+    context.rotate(-0.5);
+    context.fillStyle = SKIN.base;
+    roundedRect(context, -1.5, -2.6, 3, 4.6, 1.5);
+    context.fill();
+    context.fillStyle = SKIN.light;
+    context.beginPath();
+    context.ellipse(-0.2, -1.6, 0.7, 0.55, 0, 0, Math.PI * 2);
+    context.fill();
     context.restore();
   }
 
