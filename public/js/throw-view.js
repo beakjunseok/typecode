@@ -3,7 +3,7 @@
 // 엔진 좌표 x(1=출현 지점 → playerX=책상)를 화면 y로, lane을 세로 열로 바꿔 그린다.
 import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
-import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING, SKIN } from './developer-view.js';
+import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING, SKIN, PHONE_HELD_SCALE } from './developer-view.js';
 import { THROW_RULES } from './throw-engine.js';
 import {
   setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont } from './game-view.js';
@@ -259,7 +259,7 @@ export class ThrowRenderer {
       drawHeld: (heldContext, heldX, heldY, angle, size, laptop, grip) => {
         const scale = Math.max(0.01, size);
         if (laptop) this.drawLaptopShape(heldContext, heldX, heldY, 0.6 * scale, angle);
-        else this.drawPhoneShape(heldContext, heldX, heldY, angle, cracks, 1.45 * scale, grip);
+        else this.drawPhoneShape(heldContext, heldX, heldY, angle, cracks, PHONE_HELD_SCALE * scale, grip);
       }
     });
     this.handPosition = hand;
@@ -725,11 +725,11 @@ export class ThrowRenderer {
     context.fillStyle = SKIN.base;
     // 손목 + 손바닥 아랫부분(휴대폰 아래로만 보임) → 엄지 두덩으로 이어짐
     context.beginPath();
-    context.moveTo(-1.3, 16);
-    context.bezierCurveTo(-1.6, 13.6, -3.4, 12.4, -4.2, 10.6);
+    context.moveTo(-0.6, 15.4);
+    context.bezierCurveTo(-1.2, 13.4, -3.4, 12.4, -4.2, 10.6);
     context.lineTo(-4.2, 7);
     context.lineTo(6.2, 7);
-    context.bezierCurveTo(6.6, 10.4, 5, 12.6, 4.6, 16);
+    context.bezierCurveTo(6.6, 10.4, 4.6, 12.8, 3.8, 15.4);
     context.closePath();
     context.fill();
     // 네 손가락의 가운데 마디: 휴대폰 뒤 손바닥에서 왼쪽 테두리 밖으로 나와 앞으로 말린다(검지가 가장 위)
@@ -742,12 +742,6 @@ export class ThrowRenderer {
       context.lineTo(-8.1 + width / 2, y);
       context.stroke();
     }
-    // 소맷부리
-    context.fillStyle = '#46698a';
-    roundedRect(context, -1.9, 14.6, 7, 3.4, 1.7);
-    context.fill();
-    context.fillStyle = '#2f4a63';
-    context.fillRect(-1.5, 16.8, 6.2, 0.7);
   }
 
   drawGripFront(context) {
