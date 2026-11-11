@@ -6,8 +6,7 @@ import { drawDrone } from './drone-view.js';
 import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING } from './developer-view.js';
 import { THROW_RULES } from './throw-engine.js';
 import {
-  setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates
-} from './game-view.js';
+  setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont } from './game-view.js';
 
 const ROBOT_STYLE = {
   basic: { name: '버그봇', body: '#2f5d72', bodyLight: '#4b8aa6', trim: '#7fdbca', eye: '#36e2ff', width: 40, height: 46, stride: 7 },
@@ -145,38 +144,56 @@ export class ThrowRenderer {
 
   drawBackground(context, width, height, engine) {
     const gradient = context.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, '#070a0f');
-    gradient.addColorStop(0.5, '#0d141d');
-    gradient.addColorStop(1, '#121b27');
+    gradient.addColorStop(0, '#060916');
+    gradient.addColorStop(0.55, '#0c1230');
+    gradient.addColorStop(1, '#141a3a');
     context.fillStyle = gradient;
     context.fillRect(0, 0, width, height);
-    // 저 멀리 서버실 문: 로봇이 나오는 곳
-    context.fillStyle = '#0b1118';
-    context.fillRect(0, HUD_HEIGHT, width, 26);
+    // 저 멀리 서버실: 레인마다 랙 문이 열려 있고(로봇이 나오는 곳) 문 사이 랙에는 LED가 깜빡인다
+    const wallTop = HUD_HEIGHT;
+    context.fillStyle = '#0a0e22';
+    context.fillRect(0, wallTop, width, 26);
+    context.fillStyle = 'rgba(42, 49, 82, 0.8)';
+    context.fillRect(0, wallTop + 26, width, 1);
+    for (let led = 0; led < Math.floor(width / 9); led++) {
+      const x = 4 + led * 9;
+      const blink = Math.sin(engine.gameTime * (1.5 + (led * 7) % 5) + led * 2.3) > 0.55;
+      context.fillStyle = blink ? (led % 3 === 0 ? '#ffb547' : '#4df0a6') : '#1a2140';
+      context.fillRect(x, wallTop + 7 + (led % 3) * 5, 3, 2);
+    }
     for (let lane = 0; lane < this.lanes; lane++) {
       const x = this.columnX(lane);
-      context.fillStyle = '#05080c';
-      roundedRect(context, x - 22, HUD_HEIGHT + 2, 44, 24, 3);
+      const doorway = context.createLinearGradient(0, wallTop + 2, 0, wallTop + 26);
+      doorway.addColorStop(0, '#03050c');
+      doorway.addColorStop(1, '#1b2350');
+      context.fillStyle = doorway;
+      roundedRect(context, x - 24, wallTop + 2, 48, 25, 3);
       context.fill();
+      context.strokeStyle = '#2a3266';
+      context.lineWidth = 1;
+      context.stroke();
       const on = Math.sin(engine.gameTime * 3 + lane * 1.9) > 0.2;
-      context.fillStyle = on ? '#ff4d6d' : '#2b1a1f';
-      context.fillRect(x - 3, HUD_HEIGHT + 5, 6, 3);
+      context.fillStyle = on ? '#ff5d73' : '#3a1a28';
+      context.shadowColor = '#ff5d73';
+      context.shadowBlur = on ? 8 : 0;
+      context.fillRect(x - 4, wallTop + 5, 8, 2);
+      context.shadowBlur = 0;
     }
     // 레인 바닥: 가운데로 모이는 원근 줄 + 아래로 흐르는 바닥 타일
     for (let lane = 0; lane <= this.lanes; lane++) {
       const bottomX = (width * lane) / this.lanes;
       const topX = width / 2 + (bottomX - width / 2) * 0.82;
-      context.strokeStyle = 'rgba(54, 226, 255, 0.07)';
+      context.strokeStyle = 'rgba(127, 167, 245, 0.09)';
       context.lineWidth = 1;
       context.beginPath();
-      context.moveTo(topX, HUD_HEIGHT + 26);
+      context.moveTo(topX, HUD_HEIGHT + 27);
       context.lineTo(bottomX, this.dangerY);
       context.stroke();
     }
     const tileSpacing = 34;
     const offset = (engine.gameTime * 26) % tileSpacing;
-    context.strokeStyle = 'rgba(138, 152, 170, 0.06)';
-    for (let y = HUD_HEIGHT + 26 + offset; y < this.dangerY; y += tileSpacing) {
+    context.strokeStyle = 'rgba(138, 147, 184, 0.07)';
+    for (let y = HUD_HEIGHT + 27 + offset; y < this.dangerY; y += tileSpacing) {
       context.beginPath();
       context.moveTo(0, y);
       context.lineTo(width, y);
@@ -715,9 +732,14 @@ export class ThrowRenderer {
   // 원작의 하트 자리(왼쪽 위)에 건전지 생명, 오른쪽 위 현재 무기
   drawHud(context, engine) {
     const { width } = this.surface;
-    context.fillStyle = 'rgba(7, 10, 15, 0.85)';
+    const gradient = context.createLinearGradient(0, 0, 0, HUD_HEIGHT);
+    gradient.addColorStop(0, 'rgba(14, 18, 34, 0.96)');
+    gradient.addColorStop(1, 'rgba(9, 12, 24, 0.92)');
+    context.fillStyle = gradient;
     context.fillRect(0, 0, width, HUD_HEIGHT);
-    context.font = "700 18px 'JetBrains Mono', ui-monospace, monospace";
+    context.fillStyle = 'rgba(42, 49, 82, 0.9)';
+    context.fillRect(0, HUD_HEIGHT - 1, width, 1);
+    context.font = canvasFont(12);
     context.textBaseline = 'middle';
     for (let index = 0; index < ARCADE_RULES.startLives; index++) {
       const state = index >= engine.lives ? 'empty' : engine.lives === 1 ? 'low' : 'full';
@@ -725,13 +747,13 @@ export class ThrowRenderer {
     }
     const laptop = engine.laptopRemaining();
     context.textAlign = 'right';
-    context.font = "600 12px 'JetBrains Mono', ui-monospace, monospace";
+    context.font = canvasFont(12);
     if (laptop > 0) {
       context.fillStyle = '#c792ea';
       context.fillText(`💻 노트북 ×3 · ${laptop.toFixed(1)}s`, width - 10, HUD_HEIGHT / 2);
       context.fillRect(width - 130, HUD_HEIGHT - 5, 120 * (laptop / THROW_RULES.laptopSeconds), 3);
     } else {
-      context.fillStyle = '#8a98aa';
+      context.fillStyle = '#8a93b8';
       context.fillText('📱 휴대폰', width - 10, HUD_HEIGHT / 2);
     }
     context.textAlign = 'start';

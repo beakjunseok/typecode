@@ -3,6 +3,24 @@
 import { TOKEN_KINDS } from './tokens.js';
 
 export const LABEL_FONT = "600 14px 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace";
+// 캔버스 글꼴 역할: display = Galmuri11 픽셀 글꼴(12px 격자라 12의 배수에서 또렷함), ui = Pretendard, code = JetBrains Mono
+export const CANVAS_FONTS = Object.freeze({
+  display: "'Galmuri11', 'Pretendard Variable', ui-monospace, monospace",
+  ui: "'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif",
+  code: "'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace"
+});
+export const canvasFont = (size, family = 'display', weight = 400) => `${weight} ${size}px ${CANVAS_FONTS[family]}`;
+
+// 시드 고정 난수(mulberry32): 배경 실루엣처럼 매 프레임 같은 모양이어야 하는 장식에 쓴다
+export function seededRandom(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = Math.imul(state ^ (state >>> 15), 1 | state);
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
 const MAX_PARTICLES = 400;
 
 export function setupCanvas(canvas) {

@@ -1177,6 +1177,9 @@ function bindEvents() {
   elements.inputBar?.addEventListener('click', focusTypingArea);
 }
 
+// 캔버스는 DOM과 달리 글꼴이 늦게 와도 다시 그려 주지 않으므로, 캔버스용 픽셀 글꼴을 미리 불러 둔다(실패해도 대체 글꼴로 그린다)
+document.fonts?.load?.("12px 'Galmuri11'").catch(() => {});
+
 applyInviteLink();
 bindSettings();
 bindEvents();

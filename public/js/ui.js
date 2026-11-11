@@ -102,7 +102,7 @@ export function createUi(root = document) {
     const tier = snapshot.tierProgress.index;
     const arcade = snapshot.elapsedSeconds !== undefined;
     const timeAttack = snapshot.mode === 'timeattack';
-    elements.timeLabel.textContent = arcade ? 'SURVIVED' : timeAttack ? 'TIME ⏳' : 'TIME';
+    elements.timeLabel.textContent = arcade ? '버틴 시간' : timeAttack ? '남은 시간 ⏳' : '남은 시간';
     // 시간 연장 모드는 소수 한 자리(시간이 조금씩 늘어나는 게 보이도록)
     elements.timeValue.textContent = arcade ? `${Math.floor(snapshot.elapsedSeconds)}s`
       : timeAttack ? snapshot.remainingExact.toFixed(1) : snapshot.remainingSeconds;
@@ -142,24 +142,25 @@ export function createUi(root = document) {
   }
 
   function renderBoard(entries, { week, isLive, highlightId = null, modeLabel = '' }) {
-    elements.boardTitle.textContent = `WEEKLY TOP 10${modeLabel ? ` · ${modeLabel}` : ''} · ${week}`;
-    elements.boardBadge.textContent = isLive ? 'LIVE' : 'LOCAL';
+    elements.boardTitle.textContent = `${modeLabel ? `${modeLabel} ` : ''}이번 주 순위`;
+    elements.boardTitle.title = `${week} · 매주 월요일 0시(KST) 새로 집계`;
+    elements.boardBadge.textContent = isLive ? '실시간' : '이 기기만';
     elements.boardBadge.className = `badge ${isLive ? 'live' : 'local'}`;
     if (!entries.length) {
-      elements.boardBody.replaceChildren(element('p', 'empty', '이번 주 기록이 아직 없습니다. 첫 빌드를 올려보세요.'));
+      elements.boardBody.replaceChildren(element('p', 'empty', '이번 주 기록이 아직 없어요. 한 판 끝내고 첫 기록을 남겨 보세요.'));
       return;
     }
     const table = element('table');
     const head = element('thead');
     const headRow = element('tr');
-    [['RANK'], ['NAME'], ['LANG'], ['타수', 'num'], ['ACC', 'num hide-mobile'], ['SCORE', 'num']]
+    [['순위', 'rank'], ['이름'], ['언어'], ['타수', 'num'], ['정확도', 'num hide-mobile'], ['점수', 'num']]
       .forEach(([label, className]) => headRow.appendChild(element('th', className, label)));
     head.appendChild(headRow);
     const body = element('tbody');
     entries.forEach((entry, index) => {
       const row = element('tr', [entry.id === highlightId ? 'me' : '', index === 0 ? 'rank1' : ''].join(' ').trim());
       [
-        [`#${index + 1}`], [entry.name], [languageLabel(entry.language)], [entry.cpm ?? entry.wpm * 5, 'num'],
+        [String(index + 1), 'rank'], [entry.name], [languageLabel(entry.language)], [entry.cpm ?? entry.wpm * 5, 'num'],
         [`${entry.accuracy}%`, 'num hide-mobile'], [Number(entry.score).toLocaleString(), 'num']
       ].forEach(([value, className]) => row.appendChild(element('td', className, value)));
       body.appendChild(row);

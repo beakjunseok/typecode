@@ -3,7 +3,7 @@
 import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
 import { BATTERY_RULES } from './battery-engine.js';
-import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates } from './game-view.js';
+import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom } from './game-view.js';
 
 const BEAM_SECONDS = 0.35;
 // 폰 마스코트 색: 나(하늘색) / PvP 상대(주황 — 방전봇 대신 또 하나의 폰)
@@ -18,11 +18,17 @@ const wallSeconds = () => performance.now() / 1000;
 const HUD_HEIGHT = 34;
 const SEA_HEIGHT = 64;
 const SIDE_STYLE = {
-  me: { top: '#5dffb0', bottom: '#1f9e62', glow: '#39ff88' },
-  rival: { top: '#ff9a6b', bottom: '#b8402a', glow: '#ff4d6d' }
+  me: { top: '#7dffc4', bottom: '#169a62', glow: '#4df0a6', label: '#4df0a6' },
+  rival: { top: '#ffab7d', bottom: '#b8402a', glow: '#ff5d73', label: '#ff5d73' }
 };
+const SCENE = Object.freeze({
+  skyTop: '#060916', skyMid: '#0d1330', skyHorizon: '#191e48',
+  skyline: '#0a0e24', skylineEdge: '#1a2048', window: ['#ffb547', '#7fd8ff', '#ffe2a8'],
+  seaTop: '#16306a', seaBottom: '#060a19', seaBack: '#0f1a3e', crest: '#7fa7f5',
+  danger: '#7a1f3a', rail: '#4df0a6', ink: '#0e1222', paper: '#e9edf8', fog: '#8a93b8', dim: '#5a6288'
+});
 const ITEM_STYLE = {
-  cell: { color: '#39ff88', label: '+0.5' },
+  cell: { color: '#4df0a6', label: '+0.5' },
   powerbank: { color: '#36e2ff', label: '+1' },
   eco: { color: '#c3e88d', label: 'ECO' },
   heat: { color: '#ff7a45', label: 'HEAT' },
@@ -88,7 +94,7 @@ export class BatteryRenderer {
     else if (type === 'round-end') this.banner = {
       text: `ROUND ${payload.round} ${payload.mine ? 'WIN' : 'LOSE'}`,
       sub: `${payload.wins.mine} : ${payload.wins.theirs} · ${payload.how === 'charged' ? '100% 충전' : '상대 방전'}`,
-      at: wallSeconds(), color: payload.mine ? '#39ff88' : '#ff4d6d'
+      at: wallSeconds(), color: payload.mine ? '#4df0a6' : '#ff5d73'
     };
     else if (type === 'stage-clear') this.banner = { text: `STAGE ${payload.stage} CLEAR`, sub: payload.how === 'charged' ? '100% 충전 완료! 충전 드론이 구조했습니다' : '방전봇 침몰!', at: wallSeconds() };
 
@@ -96,22 +102,22 @@ export class BatteryRenderer {
     const now = wallSeconds();
     if (type === 'rival-take') {
       const { x, y } = this.itemPosition(payload.item);
-      this.beams.push({ from: this.characterPosition('rival'), to: { x, y }, color: '#ff4d6d', at: now });
-      this.particles.burst(x, y, { color: '#ff4d6d', count: 16, speed: 160, life: 0.5 });
+      this.beams.push({ from: this.characterPosition('rival'), to: { x, y }, color: '#ff5d73', at: now });
+      this.particles.burst(x, y, { color: '#ff5d73', count: 16, speed: 160, life: 0.5 });
     } else if (type === 'rival-attack') {
       const target = this.characterPosition('me');
-      this.beams.push({ from: this.characterPosition('rival'), to: target, color: '#ff4d6d', at: now });
+      this.beams.push({ from: this.characterPosition('rival'), to: target, color: '#ff5d73', at: now });
       this.particles.burst(target.x, target.y + 10, { color: '#ff7a45', count: 20, speed: 180, life: 0.6, gravity: 300 });
     } else if (type === 'item') {
       const { x, y } = this.itemPosition(payload.item);
       this.particles.burst(x, y, { color: ITEM_STYLE[payload.item.item].color, count: 26, speed: 200, life: 0.7 });
       const me = this.characterPosition('me');
-      this.particles.burst(me.x, me.y, { color: '#39ff88', count: 14, speed: 120, life: 0.6, gravity: -120 });
+      this.particles.burst(me.x, me.y, { color: '#4df0a6', count: 14, speed: 120, life: 0.6, gravity: -120 });
     } else if (type === 'drain') {
       const rival = this.characterPosition('rival');
       this.particles.burst(rival.x, rival.y + 8, { color: '#ffe08a', count: 22, speed: 200, life: 0.6, gravity: 300 });
     } else if (type === 'stage-clear') {
-      this.particles.burst(this.surface.width / 2, this.goalY, { color: '#39ff88', count: 60, speed: 300, life: 1.2, gravity: 200 });
+      this.particles.burst(this.surface.width / 2, this.goalY, { color: '#4df0a6', count: 60, speed: 300, life: 1.2, gravity: 200 });
     }
   }
 
@@ -143,7 +149,7 @@ export class BatteryRenderer {
     context.clearRect(0, 0, width, height);
     this.drawSky(context, width, engine);
     this.drawChargingDrone(context, engine);
-    this.drawGoalLine(context, width);
+    this.drawGoalLine(context, width, engine);
     this.drawTower(context, 'me', engine);
     this.drawTower(context, 'rival', engine);
     this.drawSea(context, width, height, engine);
@@ -160,21 +166,148 @@ export class BatteryRenderer {
     this.drawBanner(context, width, engine);
   }
 
+  // 밤하늘: 위는 깊은 남색, 수평선 쪽은 도시 불빛이 번진 따뜻한 남보라. 별·초승달·통신탑 실루엣
   drawSky(context, width, engine) {
-    const gradient = context.createLinearGradient(0, 0, 0, this.waterY);
-    gradient.addColorStop(0, '#0a1020');
-    gradient.addColorStop(1, '#14223a');
-    context.fillStyle = gradient;
+    const sky = context.createLinearGradient(0, HUD_HEIGHT, 0, this.waterY);
+    sky.addColorStop(0, SCENE.skyTop);
+    sky.addColorStop(0.6, SCENE.skyMid);
+    sky.addColorStop(1, SCENE.skyHorizon);
+    context.fillStyle = sky;
     context.fillRect(0, 0, width, this.waterY);
-    // 별(충전 표시등처럼 깜빡임)
-    for (let star = 0; star < 24; star++) {
-      const x = (star * 97.3) % width;
-      const y = HUD_HEIGHT + ((star * 53.7) % (this.waterY * 0.55));
-      context.globalAlpha = 0.2 + 0.25 * Math.sin(engine.gameTime * 2 + star);
-      context.fillStyle = '#9cc3ff';
-      context.fillRect(x, y, 2, 2);
+    const glow = context.createRadialGradient(width / 2, this.waterY + 30, 10, width / 2, this.waterY + 30, width * 0.62);
+    glow.addColorStop(0, 'rgba(255, 181, 71, 0.09)');
+    glow.addColorStop(1, 'rgba(255, 181, 71, 0)');
+    context.fillStyle = glow;
+    context.fillRect(0, HUD_HEIGHT, width, this.waterY - HUD_HEIGHT);
+    this.drawStars(context, width, engine);
+    this.drawMoon(context, width);
+    this.drawSkyline(context, width, engine);
+  }
+
+  // 별 48개: 위치는 고정, 크기 1~2px, 각자 다른 박자로 깜빡인다. O(48)
+  drawStars(context, width, engine) {
+    const random = seededRandom(7);
+    const span = (this.waterY - HUD_HEIGHT) * 0.72;
+    for (let star = 0; star < 48; star++) {
+      const x = random() * width;
+      const y = HUD_HEIGHT + 6 + random() * span;
+      const size = random() < 0.18 ? 2 : 1;
+      const twinkle = 0.5 + 0.5 * Math.sin(engine.gameTime * (0.8 + random() * 2.2) + star * 1.7);
+      context.globalAlpha = (size === 2 ? 0.45 : 0.25) + twinkle * 0.4;
+      context.fillStyle = random() < 0.2 ? '#ffe2a8' : '#b9cdfa';
+      context.fillRect(Math.round(x), Math.round(y), size, size);
     }
     context.globalAlpha = 1;
+  }
+
+  drawMoon(context, width) {
+    const x = width * 0.63;
+    const y = this.goalY + 52;
+    const halo = context.createRadialGradient(x, y, 4, x, y, 46);
+    halo.addColorStop(0, 'rgba(233, 237, 248, 0.16)');
+    halo.addColorStop(1, 'rgba(233, 237, 248, 0)');
+    context.fillStyle = halo;
+    context.fillRect(x - 46, y - 46, 92, 92);
+    context.fillStyle = '#f3ecd6';
+    context.beginPath();
+    context.arc(x, y, 11, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = SCENE.skyTop;
+    context.beginPath();
+    context.arc(x + 5, y - 3, 10, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  // 수평선 위 도시 실루엣 + 이동통신 철탑(빨간 항공등 깜빡임, 가운데 철탑은 전파 고리를 내보낸다).
+  // 건물 배치는 캔버스 폭마다 한 번만 만들어 캐시한다. 그리기는 건물 수 b, 창 수 w에 대해 O(b + w)
+  skylineLayout(width) {
+    if (this.skyline?.width === width) return this.skyline;
+    const random = seededRandom(1234);
+    const buildings = [];
+    for (let x = -10; x < width + 10;) {
+      const buildingWidth = 18 + random() * 34;
+      const height = 10 + random() * random() * 46;
+      const windows = [];
+      for (let row = 6; row < height - 4; row += 7) {
+        for (let column = 4; column < buildingWidth - 4; column += 7) {
+          if (random() < 0.16) windows.push({ x: column, y: row, color: SCENE.window[Math.floor(random() * SCENE.window.length)], phase: random() * 40 });
+        }
+      }
+      buildings.push({ x, width: buildingWidth, height, windows });
+      x += buildingWidth + (random() < 0.3 ? 4 + random() * 10 : -2);
+    }
+    const towers = [0.07, 0.43, 0.94].map((ratio, index) => ({ x: width * ratio, height: 64 + index % 2 * 20 + random() * 10, phase: random() * 3 }));
+    this.skyline = { width, buildings, towers };
+    return this.skyline;
+  }
+
+  drawSkyline(context, width, engine) {
+    const { buildings, towers } = this.skylineLayout(width);
+    const base = this.waterY + 2;
+    for (const tower of towers) this.drawCellTower(context, tower, base, engine);
+    for (const building of buildings) {
+      context.fillStyle = SCENE.skyline;
+      context.fillRect(building.x, base - building.height, building.width, building.height);
+      context.fillStyle = SCENE.skylineEdge;
+      context.fillRect(building.x, base - building.height, building.width, 1);
+      for (const light of building.windows) {
+        // 창 불빛은 아주 느리게 켜졌다 꺼진다(40초 주기 중 일부만 꺼짐)
+        if ((engine.gameTime + light.phase) % 40 > 36) continue;
+        context.globalAlpha = 0.55;
+        context.fillStyle = light.color;
+        context.fillRect(building.x + light.x, base - building.height + light.y, 2, 2);
+      }
+      context.globalAlpha = 1;
+    }
+  }
+
+  drawCellTower(context, tower, base, engine) {
+    const { x, height } = tower;
+    const top = base - height;
+    context.strokeStyle = '#1c2350';
+    context.lineWidth = 1.5;
+    context.beginPath();
+    context.moveTo(x - 9, base);
+    context.lineTo(x - 2, top + 8);
+    context.moveTo(x + 9, base);
+    context.lineTo(x + 2, top + 8);
+    // 격자 가새
+    for (let step = 0; step < 5; step++) {
+      const y0 = base - step * (height - 8) / 5;
+      const y1 = base - (step + 1) * (height - 8) / 5;
+      const half0 = 9 - 7 * step / 5;
+      const half1 = 9 - 7 * (step + 1) / 5;
+      context.moveTo(x - half0, y0);
+      context.lineTo(x + half1, y1);
+      context.moveTo(x + half0, y0);
+      context.lineTo(x - half1, y1);
+    }
+    context.moveTo(x, top + 8);
+    context.lineTo(x, top - 6);
+    context.stroke();
+    // 안테나 패널
+    context.fillStyle = '#232b5c';
+    context.fillRect(x - 6, top + 6, 3, 9);
+    context.fillRect(x + 3, top + 6, 3, 9);
+    // 항공등
+    const on = Math.sin(engine.gameTime * 3.2 + tower.phase) > 0.2;
+    context.fillStyle = on ? '#ff5d73' : '#4a1f2c';
+    context.shadowColor = '#ff5d73';
+    context.shadowBlur = on ? 10 : 0;
+    context.fillRect(x - 1.5, top - 8, 3, 3);
+    context.shadowBlur = 0;
+    // 전파 고리: 가장 높은 철탑에서 2.4초마다 퍼진다
+    if (height > 80) {
+      const progress = ((engine.gameTime + tower.phase) % 2.4) / 2.4;
+      context.strokeStyle = `rgba(127, 216, 255, ${0.35 * (1 - progress)})`;
+      context.lineWidth = 1.2;
+      for (const ring of [0, 0.35]) {
+        const radius = 6 + (progress + ring) % 1 * 30;
+        context.beginPath();
+        context.arc(x, top - 6, radius, Math.PI * 1.2, Math.PI * 1.8);
+        context.stroke();
+      }
+    }
   }
 
   // 충전 드론: 위에서 좌우로 천천히 오가며(이동 방향으로 살짝 기울어짐) 100% 선까지 충전 케이블을 늘어뜨린다
@@ -184,7 +317,7 @@ export class BatteryRenderer {
     const y = HUD_HEIGHT + 28 + Math.sin(engine.gameTime * 2.2) * 2;
     const size = 1.25;
     const cableTop = y + 9 * size;
-    context.strokeStyle = 'rgba(57, 255, 136, 0.55)';
+    context.strokeStyle = 'rgba(77, 240, 166, 0.6)';
     context.lineWidth = 1.6;
     context.beginPath();
     context.moveTo(x, cableTop);
@@ -193,83 +326,137 @@ export class BatteryRenderer {
     context.fillStyle = '#c9d4e0';
     roundedRect(context, x - 4, this.goalY - 9, 8, 7, 2);
     context.fill();
-    context.fillStyle = '#39ff88';
+    context.fillStyle = '#4df0a6';
     context.fillRect(x - 2, this.goalY - 2, 1.5, 3);
     context.fillRect(x + 0.5, this.goalY - 2, 1.5, 3);
-    drawDrone(context, { x, y, size, time: engine.gameTime, accent: '#39ff88', tilt: Math.cos(sway) * 0.09, seed: 3 });
+    drawDrone(context, { x, y, size, time: engine.gameTime, accent: '#4df0a6', tilt: Math.cos(sway) * 0.09, seed: 3 });
   }
 
-  drawGoalLine(context, width) {
-    context.strokeStyle = 'rgba(57, 255, 136, 0.45)';
-    context.setLineDash([8, 6]);
-    context.lineWidth = 1.5;
-    context.beginPath();
-    context.moveTo(0, this.goalY);
-    context.lineTo(width, this.goalY);
+  // 100% 구조선: 드론 플러그에서 양쪽으로 전기가 흐르는 충전 레일
+  drawGoalLine(context, width, engine) {
+    const y = Math.round(this.goalY);
+    const band = context.createLinearGradient(0, y - 12, 0, y + 12);
+    band.addColorStop(0, 'rgba(77, 240, 166, 0)');
+    band.addColorStop(0.5, 'rgba(77, 240, 166, 0.12)');
+    band.addColorStop(1, 'rgba(77, 240, 166, 0)');
+    context.fillStyle = band;
+    context.fillRect(0, y - 12, width, 24);
+    context.fillStyle = 'rgba(77, 240, 166, 0.28)';
+    context.fillRect(0, y - 1, width, 2);
+    const offset = (engine.gameTime * 48) % 22;
+    const center = width / 2;
+    context.fillStyle = SCENE.rail;
+    context.shadowColor = SCENE.rail;
+    context.shadowBlur = 6;
+    for (let x = center + offset; x < width; x += 22) context.fillRect(x, y - 1, 9, 2);
+    for (let x = center - offset - 9; x > -9; x -= 22) context.fillRect(x, y - 1, 9, 2);
+    context.shadowBlur = 0;
+
+    context.font = canvasFont(12);
+    context.textBaseline = 'middle';
+    const label = '100% 구조선';
+    const labelWidth = context.measureText(label).width + 14;
+    context.fillStyle = 'rgba(8, 26, 20, 0.92)';
+    roundedRect(context, 8, y - 10, labelWidth, 20, 10);
+    context.fill();
+    context.strokeStyle = 'rgba(77, 240, 166, 0.55)';
+    context.lineWidth = 1;
     context.stroke();
-    context.setLineDash([]);
-    context.font = "600 10px 'JetBrains Mono', monospace";
-    context.fillStyle = '#39ff88';
-    context.fillText('100% ▸ 구조', 6, this.goalY - 5);
-    // 칸 눈금
-    context.fillStyle = 'rgba(138, 152, 170, 0.4)';
+    context.fillStyle = SCENE.rail;
+    context.fillText(label, 15, y + 1);
+
+    // 눈금: 칸마다 양 끝 짧은 선, 25·50·75%에는 숫자
     for (let cell = 1; cell < BATTERY_RULES.goalCells; cell++) {
-      const y = this.waterY - cell * this.cellHeight;
-      context.fillRect(0, y, 5, 1);
-      context.fillRect(width - 5, y, 5, 1);
+      const tickY = Math.round(this.waterY - cell * this.cellHeight);
+      const major = cell % 2 === 0;
+      context.fillStyle = major ? 'rgba(138, 147, 184, 0.5)' : 'rgba(138, 147, 184, 0.25)';
+      context.fillRect(0, tickY, major ? 8 : 5, 1);
+      context.fillRect(width - (major ? 8 : 5), tickY, major ? 8 : 5, 1);
+      // 좁은 화면에서는 % 숫자가 내 탑 낱말과 겹치므로 눈금만 남긴다
+      if (major && width >= 520) {
+        context.fillStyle = 'rgba(138, 147, 184, 0.45)';
+        context.fillText(`${Math.round(cell / BATTERY_RULES.goalCells * 100)}%`, 12, tickY + 1);
+      }
     }
   }
 
-  // 배터리 셀을 쌓은 탑. 맨 위 셀은 남은 비율만큼 채운다. 물속 부분은 바다가 덮는다.
+  // 배터리 셀을 쌓은 탑. 셀은 원통 음영 + 유광 줄 + 양극(+) 표시, 맨 위 셀은 남은 비율만큼 채운다. 물속 부분은 바다가 덮는다.
   drawTower(context, side, engine) {
     const style = SIDE_STYLE[side];
     const cells = this.displayCells[side];
     const x = this.towerX(side);
     const width = this.towerWidth();
+    const left = x - width / 2;
     const cellHeight = this.cellHeight;
     const effects = engine[side];
     const heat = engine.gameTime < effects.heatUntil;
     const eco = engine.gameTime < effects.ecoUntil;
     const fullCells = Math.floor(cells);
     const total = Math.ceil(cells) + 2;
+    const shading = context.createLinearGradient(left, 0, left + width, 0);
+    shading.addColorStop(0, style.bottom);
+    shading.addColorStop(0.32, style.top);
+    shading.addColorStop(0.62, style.top);
+    shading.addColorStop(1, style.bottom);
     for (let index = -2; index < total - 2; index++) {
       const fill = index < fullCells ? 1 : Math.max(0, cells - fullCells);
       const top = this.waterY - (index + 1) * cellHeight;
-      context.fillStyle = '#0c121a';
-      roundedRect(context, x - width / 2, top + 2, width, cellHeight - 3, 5);
+      const innerTop = top + 4;
+      const innerHeight = cellHeight - 7;
+      context.fillStyle = '#0a0f22';
+      roundedRect(context, left, top + 2, width, cellHeight - 3, 6);
       context.fill();
       if (fill > 0 || index < 0) {
         const fillRatio = index < 0 ? 1 : fill;
-        const gradient = context.createLinearGradient(x - width / 2, 0, x + width / 2, 0);
-        gradient.addColorStop(0, style.bottom);
-        gradient.addColorStop(0.45, style.top);
-        gradient.addColorStop(1, style.bottom);
-        context.fillStyle = gradient;
-        context.globalAlpha = heat && Math.sin(engine.gameTime * 20 + index) > 0 ? 0.75 : 1;
-        roundedRect(context, x - width / 2 + 3, top + 2 + (cellHeight - 3) * (1 - fillRatio) + 2, width - 6, (cellHeight - 3) * fillRatio - 4, 4);
+        const fillTop = innerTop + innerHeight * (1 - fillRatio);
+        context.fillStyle = shading;
+        context.globalAlpha = heat && Math.sin(engine.gameTime * 20 + index) > 0 ? 0.72 : 1;
+        roundedRect(context, left + 3, fillTop, width - 6, innerHeight * fillRatio, 4);
         context.fill();
         context.globalAlpha = 1;
-        context.fillStyle = 'rgba(255, 255, 255, 0.55)';
-        context.font = `700 ${Math.round(cellHeight * 0.38)}px 'JetBrains Mono', monospace`;
-        context.textAlign = 'center';
-        context.textBaseline = 'middle';
-        if (fillRatio > 0.5) context.fillText('+', x, top + cellHeight / 2 + 1);
-        context.textAlign = 'start';
+        // 유광 줄
+        context.fillStyle = 'rgba(255, 255, 255, 0.28)';
+        context.fillRect(left + width * 0.22, fillTop + 3, 3, Math.max(0, innerHeight * fillRatio - 6));
+        // 덜 찬 셀의 수면: 밝은 띠
+        if (fillRatio < 1) {
+          context.fillStyle = 'rgba(255, 255, 255, 0.55)';
+          context.fillRect(left + 5, fillTop, width - 10, 1.5);
+        }
+        if (fillRatio > 0.55) {
+          const plus = Math.max(6, Math.min(12, cellHeight * 0.28));
+          context.fillStyle = 'rgba(10, 15, 34, 0.38)';
+          context.fillRect(x - plus / 2 + 3, top + cellHeight / 2 - 1, plus, 2.5);
+          context.fillRect(x + 3 - 1.25, top + cellHeight / 2 - plus / 2, 2.5, plus);
+        }
       }
-      context.strokeStyle = 'rgba(201, 212, 224, 0.25)';
+      context.strokeStyle = 'rgba(233, 237, 248, 0.16)';
       context.lineWidth = 1;
-      roundedRect(context, x - width / 2, top + 2, width, cellHeight - 3, 5);
+      roundedRect(context, left + 0.5, top + 2.5, width - 1, cellHeight - 4, 6);
       context.stroke();
     }
-    // 단자
+    // 양극 단자(금속)
     const topY = this.towerTopY(cells);
-    context.fillStyle = '#8a98aa';
-    roundedRect(context, x - 8, topY - 3, 16, 5, 2);
+    const cap = context.createLinearGradient(x - 9, 0, x + 9, 0);
+    cap.addColorStop(0, '#5d6690');
+    cap.addColorStop(0.45, '#d9def0');
+    cap.addColorStop(1, '#5d6690');
+    context.fillStyle = cap;
+    roundedRect(context, x - 9, topY - 4, 18, 6, 2);
     context.fill();
+    // 탑 바깥 은은한 빛
+    context.save();
+    context.globalCompositeOperation = 'lighter';
+    const aura = context.createLinearGradient(left - 14, 0, left + width + 14, 0);
+    aura.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    aura.addColorStop(0.5, `${style.glow}14`);
+    aura.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    context.fillStyle = aura;
+    context.fillRect(left - 14, topY, width + 28, this.waterY - topY);
+    context.restore();
     if (eco) {
       context.strokeStyle = `rgba(195, 232, 141, ${0.4 + 0.3 * Math.sin(engine.gameTime * 6)})`;
       context.lineWidth = 3;
-      roundedRect(context, x - width / 2 - 6, topY - 6, width + 12, this.waterY - topY + 6, 8);
+      roundedRect(context, left - 6, topY - 6, width + 12, this.waterY - topY + 6, 8);
       context.stroke();
     }
     if (heat && Math.random() < 0.5) {
@@ -277,34 +464,96 @@ export class BatteryRenderer {
     }
   }
 
-  drawSea(context, width, height, engine) {
-    const meDanger = engine.me.cells < 1.2;
-    context.beginPath();
-    context.moveTo(0, height);
-    for (let x = 0; x <= width; x += 10) {
-      context.lineTo(x, this.waterY + Math.sin(x / 30 + engine.gameTime * 2.2) * 4);
-    }
-    context.lineTo(width, height);
-    context.closePath();
-    const sea = context.createLinearGradient(0, this.waterY, 0, height);
-    sea.addColorStop(0, meDanger && Math.sin(engine.gameTime * 8) > 0 ? 'rgba(120, 30, 50, 0.92)' : 'rgba(18, 52, 96, 0.92)');
-    sea.addColorStop(1, 'rgba(6, 14, 28, 0.98)');
-    context.fillStyle = sea;
-    context.fill();
-    context.strokeStyle = '#5b8bd6';
-    context.lineWidth = 2;
-    context.beginPath();
-    for (let x = 0; x <= width; x += 10) {
-      const y = this.waterY + Math.sin(x / 30 + engine.gameTime * 2.2) * 4;
+  // 방전의 바다: 뒤 물결 + 앞 물결 두 겹, 탑 그림자가 비치고 기포가 올라온다. 내 탑이 위험하면 붉게 맥박친다
+  waveY(x, time, layer = 0) {
+    return layer === 0
+      ? this.waterY + Math.sin(x / 30 + time * 2.2) * 4 + Math.sin(x / 11 + time * 3.1) * 1.2
+      : this.waterY - 5 + Math.sin(x / 44 - time * 1.4 + 1.3) * 3;
+  }
+
+  traceWave(context, width, time, layer) {
+    for (let x = 0; x <= width + 8; x += 8) {
+      const y = this.waveY(x, time, layer);
       if (x === 0) context.moveTo(x, y);
       else context.lineTo(x, y);
     }
+  }
+
+  drawSea(context, width, height, engine) {
+    const time = engine.gameTime;
+    const danger = engine.me.cells < 1.2 && engine.status === 'running';
+    const pulse = danger ? (Math.sin(time * 8) + 1) / 2 : 0;
+
+    context.beginPath();
+    this.traceWave(context, width, time, 1);
+    context.lineTo(width, height);
+    context.lineTo(0, height);
+    context.closePath();
+    context.fillStyle = SCENE.seaBack;
+    context.fill();
+
+    context.beginPath();
+    this.traceWave(context, width, time, 0);
+    context.lineTo(width, height);
+    context.lineTo(0, height);
+    context.closePath();
+    const sea = context.createLinearGradient(0, this.waterY, 0, height);
+    sea.addColorStop(0, danger ? `rgba(${Math.round(22 + 100 * pulse)}, ${Math.round(48 - 18 * pulse)}, ${Math.round(106 - 48 * pulse)}, 0.94)` : 'rgba(22, 48, 106, 0.94)');
+    sea.addColorStop(1, 'rgba(6, 10, 25, 0.99)');
+    context.fillStyle = sea;
+    context.fill();
+
+    this.drawReflections(context, height, engine);
+
+    // 물마루
+    context.beginPath();
+    this.traceWave(context, width, time, 0);
+    context.strokeStyle = danger ? `rgba(255, 93, 115, ${0.5 + 0.4 * pulse})` : 'rgba(127, 167, 245, 0.85)';
+    context.lineWidth = 1.6;
     context.stroke();
-    context.font = "600 10px 'JetBrains Mono', monospace";
-    context.fillStyle = 'rgba(156, 195, 255, 0.45)';
+
+    // 기포 14개: 바닥에서 올라와 수면에서 사라진다. O(14)
+    const random = seededRandom(99);
+    for (let bubble = 0; bubble < 14; bubble++) {
+      const speed = 10 + random() * 16;
+      const x = random() * width + Math.sin(time * 2 + bubble) * 3;
+      const travel = (time * speed + random() * 60) % (height - this.waterY);
+      const y = height - travel;
+      if (y < this.waterY + 6) continue;
+      context.globalAlpha = 0.18 + 0.25 * (travel / (height - this.waterY));
+      context.strokeStyle = '#9cc3ff';
+      context.lineWidth = 1;
+      context.beginPath();
+      context.arc(x, y, 1.2 + random() * 1.6, 0, Math.PI * 2);
+      context.stroke();
+    }
+    context.globalAlpha = 1;
+
+    context.font = canvasFont(12);
     context.textAlign = 'center';
-    context.fillText('0% 방전의 바다', width / 2, height - 12);
+    context.textBaseline = 'middle';
+    context.fillStyle = danger ? `rgba(255, 141, 156, ${0.5 + 0.4 * pulse})` : 'rgba(156, 195, 255, 0.42)';
+    context.fillText(danger ? '방전 직전! 셀을 충전하세요' : '0% · 방전의 바다', width / 2, height - 14);
     context.textAlign = 'start';
+  }
+
+  // 탑 빛이 물에 일렁이며 비친다. 줄 수 r에 대해 O(r)
+  drawReflections(context, height, engine) {
+    context.save();
+    context.globalCompositeOperation = 'lighter';
+    for (const side of ['me', 'rival']) {
+      const x = this.towerX(side);
+      const width = this.towerWidth();
+      context.fillStyle = SIDE_STYLE[side].glow;
+      for (let y = this.waterY + 4; y < height - 4; y += 4) {
+        const depth = (y - this.waterY) / (height - this.waterY);
+        const sway = Math.sin(y * 0.35 + engine.gameTime * 4 + (side === 'me' ? 0 : 2)) * 4 * (0.4 + depth);
+        const span = width * (0.75 - depth * 0.35) * (0.8 + 0.2 * Math.sin(y * 0.9 + engine.gameTime * 6));
+        context.globalAlpha = 0.16 * (1 - depth);
+        context.fillRect(x - span / 2 + sway, y, span, 2);
+      }
+    }
+    context.restore();
   }
 
   // 캐릭터: 내 폰(스마트폰 마스코트) / 방전봇(플러그 머리 로봇). 위험하면 땀, 이기면 환호.
@@ -373,7 +622,7 @@ export class BatteryRenderer {
     const percent = Math.max(0, Math.min(1, engine[side].cells / BATTERY_RULES.goalCells));
     context.fillStyle = '#0b1017';
     context.fillRect(-9, -38, 14, 5);
-    context.fillStyle = percent < 0.2 ? '#ff4d6d' : '#39ff88';
+    context.fillStyle = percent < 0.2 ? '#ff5d73' : '#4df0a6';
     context.fillRect(-8, -37, 12 * percent, 3);
     // 팔: 위급하면 허우적, 아니면 손 흔들기
     const wave = Math.sin(engine.gameTime * (worried ? 14 : 4)) * (worried ? 8 : 4);
@@ -404,7 +653,7 @@ export class BatteryRenderer {
     context.fillStyle = body;
     roundedRect(context, -17, -40, 34, 34, 9);
     context.fill();
-    context.strokeStyle = '#ff4d6d';
+    context.strokeStyle = '#ff5d73';
     context.lineWidth = 1.5;
     context.stroke();
     // 플러그 머리(두 갈래 단자)
@@ -417,12 +666,12 @@ export class BatteryRenderer {
     context.fill();
     if (paused) {
       context.fillStyle = '#c792ea';
-      context.font = "700 10px 'JetBrains Mono', monospace";
+      context.font = canvasFont(12);
       context.fillText('z', 2, -24);
       context.fillText('Z', 8, -30 - Math.sin(engine.gameTime * 3) * 2);
     } else {
-      context.strokeStyle = '#ff4d6d';
-      context.shadowColor = '#ff4d6d';
+      context.strokeStyle = '#ff5d73';
+      context.shadowColor = '#ff5d73';
       context.shadowBlur = 8;
       context.lineWidth = 2;
       context.beginPath();
@@ -459,14 +708,14 @@ export class BatteryRenderer {
     const rivalPop = this.visuals.get(engine.rivalWord.id).labelPop.value * 0.4;
     const labelX = Math.min(this.surface.width - 70, Math.max(70, rival.x));
     if (hidden) {
-      context.font = "700 12px 'JetBrains Mono', monospace";
+      context.font = canvasFont(12);
       context.fillStyle = '#c792ea';
       context.textAlign = 'center';
       context.fillText('▒▒ 화면 꺼짐 ▒▒', labelX, rival.y - 66);
       context.textAlign = 'start';
     } else {
       drawTokenLabel(context, labelX, rival.y - 56 - rivalPop, engine.rivalWord, engine.getCharacterStates(engine.rivalWord), {
-        active: engine.rivalWord.id === engine.targetId, accent: '#ff4d6d', compact
+        active: engine.rivalWord.id === engine.targetId, accent: '#ff5d73', compact
       });
     }
     const me = this.characterPosition('me');
@@ -474,12 +723,12 @@ export class BatteryRenderer {
     context.save();
     context.globalAlpha = this.labelCrowded(engine, meX, me.y - 56) ? 0.18 : 0.85;
     drawTokenLabel(context, meX, me.y - 56, engine.myWord, engine.myWord.token.text.split('').map(() => 'pending'), {
-      active: false, accent: '#ff4d6d', compact, attacker: engine.aiProgressFor(engine.myWord.id)
+      active: false, accent: '#ff5d73', compact, attacker: engine.aiProgressFor(engine.myWord.id)
     });
     context.restore();
     if (engine.ai.targetId === engine.myWord.id) {
-      context.font = "600 10px 'JetBrains Mono', monospace";
-      context.fillStyle = '#ff4d6d';
+      context.font = canvasFont(12);
+      context.fillStyle = '#ff5d73';
       context.textAlign = 'center';
       context.fillText(`⚠ ${rivalLabel(engine)} 공격 중`, meX, me.y - 84);
       context.textAlign = 'start';
@@ -542,11 +791,8 @@ export class BatteryRenderer {
     context.fillStyle = '#c9d4e0';
     context.fillRect(14, -4, 4, 8);
     context.fillStyle = '#0c121a';
-    context.font = "800 12px 'JetBrains Mono', monospace";
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillText('+', -1, 1);
-    context.textAlign = 'start';
+    context.fillRect(-5, 0, 8, 2);
+    context.fillRect(-2, -3, 2, 8);
   }
 
   // 보조배터리 드론: 공용 드론이 집게로 보조배터리(충전 칸 4개)를 물고 간다
@@ -598,7 +844,7 @@ export class BatteryRenderer {
     context.quadraticCurveTo(-7, -10, 0, -18 - flicker);
     context.fill();
     context.fillStyle = '#ff7a45';
-    context.font = "800 10px 'JetBrains Mono', monospace";
+    context.font = canvasFont(12);
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     context.fillText('°C', 0, 3);
@@ -665,22 +911,65 @@ export class BatteryRenderer {
     context.globalAlpha = 1;
   }
 
+  // 위 계기판: 양쪽에 배터리 게이지(아이콘 + 이름 + %), 가운데 스테이지/라운드 알약
   drawHud(context, width, engine) {
-    context.fillStyle = 'rgba(7, 10, 15, 0.88)';
+    const gradient = context.createLinearGradient(0, 0, 0, HUD_HEIGHT);
+    gradient.addColorStop(0, 'rgba(14, 18, 34, 0.96)');
+    gradient.addColorStop(1, 'rgba(9, 12, 24, 0.92)');
+    context.fillStyle = gradient;
     context.fillRect(0, 0, width, HUD_HEIGHT);
+    context.fillStyle = 'rgba(42, 49, 82, 0.9)';
+    context.fillRect(0, HUD_HEIGHT - 1, width, 1);
+    const ratio = side => Math.max(0, Math.min(1, engine[side].cells / BATTERY_RULES.goalCells));
+    const middle = HUD_HEIGHT / 2 + 1;
+    context.font = canvasFont(12);
     context.textBaseline = 'middle';
-    const percent = side => Math.round(Math.max(0, Math.min(1, engine[side].cells / BATTERY_RULES.goalCells)) * 100);
-    context.font = "700 13px 'JetBrains Mono', monospace";
-    context.fillStyle = '#39ff88';
-    context.fillText(`📱 나 ${percent('me')}%`, 10, HUD_HEIGHT / 2);
+
+    this.drawGauge(context, 12, middle, ratio('me'), SIDE_STYLE.me.label, false);
+    context.fillStyle = SCENE.fog;
+    context.fillText('나', 46, middle);
+    context.fillStyle = SIDE_STYLE.me.label;
+    context.fillText(`${Math.round(ratio('me') * 100)}%`, 64, middle);
+
+    const rivalName = isPvp(engine) ? rivalLabel(engine).slice(0, 8) : '방전봇';
+    this.drawGauge(context, width - 40, middle, ratio('rival'), SIDE_STYLE.rival.label, true);
     context.textAlign = 'right';
-    context.fillStyle = '#ff4d6d';
-    context.fillText(isPvp(engine) ? `${rivalLabel(engine).slice(0, 8)} ${percent('rival')}% 📱` : `방전봇 ${percent('rival')}% 🔌`, width - 10, HUD_HEIGHT / 2);
+    context.fillStyle = SCENE.fog;
+    const percentText = `${Math.round(ratio('rival') * 100)}%`;
+    context.fillText(rivalName, width - 46, middle);
+    context.fillStyle = SIDE_STYLE.rival.label;
+    context.fillText(percentText, width - 52 - context.measureText(rivalName).width, middle);
+
+    const center = isPvp(engine) ? `ROUND ${engine.round} · ${engine.wins.mine}:${engine.wins.theirs}` : `STAGE ${engine.stage}`;
     context.textAlign = 'center';
-    context.fillStyle = '#c9d4e0';
-    context.font = "700 12px 'JetBrains Mono', monospace";
-    context.fillText(isPvp(engine) ? `R${engine.round} · ${engine.wins.mine}:${engine.wins.theirs}` : `STAGE ${engine.stage}`, width / 2, HUD_HEIGHT / 2);
+    const pillWidth = context.measureText(center).width + 22;
+    context.fillStyle = 'rgba(28, 34, 64, 0.95)';
+    roundedRect(context, width / 2 - pillWidth / 2, middle - 10, pillWidth, 20, 10);
+    context.fill();
+    context.strokeStyle = 'rgba(255, 181, 71, 0.35)';
+    context.lineWidth = 1;
+    context.stroke();
+    context.fillStyle = '#ffb547';
+    context.fillText(center, width / 2, middle + 1);
     context.textAlign = 'start';
+  }
+
+  // 배터리 아이콘 게이지(26×12): 20% 아래면 코럴로 바뀌어 깜빡인다. mirrored면 단자가 왼쪽
+  drawGauge(context, x, centerY, ratio, color, mirrored) {
+    const top = Math.round(centerY - 6);
+    const low = ratio < 0.2;
+    const tone = low ? '#ff5d73' : color;
+    context.strokeStyle = 'rgba(233, 237, 248, 0.55)';
+    context.lineWidth = 1.2;
+    roundedRect(context, x + 0.5, top + 0.5, 25, 12, 2.5);
+    context.stroke();
+    context.fillStyle = 'rgba(233, 237, 248, 0.55)';
+    context.fillRect(mirrored ? x - 2 : x + 26, top + 3.5, 2, 6);
+    context.globalAlpha = low && Math.sin(performance.now() / 120) > 0 ? 0.45 : 1;
+    context.fillStyle = tone;
+    const inner = 21 * ratio;
+    context.fillRect(mirrored ? x + 23 - inner : x + 3, top + 3, inner, 7);
+    context.globalAlpha = 1;
   }
 
   // PvP: 상대가 '화면 꺼짐'을 가져가면 내 화면이 3초 동안 어두워지고 입력이 막힌다
@@ -691,10 +980,10 @@ export class BatteryRenderer {
     context.fillRect(0, HUD_HEIGHT, width, this.surface.height - HUD_HEIGHT);
     context.textAlign = 'center';
     context.fillStyle = '#c792ea';
-    context.font = "800 20px 'JetBrains Mono', monospace";
-    context.fillText(`🌙 화면 꺼짐 ${remaining.toFixed(1)}s`, width / 2, this.surface.height * 0.45);
-    context.fillStyle = '#8a98aa';
-    context.font = "600 12px 'JetBrains Mono', monospace";
+    context.font = canvasFont(24);
+    context.fillText(`화면 꺼짐 ${remaining.toFixed(1)}s`, width / 2, this.surface.height * 0.45);
+    context.fillStyle = SCENE.fog;
+    context.font = canvasFont(13, 'ui', 500);
     context.fillText(`${rivalLabel(engine)}이(가) 화면 꺼짐을 가져갔습니다`, width / 2, this.surface.height * 0.45 + 24);
     context.textAlign = 'start';
   }
@@ -708,24 +997,34 @@ export class BatteryRenderer {
     }
     const scale = easeOutBack(Math.min(1, age / 0.3));
     const alpha = age > 1.4 ? 1 - (age - 1.4) / 0.4 : 1;
+    const bannerColor = this.banner.color ?? '#4df0a6';
     context.save();
     context.globalAlpha = alpha;
     context.translate(width / 2, this.surface.height * 0.42);
     context.scale(scale, scale);
-    context.fillStyle = 'rgba(7, 10, 15, 0.85)';
-    roundedRect(context, -150, -34, 300, 68, 12);
+    context.font = canvasFont(24);
+    const panelWidth = Math.max(280, context.measureText(this.banner.text).width + 64);
+    context.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    context.shadowBlur = 24;
+    context.fillStyle = 'rgba(14, 18, 34, 0.94)';
+    roundedRect(context, -panelWidth / 2, -38, panelWidth, 76, 14);
     context.fill();
-    const bannerColor = this.banner.color ?? '#39ff88';
-    context.strokeStyle = bannerColor;
-    context.lineWidth = 2;
+    context.shadowBlur = 0;
+    context.strokeStyle = 'rgba(42, 49, 82, 1)';
+    context.lineWidth = 1;
     context.stroke();
-    context.textAlign = 'center';
     context.fillStyle = bannerColor;
-    context.font = "800 22px 'JetBrains Mono', monospace";
-    context.fillText(this.banner.text, 0, -8);
-    context.fillStyle = '#c9d4e0';
-    context.font = "600 12px 'JetBrains Mono', monospace";
-    context.fillText(this.banner.sub, 0, 18);
+    context.shadowColor = bannerColor;
+    context.shadowBlur = 12;
+    roundedRect(context, -panelWidth / 2 + 20, -38, panelWidth - 40, 3, 1.5);
+    context.fill();
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(this.banner.text, 0, -7);
+    context.shadowBlur = 0;
+    context.fillStyle = SCENE.fog;
+    context.font = canvasFont(13, 'ui', 500);
+    context.fillText(this.banner.sub, 0, 19);
     context.restore();
     context.textAlign = 'start';
   }
