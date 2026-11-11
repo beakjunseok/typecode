@@ -294,22 +294,26 @@ export function drawDeveloper(context, {
   // 머리: 목표 쪽으로 돌리되 어깨 비틀림과 반대로 조금 버티고(시선 고정), 키를 칠 때마다 살짝 끄덕
   const idleLook = Math.sin(time * 0.53) * 0.8 + Math.sin(time * 1.31) * 0.4;
   const headX = aim * 5 - twist * 1.5 + idleLook * (1 - typing) * (1 - slump);
-  const headY = -27 - rise * 0.8 - keyPulse * 0.5 + slump * 7 - tension * 1.2;
+  const headY = -30 - rise * 0.8 - keyPulse * 0.5 + slump * 8 - tension * 1.2;
   const headTilt = aim * 0.08 + Math.sin(time * 0.71) * 0.03 * (1 - typing) - recoil * 0.002 * lookSide;
   const behind = pose.front < 0.5 && !gameOver;
-  const arm = { aim, pose, twist, rise, gameOver, slump, laptopMode, drawHeld };
+  // 소매(팔)는 몸통보다 먼저 그려 어깨에서 자연스럽게 나오게 한다(이음선 없음).
+  // 손·휴대폰은 머리·의자 뒤에 그려 귀 뒤로 넘긴 휴대폰이 머리 앞(카메라 쪽)에 보이게 한다
+  const armGeometry = throwingArmGeometry({ aim, pose, twist, rise, gameOver, slump });
+  const typingHand = typingHandPosition({ time, keyPulse, keySide, typing, rise, slump, gameOver });
   context.save();
   leanUpperBody();
-  let hand = null;
-  if (behind) hand = drawThrowingArm(context, arm);
+  drawTypingSleeve(context, typingHand, rise);
+  drawThrowingSleeve(context, armGeometry);
   drawTorso(context, { rise, twist });
-  drawTypingHand(context, { time, keyPulse, keySide, typing, rise, slump, gameOver });
-  drawHead(context, { headX, headY, headTilt, lookSide, time, armSwing: (pose.upper - POSES.ready.upper) * -25 + keyPulse * 4, lives, laptopMode, gameOver });
+  drawKeyboardHand(context, typingHand.x, typingHand.y, { press: typingHand.press, keySide, relaxed: gameOver });
+  drawHead(context, { headX, headY, headTilt, lookSide, time, armSwing: (pose.upper - POSES.ready.upper) * -25 + keyPulse * 4, lives, laptopMode, gameOver, rise, twist });
   context.restore();
   drawChairBack(context, time, lives);
   context.save();
   leanUpperBody();
-  if (!behind) hand = drawThrowingArm(context, arm);
+  // 따라 휘두르는 동안(팔이 몸 앞으로 넘어감)은 손이 몸에 가려 보이지 않는다
+  const hand = behind ? armGeometry.hand : drawThrowingHand(context, armGeometry, { aim, pose, gameOver, laptopMode, drawHeld });
   drawReaction(context, { headX, headY, hurt, lives, time, gameOver });
   context.restore();
   context.restore();
@@ -321,29 +325,30 @@ export function drawDeveloper(context, {
   return { x: x + shake + rotatedX * scale, y: y + rotatedY * scale };
 }
 
-// 왼손: 키를 칠 때마다 손끝이 톡 내려가고(keyPulse), 번갈아 옆 키로 조금씩 옮겨 간다.
+// 왼손 위치: 키를 칠 때마다 손끝이 톡 내려가고(keyPulse), 번갈아 옆 키로 조금씩 옮겨 간다.
 // 한동안 안 치면 손목을 내려 쉬고, 게임 오버면 축 늘어진다
-function drawTypingHand(context, { time, keyPulse, keySide, typing, rise, slump, gameOver }) {
-  const resting = { x: -25, y: -15 };
-  const hover = { x: -27 + keySide * 1.6, y: -20 };
+function typingHandPosition({ time, keyPulse, keySide, typing, rise, slump, gameOver }) {
+  if (gameOver) return { x: -26 + slump, y: -15 + slump * 8, press: 0 };
+  const resting = { x: -27, y: -14 };
+  const hover = { x: -28.5 + keySide * 1.6, y: -17.5 };
   const active = Math.min(1, typing);
   const press = Math.max(0, keyPulse) * 0.9;
-  let hand = {
+  return {
     x: resting.x + (hover.x - resting.x) * active,
-    y: resting.y + (hover.y - resting.y) * active + press - rise * 0.4 + Math.sin(time * 0.9) * 0.4 * (1 - active)
+    y: resting.y + (hover.y - resting.y) * active + press - rise * 0.4 + Math.sin(time * 0.9) * 0.4 * (1 - active),
+    press
   };
-  if (gameOver) hand = { x: -24 + slump * 1, y: -14 + slump * 8 };
+}
+
+// 왼팔 소매: 몸통 안(어깨)에서 시작해 손목까지 한 줄. 몸통이 위에 덮여 어깨 이음선이 생기지 않는다
+function drawTypingSleeve(context, hand, rise) {
   context.lineCap = 'round';
-  context.strokeStyle = COLORS.hoodieDark;
-  context.lineWidth = 8;
-  context.beginPath();
-  context.moveTo(-17, -8 - rise * 0.5);
-  context.quadraticCurveTo(-24, -9, hand.x + 2, hand.y + 3);
-  context.stroke();
   context.strokeStyle = COLORS.hoodie;
-  context.lineWidth = 6;
+  context.lineWidth = 7;
+  context.beginPath();
+  context.moveTo(-16, -9 - rise * 0.5);
+  context.quadraticCurveTo(-26, -9, hand.x + 1.5, hand.y + 3);
   context.stroke();
-  drawKeyboardHand(context, hand.x, hand.y, { press: gameOver ? 0 : press, keySide, relaxed: gameOver });
 }
 
 // 키보드 위 왼손(뒤 위에서 본 손등): 손가락 넷이 앞(화면 위)으로 뻗어 키에 얹히고, 엄지는 안쪽(오른쪽)으로.
@@ -351,9 +356,9 @@ function drawTypingHand(context, { time, keyPulse, keySide, typing, rise, slump,
 function drawKeyboardHand(context, x, y, { press, keySide, relaxed }) {
   context.save();
   context.translate(x, y);
-  context.rotate(relaxed ? 0.5 : -0.18);
+  context.rotate(relaxed ? 0.5 : 0.62);
   // 새끼 → 검지(왼손이라 바깥쪽이 왼편). 키 위에 말려 있어 위에서 보면 짧고 서로 붙어 있다. [가로 위치, 길이]
-  const fingers = [[-2.55, 1.5], [-0.85, 2], [0.85, 2.15], [2.55, 1.85]];
+  const fingers = [[-2.4, 1.3], [-0.8, 1.7], [0.8, 1.8], [2.4, 1.55]];
   const pressedIndex = keySide > 0 ? 3 : 2;
   fingers.forEach(([offsetX, length], index) => {
     const shorten = index === pressedIndex ? Math.min(0.9, press * 0.5) : 0;
@@ -362,19 +367,12 @@ function drawKeyboardHand(context, x, y, { press, keySide, relaxed }) {
     roundedRect(context, offsetX - 0.86, -1.4 - fingerLength, 1.72, fingerLength + 1.4, 0.86);
     context.fill();
     // 말린 손가락 끝(그늘)
+    context.globalAlpha = 0.5;
     context.fillStyle = SKIN.shade;
-    roundedRect(context, offsetX - 0.86, -1.4 - fingerLength, 1.72, 1.1, 0.55);
+    roundedRect(context, offsetX - 0.86, -1.4 - fingerLength, 1.72, 0.9, 0.45);
     context.fill();
+    context.globalAlpha = 1;
   });
-  // 손가락 사이 홈
-  context.strokeStyle = 'rgba(214, 150, 112, 0.4)';
-  context.lineWidth = 0.4;
-  for (const offsetX of [-1.7, 0, 1.7]) {
-    context.beginPath();
-    context.moveTo(offsetX, -1.6);
-    context.lineTo(offsetX, -2.9);
-    context.stroke();
-  }
   // 손등
   context.fillStyle = SKIN.base;
   roundedRect(context, -3.5, -2, 7, 4.4, 2);
@@ -394,63 +392,77 @@ function drawKeyboardHand(context, x, y, { press, keySide, relaxed }) {
   roundedRect(context, -0.65, -3.6, 1.3, 0.9, 0.45);
   context.fill();
   context.restore();
-  context.fillStyle = 'rgba(239, 184, 148, 0.45)';
-  context.fillRect(-3.2, 1.5, 6.4, 0.9);
   context.restore();
 }
 
+// 몸통(후드티 뒷모습): 어깨가 머리 폭의 약 1.9배인 사다리꼴 + 둥근 어깨. 윤곽선 없이 한 실루엣으로 칠하고
+// 입체는 반투명 면으로만(가운데 등 그늘, 어깨 빛). 숨 쉴 때 어깨선이 오르내리고(rise),
+// 비틀면 오른쪽 어깨가 앞(위)·뒤(아래)로 움직인다(twist)
 function drawTorso(context, { rise = 0, twist = 0 } = {}) {
   const shoulderY = -15 - rise;
   const rightDrop = twist * 2.5;
-  const gradient = context.createLinearGradient(0, shoulderY, 0, 10);
+  const leftY = shoulderY - rightDrop * 0.4;
+  const rightY = shoulderY + rightDrop;
+  const rightEdge = 25 - Math.abs(twist) * 1.5;
+  const gradient = context.createLinearGradient(0, shoulderY, 0, 14);
   gradient.addColorStop(0, COLORS.hoodieLight);
-  gradient.addColorStop(1, COLORS.hoodieDark);
+  gradient.addColorStop(1, COLORS.hoodie);
   context.fillStyle = gradient;
   context.beginPath();
-  context.moveTo(-27, 12);
-  context.quadraticCurveTo(-27, shoulderY + 3 - rightDrop * 0.4, -12, shoulderY - rightDrop * 0.4);
-  context.lineTo(12, shoulderY + rightDrop);
-  context.quadraticCurveTo(27 - Math.abs(twist) * 1.5, shoulderY + 3 + rightDrop, 27 - Math.abs(twist) * 1.5, 12);
+  context.moveTo(-24, 16);
+  context.bezierCurveTo(-25.5, 4, -26.5, leftY + 6, -21, leftY + 1.2);
+  context.quadraticCurveTo(-16, leftY - 1.2, -8, leftY - 0.4);
+  context.quadraticCurveTo(0, (leftY + rightY) / 2 + 1.4, 8, rightY - 0.4);
+  context.quadraticCurveTo(16, rightY - 1.2, rightEdge - 4, rightY + 1.2);
+  context.bezierCurveTo(rightEdge + 1.5, rightY + 6, rightEdge + 0.5, 4, rightEdge - 1, 16);
   context.closePath();
   context.fill();
-  // 등에 늘어진 후드: 몸보다 한 박자 늦게 흔들린다
-  const hoodY = shoulderY + 3 + rise * 0.3;
-  context.fillStyle = COLORS.hoodieDark;
+  // 등 가운데 그늘(척추 쪽으로 살짝 들어감) — 선 대신 반투명 면
+  const spine = context.createRadialGradient(0, 8, 2, 0, 8, 20);
+  spine.addColorStop(0, 'rgba(18, 30, 44, 0.32)');
+  spine.addColorStop(1, 'rgba(18, 30, 44, 0)');
+  context.fillStyle = spine;
+  context.fillRect(-24, shoulderY, 48, 32);
+  // 어깨 빛
+  context.fillStyle = 'rgba(255, 255, 255, 0.05)';
   context.beginPath();
-  context.ellipse(twist * -0.8, hoodY, 13, 7, twist * 0.05, 0, Math.PI * 2);
+  context.ellipse(-15, leftY + 3, 7, 2.6, -0.15, 0, Math.PI * 2);
+  context.ellipse(15, rightY + 3, 7, 2.6, 0.15, 0, Math.PI * 2);
   context.fill();
-  context.strokeStyle = COLORS.hoodieLight;
-  context.lineWidth = 1;
-  context.beginPath();
-  context.ellipse(twist * -0.8, hoodY - 0.5, 10, 4.5, twist * 0.05, 0.1 * Math.PI, 0.9 * Math.PI);
-  context.stroke();
-  // 어깨선 주름(빛)
-  context.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-  context.beginPath();
-  context.moveTo(-20, shoulderY + 6);
-  context.quadraticCurveTo(0, shoulderY + 3 + rise * 0.5, 20, shoulderY + 6 + rightDrop);
-  context.stroke();
 }
 
-// 머리: 뒤통수 머리카락 + 바람에 흔들리는 바보털, 목표 쪽으로 살짝 돌린 얼굴(귀·볼·안경다리), 헤드폰
-function drawHead(context, { headX, headY, headTilt = 0, lookSide, time, armSwing, lives, laptopMode, gameOver }) {
+// 목이 옷깃 속으로 들어가는 곳의 부드러운 그늘(선·덩어리 없이 반투명 면 하나)
+function drawCollarShadow(context, { rise }) {
+  const y = -15 - rise + 1.5;
+  const shade = context.createRadialGradient(0, y, 1, 0, y, 11);
+  shade.addColorStop(0, 'rgba(18, 30, 44, 0.45)');
+  shade.addColorStop(1, 'rgba(18, 30, 44, 0)');
+  context.fillStyle = shade;
+  context.beginPath();
+  context.ellipse(0, y + 1, 11, 5, 0, 0, Math.PI * 2);
+  context.fill();
+}
+
+// 머리(뒷모습): 짧은 목(가운데) + 양쪽 귀 + 뒤통수 머리 실루엣(결은 밝은 면으로만) + 바보털 + 헤드폰
+function drawHead(context, { headX, headY, headTilt = 0, lookSide, time, armSwing, lives, laptopMode, gameOver, rise = 0, twist = 0 }) {
+  // 목: 양 어깨 가운데, 앉아 몸을 숙인 자세라 짧게. 아래는 옷깃 속으로 들어간다
+  drawCollarShadow(context, { rise });
   context.fillStyle = COLORS.skinShade;
-  context.fillRect(headX - 4, headY + 8, 8, 6);
+  roundedRect(context, headX * 0.6 - 4.5, headY + 6, 9, -15 - rise - headY - 4.5, 3.5);
+  context.fill();
   // 고개 기울임: 목 밑동을 축으로 돌린다
   context.save();
   context.translate(headX, headY + 12);
   context.rotate(headTilt);
   context.translate(-headX, -(headY + 12));
-  // 목표 쪽 볼·턱선(고개를 살짝 돌려 얼굴 옆이 조금 보인다)
+  // 양쪽 귀(작은 반원, 대부분 헤드폰 컵 아래)
   context.fillStyle = COLORS.skin;
-  context.beginPath();
-  context.ellipse(headX + lookSide * 7, headY + 3, 6.5, 9, lookSide * 0.15, 0, Math.PI * 2);
-  context.fill();
-  context.fillStyle = COLORS.skinShade;
-  context.beginPath();
-  context.ellipse(headX + lookSide * 8.5, headY + 8.5, 3.5, 1.6, 0, 0, Math.PI * 2);
-  context.fill();
-  // 머리카락(뒤통수 대부분)
+  for (const side of [-1, 1]) {
+    context.beginPath();
+    context.ellipse(headX + side * 12, headY + 4.5, 2.4, 3.6, 0, 0, Math.PI * 2);
+    context.fill();
+  }
+  // 머리카락(뒤통수): 한 덩어리 실루엣 + 위쪽 삐침 + 뒷목 쪽 머리끝 + 밝은 결 면(선 없음)
   context.fillStyle = COLORS.hair;
   context.beginPath();
   context.ellipse(headX - lookSide * 1.5, headY - 1, 12.5, 12.5, 0, 0, Math.PI * 2);
@@ -462,45 +474,37 @@ function drawHead(context, { headX, headY, headTilt = 0, lookSide, time, armSwin
     context.lineTo(headX + offsetX + size, headY + offsetY + 3);
   }
   context.fill();
-  context.fillStyle = COLORS.hairLight;
+  // 뒷머리 끝: 목덜미 위로 내려오는 머리 다발 다섯(끝이 둥근 뾰족)
+  const hairX = headX - lookSide * 1.5;
   context.beginPath();
-  context.ellipse(headX - lookSide * 4, headY - 6, 5, 2.5, -0.4 * lookSide, 0, Math.PI * 2);
-  context.fill();
-  // 머리결: 정수리에서 아래로 흐르는 밝은 가닥 몇 줄(헬멧처럼 보이지 않게)
-  context.strokeStyle = '#3b4762';
-  context.lineWidth = 1;
-  context.lineCap = 'round';
-  for (const offset of [-7, -2.5, 2, 6.5]) {
-    context.beginPath();
-    context.moveTo(headX + offset * 0.4, headY - 10);
-    context.quadraticCurveTo(headX + offset * 1.2, headY - 4, headX + offset * 1.35, headY + 4);
-    context.stroke();
+  for (const [offsetX, length] of [[-9, 2.6], [-4.6, 4], [0, 4.6], [4.6, 4], [9, 2.6]]) {
+    context.moveTo(hairX + offsetX - 3.4, headY + 7);
+    context.quadraticCurveTo(hairX + offsetX - 1, headY + 10.5 + length * 0.4, hairX + offsetX + 0.3, headY + 10.5 + length * 0.6);
+    context.quadraticCurveTo(hairX + offsetX + 1.2, headY + 10.5, hairX + offsetX + 3.4, headY + 7);
   }
-  // 바보털: 던질 때·평소에 살랑
-  const sway = Math.sin(time * 3) * 2 + armSwing * 0.08;
-  context.strokeStyle = COLORS.hair;
-  context.lineWidth = 2.2;
-  context.lineCap = 'round';
-  context.beginPath();
-  context.moveTo(headX + 1, headY - 12);
-  context.quadraticCurveTo(headX + 3 + sway, headY - 20, headX + 8 + sway, headY - 19);
-  context.stroke();
-  // 귀 + 안경다리(목표 쪽)
-  context.fillStyle = COLORS.skin;
-  context.beginPath();
-  context.ellipse(headX + lookSide * 12, headY + 1, 2.6, 4, 0, 0, Math.PI * 2);
   context.fill();
-  context.strokeStyle = '#0f141c';
-  context.lineWidth = 1.4;
+  // 머릿결 빛: 정수리 둘레를 따라 휘어지는 초승달 띠(선이 아니라 면)
+  const sheen = (start, end, inset, alpha) => {
+    context.globalAlpha = alpha;
+    context.fillStyle = COLORS.hairLight;
+    context.beginPath();
+    context.arc(hairX, headY - 1, 12.5 - inset, start, end);
+    context.arc(hairX + 0.6, headY + 0.8, 12.5 - inset - 2, end, start, true);
+    context.closePath();
+    context.fill();
+  };
+  sheen(Math.PI * 1.12, Math.PI * 1.5, 1.6, 0.9);
+  sheen(Math.PI * 1.58, Math.PI * 1.8, 1.6, 0.5);
+  context.globalAlpha = 1;
+  // 바보털: 끝이 뾰족한 면으로(선 아님), 던질 때·평소에 살랑
+  const sway = Math.sin(time * 3) * 2 + armSwing * 0.08;
+  context.fillStyle = COLORS.hair;
   context.beginPath();
-  context.moveTo(headX + lookSide * 11, headY - 0.5);
-  context.lineTo(headX + lookSide * 15.5, headY - 1.5);
-  context.stroke();
-  // 안경알 테두리 끝 + 반짝임(모니터 빛)
-  context.fillStyle = '#0f141c';
-  context.fillRect(headX + lookSide * 14.5 - 1, headY - 3, 2, 4);
-  context.fillStyle = 'rgba(180, 240, 255, 0.85)';
-  context.fillRect(headX + lookSide * 15.5 - 0.5, headY - 2.5, 1, 2);
+  context.moveTo(headX - 0.6, headY - 11.5);
+  context.quadraticCurveTo(headX + 2 + sway, headY - 21, headX + 8.5 + sway, headY - 19.5);
+  context.quadraticCurveTo(headX + 4 + sway, headY - 17.5, headX + 2.6, headY - 11.5);
+  context.closePath();
+  context.fill();
   // 헤드폰: 은색 밴드 + 양쪽 컵(빛나는 링). 평소 하늘색, 노트북 모드 보라, 마지막 생명 빨강
   const glow = gameOver ? '#3a4656' : lives <= 1 ? '#ff4d6d' : laptopMode ? '#c792ea' : '#36e2ff';
   context.strokeStyle = COLORS.silver;
@@ -560,11 +564,10 @@ function drawChairBack(context, time, lives) {
   context.globalAlpha = 1;
 }
 
-// 던지는 오른팔: 어깨 → 팔꿈치 → 손 두 마디. pose.upper는 조준 방향 기준 오프셋, pose.bend는 팔꿈치 굽힘.
-// pose.held가 0이면 빈손(방금 던짐), 0→1로 커지며 새 휴대폰이 튀어나온다. 손 좌표(캐릭터 로컬)를 돌려준다
-function drawThrowingArm(context, { aim, pose, twist = 0, rise = 0, gameOver, slump = 1, laptopMode, drawHeld }) {
-  // 어깨: 비틀면 앞(위)·뒤(아래)로, 앞뒤로 갈수록 원근 때문에 몸 쪽으로 붙어 보인다
-  const shoulder = { x: 17 - Math.abs(twist) * 2, y: -9 + twist * 3 - rise };
+// 던지는 오른팔 관절 위치(어깨 → 팔꿈치 → 손목). pose.upper는 조준 방향 기준 오프셋, pose.bend는 팔꿈치 굽힘.
+// 어깨는 비틀면 앞(위)·뒤(아래)로, 원근 때문에 몸 쪽으로 붙어 보인다
+function throwingArmGeometry({ aim, pose, twist = 0, rise = 0, gameOver, slump = 1 }) {
+  const shoulder = { x: 17 - Math.abs(twist) * 2, y: -10 + twist * 3 - rise };
   const upperLength = 15;
   const foreLength = 14;
   const aimAngle = -Math.PI / 2 + aim * 0.75;
@@ -576,25 +579,24 @@ function drawThrowingArm(context, { aim, pose, twist = 0, rise = 0, gameOver, sl
   const foreAngle = upperAngle - bend;
   const hand = { x: elbow.x + Math.cos(foreAngle) * foreLength, y: elbow.y + Math.sin(foreAngle) * foreLength };
   // 귀 뒤로 넘길수록 휴대폰이 카메라에 가까워져 조금 커 보인다
-  const nearness = 1 + 0.16 * Math.max(0, twist);
+  return { shoulder, elbow, hand, foreAngle, droop, nearness: 1 + 0.16 * Math.max(0, twist) };
+}
 
+// 던지는 팔 소매: 몸통보다 먼저(아래에) 그려 어깨에서 이음선 없이 나온다
+function drawThrowingSleeve(context, { shoulder, elbow, hand }) {
   context.lineCap = 'round';
   context.lineJoin = 'round';
-  context.strokeStyle = COLORS.hoodieDark;
-  context.lineWidth = 9;
+  context.strokeStyle = COLORS.hoodie;
+  context.lineWidth = 7.5;
   context.beginPath();
-  context.moveTo(shoulder.x, shoulder.y);
+  context.moveTo(shoulder.x - 3, shoulder.y + 2);
   context.lineTo(elbow.x, elbow.y);
   context.lineTo(hand.x, hand.y);
   context.stroke();
-  context.strokeStyle = COLORS.hoodie;
-  context.lineWidth = 7;
-  context.stroke();
-  context.fillStyle = COLORS.hoodieLight;
-  context.beginPath();
-  context.arc(hand.x - Math.cos(foreAngle) * 2, hand.y - Math.sin(foreAngle) * 2, 4, 0, Math.PI * 2);
-  context.fill();
+}
 
+// 손목 소맷부리 + 손(휴대폰). 투사체 출발점(휴대폰 중심 또는 손)을 돌려준다
+function drawThrowingHand(context, { hand, foreAngle, droop, nearness }, { aim, pose, gameOver, laptopMode, drawHeld }) {
   const directionX = Math.cos(foreAngle);
   const directionY = Math.sin(foreAngle);
   const holding = gameOver || pose.held > 0.01;
@@ -607,7 +609,8 @@ function drawThrowingArm(context, { aim, pose, twist = 0, rise = 0, gameOver, sl
   // 손목 관절: 팔(소매)은 손목에서 끝나고 소맷부리를 두른다. 손은 손목을 축으로 휴대폰이 대체로 서 있도록 꺾이되
   // 실제 손목처럼 팔 방향에서 ±WRIST_LIMIT 안에서만 꺾인다(휴대폰이 팔에 붙어 같이 돌아가지 않게)
   drawCuff(context, hand, foreAngle);
-  const upright = -Math.PI / 2 + aim * 0.5;
+  // 휴대폰은 대체로 서 있되 위쪽이 살짝 오른쪽으로 기운다(손이 왼쪽 아래 모서리를 받쳐 쥐므로)
+  const upright = -Math.PI / 2 + aim * 0.5 + 0.16;
   const wanted = Math.atan2(Math.sin(upright - foreAngle), Math.cos(upright - foreAngle));
   const handAngle = gameOver && droop > 0.95
     ? foreAngle + 0.35
@@ -631,10 +634,8 @@ function drawCuff(context, wrist, foreAngle) {
   context.translate(wrist.x, wrist.y);
   context.rotate(foreAngle);
   context.fillStyle = COLORS.hoodieLight;
-  roundedRect(context, -4.6, -5.2, 5.4, 10.4, 2.4);
+  roundedRect(context, -4.6, -4.6, 5.4, 9.2, 2.6);
   context.fill();
-  context.fillStyle = COLORS.hoodieDark;
-  context.fillRect(-4, -4.6, 1, 9.2);
   context.restore();
 }
 
@@ -642,7 +643,7 @@ function drawCuff(context, wrist, foreAngle) {
 const GRIP_OFFSET = 9;
 // 쥔 휴대폰 배율(throw-view의 휴대폰 그리기와 같은 값), 휴대폰 좌표계에서 손목 점(엄지 쪽 아래), 손목이 꺾일 수 있는 한도(rad)
 export const PHONE_HELD_SCALE = 1.45;
-const WRIST_IN_PHONE = Object.freeze({ x: 1.6, y: 14.4 });
+const WRIST_IN_PHONE = Object.freeze({ x: -3.6, y: 13.6 });
 const WRIST_LIMIT = 0.7;
 function drawHand(context, hand, foreAngle, holding) {
   context.save();
