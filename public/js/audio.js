@@ -293,9 +293,11 @@ export class SoundEngine {
   }
 }
 
-// 로봇 처치 보상음: 도·레를 번갈아(낮고 편안한 두 음), 5콤보마다 한 옥타브 위 도를 포인트로 하나 더 얹는다
+// 로봇 처치 보상음 '띠리링': 시작음(도·레를 번갈아)에서 장3도 → 한 옥타브 위로 빠르게 올라가 높은 음이 울린다.
+// 5콤보마다는 사이에 5도를 끼운 '띠리리링'(꼭대기 음은 같아서 더 높아지지는 않음)
 const ROBOT_REWARD_NOTES = Object.freeze([523.25, 587.33]);
-const ROBOT_ACCENT_NOTE = 1046.5;
+const ROBOT_REWARD_STEPS = Object.freeze([1, 1.26, 2]);
+const ROBOT_ACCENT_STEPS = Object.freeze([1, 1.26, 1.5, 2]);
 const ROBOT_ACCENT_EVERY = 5;
 
 // 링 변조 음: 음 × 저주파(45Hz 안팎) 사인 → '부르르' 떠는 로봇 질감(sfxr 타격음 계열). 노드 4개, O(1)
@@ -437,7 +439,7 @@ const SOUNDS = {
     }
   },
   // 로봇 처치 — 명중음 바로 뒤에 이어지는 0.45초: 저음 '쿵'(80→40Hz) + 필터가 닫히는 잡음 '콰광' + 팝콘처럼 튀는 '타닥' 3번
-  // + 보상음(삼각파 두 음, 도·레를 번갈아). 5콤보마다 한 옥타브 위 '도'를 포인트로 하나 더. O(1)
+  // + 보상음 '띠리링'(도·레에서 한 옥타브 위까지 빠르게 올라감), 5콤보마다 한 음 더 끼운 '띠리리링'. O(1)
   robotKill(engine, context, time, { type = 'basic', combo = 1 } = {}) {
     const big = type === 'tank' ? 1.3 : 1;
     engine.tone(context, { frequency: 80, sweepTo: 40, startTime: time, peak: 0.13 * big, decay: 0.2 * big, attack: 0.003 });
@@ -446,11 +448,15 @@ const SOUNDS = {
       engine.noise(context, { startTime: time + 0.05 + index * 0.045 + Math.random() * 0.02, peak: 0.05, decay: 0.018, filterType: 'bandpass', frequency: 1200 + Math.random() * 600, q: 2 });
     }
     const note = ROBOT_REWARD_NOTES[Math.max(0, combo - 1) % ROBOT_REWARD_NOTES.length];
-    engine.tone(context, { frequency: note, startTime: time + 0.07, peak: 0.05, decay: 0.06, waveform: 'triangle' });
-    engine.tone(context, { frequency: note * 1.5, startTime: time + 0.13, peak: 0.05, decay: 0.22, waveform: 'triangle' });
-    if (combo > 0 && combo % ROBOT_ACCENT_EVERY === 0) {
-      engine.tone(context, { frequency: ROBOT_ACCENT_NOTE, startTime: time + 0.2, peak: 0.035, decay: 0.3, waveform: 'triangle' });
-    }
+    const steps = combo > 0 && combo % ROBOT_ACCENT_EVERY === 0 ? ROBOT_ACCENT_STEPS : ROBOT_REWARD_STEPS;
+    const sparkle = { type: 'lowpass', frequency: 3600 };
+    steps.forEach((step, index) => {
+      const last = index === steps.length - 1;
+      const startTime = time + 0.07 + index * 0.045;
+      engine.tone(context, { frequency: note * step, startTime, peak: 0.05, decay: last ? 0.32 : 0.05, waveform: 'triangle' });
+      // 꼭대기 음에만 옅은 사각파를 겹쳐 '링' 하고 반짝이게
+      if (last) engine.tone(context, { frequency: note * step, startTime, peak: 0.018, decay: 0.2, waveform: 'square', filter: sparkle });
+    });
   },
   // 처치: 저역 폭발 + 낮게 떨어지는 톤
   explode(engine, context, time) {
