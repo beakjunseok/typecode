@@ -18,6 +18,8 @@ const ITEM_STYLE = {
   battery: { color: '#39ff88', fill: '#123321', label: 'HP +1' }
 };
 // 금 단계별 화면색(금이 갈수록 어두워지고 붉어진다)과 금 무늬(단계마다 누적되는 선분 묶음, 화면 좌표 -4.5~4.5 × -8~6)
+// 쥔 휴대폰을 손 위로 올리는 정도(휴대폰 좌표 단위)
+const GRIP_PHONE_LIFT = 2.2;
 const PHONE_SCREEN_COLORS = ['#36e2ff', '#2fb8d1', '#2a7f95', '#5a2b3a'];
 const PHONE_CRACK_PATHS = [
   [[[4.5, -8], [1.5, -4], [2.5, -1], [-0.5, 2]], [[1.5, -4], [-2, -5.5]]],
@@ -698,11 +700,20 @@ export class ThrowRenderer {
     context.rotate(angle);
     context.scale(scale, scale);
     if (grip) {
-      this.drawPhoneBack(context, cracks);
+      // 손은 그대로, 휴대폰만 화면 쪽이 보이게 돌리고 손 위로 조금 올려 쥔다
+      context.save();
+      context.translate(0, -GRIP_PHONE_LIFT);
+      this.drawPhoneFront(context, cracks);
+      context.restore();
       this.drawSwooshGrip(context);
       context.restore();
       return;
     }
+    this.drawPhoneFront(context, cracks);
+    context.restore();
+  }
+
+  drawPhoneFront(context, cracks) {
     context.fillStyle = '#0f141b';
     roundedRect(context, -6, -10, 12, 20, 3);
     context.fill();
@@ -712,7 +723,6 @@ export class ThrowRenderer {
     context.fillStyle = PHONE_SCREEN_COLORS[Math.min(cracks, PHONE_SCREEN_COLORS.length - 1)];
     context.fillRect(-4.5, -8, 9, 14);
     if (cracks > 0) this.drawPhoneCracks(context, cracks);
-    context.restore();
   }
 
   // 휴대폰 뒷면: 케이스 + 왼쪽 위 카메라 모듈(렌즈 둘 + 플래시). 생명을 잃을수록 뒷유리에도 금이 간다
@@ -748,10 +758,10 @@ export class ThrowRenderer {
   // 윤곽선 없이 면으로만: 손가락 사이는 아래쪽 반투명 그늘로만 구분
   drawSwooshGrip(context) {
     const fingers = [
-      { from: { x: -3.9, y: 4.6 }, to: { x: 6.3, y: 2.7 }, width: 2.35 },
-      { from: { x: -2.9, y: 6.4 }, to: { x: 6.6, y: 5 }, width: 2.45 },
-      { from: { x: -1.9, y: 8.1 }, to: { x: 6.4, y: 7.2 }, width: 2.35 },
-      { from: { x: -0.9, y: 9.7 }, to: { x: 5.8, y: 9.3 }, width: 2.05 }
+      { from: { x: -3.9, y: 4.6 }, to: { x: 6.3, y: 0.4 }, width: 2.35 },
+      { from: { x: -2.9, y: 6.4 }, to: { x: 6.6, y: 2.7 }, width: 2.45 },
+      { from: { x: -1.9, y: 8.1 }, to: { x: 6.4, y: 5 }, width: 2.35 },
+      { from: { x: -0.9, y: 9.7 }, to: { x: 5.9, y: 7.2 }, width: 2.05 }
     ];
     const capsule = (from, to, width) => {
       context.lineWidth = width;
@@ -763,7 +773,7 @@ export class ThrowRenderer {
     context.lineCap = 'round';
     // 손가락 아래 그늘(겹친 손가락 사이를 선 없이 구분)
     context.strokeStyle = 'rgba(214, 150, 112, 0.28)';
-    for (const { from, to, width } of fingers) capsule({ x: from.x, y: from.y + 0.45 }, { x: Math.min(to.x, 5.6), y: to.y + 0.45 }, width);
+    for (const { from, to, width } of fingers.slice(0, -1)) capsule({ x: from.x, y: from.y + 0.45 }, { x: Math.min(to.x, 5.6), y: to.y + 0.45 }, width);
     context.strokeStyle = SKIN.base;
     for (const { from, to, width } of fingers) capsule(from, to, width);
     // 오른쪽 옆면을 감아 넘어가는 손가락 끝(살짝 어둡게 말려 들어감)
