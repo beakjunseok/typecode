@@ -177,7 +177,7 @@ function drawLegs(context, { hipY, spread, feetY, footLift, shift, color, shoe, 
   context.strokeStyle = color;
   context.lineWidth = width;
   for (const [index, side] of [[0, -1], [1, 1]]) {
-    const hip = { x: side * spread + shift * 0.6, y: hipY };
+    const hip = { x: side * spread + shift * 0.6, y: hipY - 2 };
     const foot = { x: side * (spread + 1), y: feetY - footLift[index] };
     const distance = Math.hypot(foot.x - hip.x, foot.y - hip.y);
     const bendOut = Math.sqrt(Math.max(0, length * length - distance * distance)) * 0.5;
@@ -275,7 +275,7 @@ export function drawPhoneMascot(context, rig, { palette, percent, sleeping = fal
   context.rotate(motion.lean);
   context.scale(motion.widen, motion.stretch);
   const limb = { color: palette.limb, shade: palette.limbShade, width: 3 };
-  drawArm(context, { x: -13.5, y: -25 }, rig.arms.back, limb);
+  drawArm(context, { x: -14, y: -25 }, rig.arms.back, limb);
 
   // 몸(폰) + 화면
   context.fillStyle = palette.body;
@@ -304,7 +304,7 @@ export function drawPhoneMascot(context, rig, { palette, percent, sleeping = fal
   context.fillRect(5.3, -34, 1.2, 2);
   drawMascotFace(context, rig, { sleeping, worried, result, ink: FACE_INK });
 
-  const front = drawArm(context, { x: 13.5, y: -25 }, rig.arms.front, { ...limb, reach: 1 + clamp(rig.cast.value, 0, 1.2) * 0.22 });
+  const front = drawArm(context, { x: 15.6, y: -25 }, rig.arms.front, { ...limb, reach: 1 + clamp(rig.cast.value, 0, 1.2) * 0.22 });
   if (!result && !sleeping) drawFingerSpark(context, front, rig.typing * 0.8 + clamp(rig.cast.value, 0, 1), time, palette.screenTop);
   context.restore();
   if (worried && !sleeping && !result) drawSweat(context, rig, motion);
@@ -430,7 +430,7 @@ export function drawDrainBot(context, rig, { paused = false, worried = false, re
   context.rotate(Math.round(motion.lean * 40) / 40);
   context.scale(motion.widen, motion.stretch);
   const limb = { color: DRAIN_BOT.limb, shade: '#c9d4e0', width: 4, claw: true };
-  drawArm(context, { x: -15, y: -20 }, rig.arms.back, limb);
+  drawArm(context, { x: -16, y: -20 }, rig.arms.back, limb);
 
   // 플러그 단자 + 단자 사이 전기(발사·조준 중)
   context.fillStyle = '#c9d4e0';
@@ -508,7 +508,7 @@ export function drawDrainBot(context, rig, { paused = false, worried = false, re
     context.stroke();
     context.shadowBlur = 0;
   }
-  const front = drawArm(context, { x: 15, y: -20 }, rig.arms.front, { ...limb, reach: 1 + clamp(rig.cast.value, 0, 1.2) * 0.22 });
+  const front = drawArm(context, { x: 17.6, y: -20 }, rig.arms.front, { ...limb, reach: 1 + clamp(rig.cast.value, 0, 1.2) * 0.22 });
   if (!result && !paused) drawFingerSpark(context, front, rig.typing * 0.6 + clamp(rig.cast.value, 0, 1), time, '#ff5d73');
   context.restore();
   // 위급하면 단자에서 연기가 피어오른다
