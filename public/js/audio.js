@@ -293,16 +293,16 @@ export class SoundEngine {
   }
 }
 
-// 로봇 처치 보상음: 시작음(도·레를 번갈아)에서 한 옥타브 위 높은 음까지 빠르게 올라간다.
-// 콤보 배율 단계(×1 / ×1.5 / ×2)마다 사이 음이 늘어난다: '띠리링' → '띠리리링' → '띠리리리링'(5음 음계).
+// 로봇 처치 보상음: 시작음(도·레를 번갈아)에서 올라가다 마지막에 크게 도약해 한 옥타브+5도 위(높은 솔·라)에서 울린다.
+// 콤보 배율 단계(×1 / ×1.5 / ×2)마다 사이 음이 늘어난다: '띠리링' → '띠리리링' → '띠리리리링'.
 // 꼭대기 음은 세 단계 모두 같아서 단계가 올라도 귀가 아플 만큼 높아지지 않고, 3단계는 반짝임이 조금 더 길다
 const ROBOT_REWARD_NOTES = Object.freeze([523.25, 587.33]);
 // 음 사이 간격, 사이 음 길이, 꼭대기 음 울림(초)
 const ROBOT_REWARD_TIMING = Object.freeze({ gap: 0.075, note: 0.09, ring: 0.65 });
 const ROBOT_REWARD_TIERS = Object.freeze([
-  Object.freeze({ steps: Object.freeze([1, 1.26, 2]), sparkle: 0.36 }),
-  Object.freeze({ steps: Object.freeze([1, 1.26, 1.5, 2]), sparkle: 0.44 }),
-  Object.freeze({ steps: Object.freeze([1, 1.26, 1.5, 1.68, 2]), sparkle: 0.56 })
+  Object.freeze({ steps: Object.freeze([1, 1.5, 3]), sparkle: 0.36 }),
+  Object.freeze({ steps: Object.freeze([1, 1.26, 1.5, 3]), sparkle: 0.44 }),
+  Object.freeze({ steps: Object.freeze([1, 1.26, 1.5, 2, 3]), sparkle: 0.56 })
 ]);
 
 // 링 변조 음: 음 × 저주파(45Hz 안팎) 사인 → '부르르' 떠는 로봇 질감(sfxr 타격음 계열). 노드 4개, O(1)
@@ -445,13 +445,14 @@ const SOUNDS = {
   },
   // 로봇 처치 — 명중음 바로 뒤에 이어지는 0.45초: 저음 '쿵'(80→40Hz) + 필터가 닫히는 잡음 '콰광' + 팝콘처럼 튀는 '타닥' 3번
   // + 보상음(콤보 배율 단계마다 '띠리링' → '띠리리링' → '띠리리리링'). O(1)
-  robotKill(engine, context, time, { type = 'basic', combo = 1, tier = 0 } = {}) {
+  robotKill(engine, context, time, { type = 'basic', combo = 1, tier = 0, withReward = true } = {}) {
     const big = type === 'tank' ? 1.3 : 1;
     engine.tone(context, { frequency: 80, sweepTo: 40, startTime: time, peak: 0.13 * big, decay: 0.2 * big, attack: 0.003 });
     engine.noise(context, { startTime: time, peak: 0.12 * big, decay: 0.32 * big, filterType: 'lowpass', frequency: 2200, sweepTo: 150 });
     for (let index = 0; index < 3; index++) {
       engine.noise(context, { startTime: time + 0.05 + index * 0.045 + Math.random() * 0.02, peak: 0.05, decay: 0.018, filterType: 'bandpass', frequency: 1200 + Math.random() * 600, q: 2 });
     }
+    if (!withReward) return;
     const note = ROBOT_REWARD_NOTES[Math.max(0, combo - 1) % ROBOT_REWARD_NOTES.length];
     const reward = ROBOT_REWARD_TIERS[Math.max(0, Math.min(ROBOT_REWARD_TIERS.length - 1, Math.floor(tier) || 0))];
     const steps = reward.steps;
