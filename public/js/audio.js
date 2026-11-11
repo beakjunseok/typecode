@@ -47,6 +47,20 @@ export function keyPan(character) {
   return 0;
 }
 const COMBO_BASE_FREQUENCY = 523.25; // C5
+// 두드린 금속판의 비조화 배음(원형 판 모드 비율 근사). decay는 기본 울림 길이에 곱하는 비율
+const METAL_PLATE_PARTIALS = Object.freeze([
+  { ratio: 1, gain: 1, decay: 1 },
+  { ratio: 1.59, gain: 0.55, decay: 0.7 },
+  { ratio: 2.14, gain: 0.38, decay: 0.5 },
+  { ratio: 2.83, gain: 0.22, decay: 0.32 }
+]);
+// 로봇 종류별 몸체: plate 금속판 기본음(Hz), thud 몸통 '퉁' 시작음(Hz), ring 울림 길이(초)
+const ROBOT_HIT_BODIES = Object.freeze({
+  basic: Object.freeze({ plate: 760, thud: 150, ring: 0.16 }),
+  fast: Object.freeze({ plate: 1180, thud: 200, ring: 0.1 }),
+  tank: Object.freeze({ plate: 360, thud: 95, ring: 0.3 })
+});
+
 const BELL_PARTIALS = [
   { ratio: 1, gain: 1, decay: 1 },
   { ratio: 2.76, gain: 0.5, decay: 0.6 },
@@ -383,6 +397,29 @@ const SOUNDS = {
   hit(engine, context, time) {
     engine.bell(context, { frequency: 520, startTime: time, peak: 0.06, length: 0.18 });
     engine.noise(context, { startTime: time, peak: 0.07, decay: 0.05, filterType: 'highpass', frequency: 2500 });
+  },
+  // 로봇 명중: 던진 휴대폰이 금속 몸체에 부딪히는 '딱-깡'.
+  // ① 아주 짧은 플라스틱·유리 '딱'(대역 잡음) ② 몸통이 울리는 낮은 '퉁'(빠르게 떨어지는 사인) ③ 금속판 비조화 배음 '깡'.
+  // 빠른 로봇은 얇고 높게, 탱크는 두껍고 낮게 오래 울리고, 노트북은 더 낮고 세다. 아직 버티는 로봇은 장갑에 튕기는
+  // '팅'을 덧붙이고, 처치하는 한 방은 바로 폭발음이 이어지므로 울림을 짧게 끊는다. 매 타 ±4% 음높이 흔들기. 노드 약 8개, O(1)
+  robotHit(engine, context, time, { type = 'basic', weapon = 'phone', remainingHp = 0 } = {}) {
+    const body = ROBOT_HIT_BODIES[type] ?? ROBOT_HIT_BODIES.basic;
+    const heavy = weapon === 'laptop';
+    const weight = heavy ? 1.3 : 1;
+    const pitch = (0.96 + Math.random() * 0.08) * (heavy ? 0.82 : 1);
+    const survived = remainingHp > 0;
+    const ring = body.ring * (survived ? 1 : 0.55);
+    engine.noise(context, { startTime: time, peak: 0.08 * weight, decay: 0.018, filterType: 'bandpass', frequency: heavy ? 2200 : 3600, q: 1.2 });
+    engine.tone(context, { frequency: body.thud * pitch, sweepTo: 45, startTime: time, peak: 0.12 * weight, decay: 0.09, attack: 0.002 });
+    for (const partial of METAL_PLATE_PARTIALS) {
+      engine.tone(context, {
+        frequency: body.plate * partial.ratio * pitch, startTime: time + 0.002,
+        peak: 0.045 * partial.gain * weight, decay: ring * partial.decay, attack: 0.001
+      });
+    }
+    if (survived) {
+      engine.tone(context, { frequency: body.plate * 3.1 * pitch, sweepTo: body.plate * 2.95 * pitch, startTime: time + 0.03, peak: 0.022, decay: 0.24, attack: 0.002 });
+    }
   },
   // 처치: 저역 폭발 + 낮게 떨어지는 톤
   explode(engine, context, time) {

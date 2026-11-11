@@ -186,7 +186,8 @@ function handleArcadeEvent(type, payload) {
       run.lastTier = payload.tier;
       break;
     case 'hit':
-      sound.play('hit');
+      if (battery) sound.play('hit');
+      else sound.play('robotHit', { type: payload.robot.type, weapon: payload.weapon, remainingHp: payload.robot.hp });
       break;
     case 'kill':
       sound.play('explode');

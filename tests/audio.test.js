@@ -61,6 +61,27 @@ test('모든 효과음이 오류 없이 소리를 예약한다', () => {
   }
 });
 
+test('로봇 명중음: 종류·무기·남은 체력마다 오류 없이 울리고, 버티는 로봇은 장갑 소리가 더해진다', () => {
+  const { FakeContext, stats } = createFakeAudio();
+  globalThis.AudioContext = FakeContext;
+  try {
+    const sound = new SoundEngine();
+    const count = options => {
+      const before = stats.oscillators + stats.noises;
+      sound.play('robotHit', options);
+      return stats.oscillators + stats.noises - before;
+    };
+    for (const type of ['basic', 'fast', 'tank', 'unknown']) {
+      for (const weapon of ['phone', 'laptop']) assert.ok(count({ type, weapon, remainingHp: 0 }) >= 6, `${type}/${weapon}`);
+    }
+    assert.equal(count({ type: 'tank', remainingHp: 2 }), count({ type: 'tank', remainingHp: 0 }) + 1, '버티면 장갑 소리 1개 더');
+    assert.ok(count() > 0, '옵션 없이도 울림');
+    assert.deepEqual(stats.errors, []);
+  } finally {
+    delete globalThis.AudioContext;
+  }
+});
+
 test('BGM 3곡: 모두 2분 넘는 곡 구성, 곡 전체를 오류 없이 끝까지 연주하고 루프한다', () => {
   const { FakeContext, stats } = createFakeAudio();
   globalThis.AudioContext = FakeContext;
