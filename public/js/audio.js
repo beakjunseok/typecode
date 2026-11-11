@@ -331,30 +331,44 @@ function ringTone(engine, context, { frequency, sweepTo, startTime, peak, decay,
 // 승리·패배음 세기 배율: 판이 끝나는 순간이라 다른 효과음보다 확실히 크게
 const END_LOUDNESS = 2.2;
 
-// 떨림(비브라토) 있는 금관 같은 음: 톱니파 → 저역 통과, 6Hz LFO로 음높이를 흔든다. 패배 '빠밤빠~' 용. 노드 5개, O(1)
-function brassTone(engine, context, { frequency, startTime, length, peak, vibrato = 0, slideTo = null, cutoff = 900 }) {
+// 금관 음색: 트럼펫은 밝고 '빠!' 하고 터지며, 호른은 부드럽고 둥글다.
+// open 터질 때 필터가 열리는 높이(Hz), body 이어지는 동안 필터 높이(Hz), attack 차오름(초), scoop 시작 음이 낮게 들어갔다 올라오는 비율
+const BRASS_TIMBRES = Object.freeze({
+  trumpet: Object.freeze({ open: 3200, body: 1500, attack: 0.03, scoop: 0.035, q: 1.4 }),
+  horn: Object.freeze({ open: 1100, body: 650, attack: 0.07, scoop: 0.02, q: 0.8 })
+});
+
+// 금관 음: 톱니파 → 공명 저역 필터. 숨을 넣는 순간 필터가 확 열렸다 닫히고(금관 특유의 '빠') 음이 살짝 아래에서 올라온다.
+// vibrato를 주면 0.25초 뒤부터 6Hz로 떤다. 노드 4~6개, O(1)
+function brassTone(engine, context, { frequency, startTime, length, peak, timbre = 'trumpet', vibrato = 0, slideTo = null }) {
+  const voice = BRASS_TIMBRES[timbre] ?? BRASS_TIMBRES.trumpet;
   const oscillator = context.createOscillator();
   oscillator.type = 'sawtooth';
-  oscillator.frequency.setValueAtTime(frequency, startTime);
+  oscillator.frequency.setValueAtTime(frequency * (1 - voice.scoop), startTime);
+  oscillator.frequency.exponentialRampToValueAtTime(frequency, startTime + voice.attack + 0.03);
   if (slideTo) oscillator.frequency.exponentialRampToValueAtTime(slideTo, startTime + length);
   const filter = context.createBiquadFilter();
   filter.type = 'lowpass';
-  filter.frequency.value = cutoff;
+  filter.Q.value = voice.q;
+  filter.frequency.setValueAtTime(voice.body * 0.4, startTime);
+  filter.frequency.exponentialRampToValueAtTime(voice.open, startTime + voice.attack);
+  filter.frequency.exponentialRampToValueAtTime(voice.body, startTime + voice.attack + 0.12);
   oscillator.connect(filter);
-  filter.connect(engine.envelope(context, startTime, peak, 0.03, length, engine.master));
+  filter.connect(engine.envelope(context, startTime, peak, voice.attack, length, engine.master));
   const nodes = [oscillator];
   if (vibrato > 0) {
     const lfo = context.createOscillator();
     lfo.frequency.setValueAtTime(6, startTime);
     const depth = context.createGain();
-    depth.gain.value = frequency * vibrato;
+    depth.gain.setValueAtTime(0.0001, startTime);
+    depth.gain.exponentialRampToValueAtTime(frequency * vibrato, startTime + 0.25);
     lfo.connect(depth);
     depth.connect(oscillator.frequency);
     nodes.push(lfo);
   }
   for (const node of nodes) {
     node.start(startTime);
-    node.stop(startTime + length + 0.08);
+    node.stop(startTime + voice.attack + length + 0.08);
   }
 }
 
@@ -604,19 +618,19 @@ const SOUNDS = {
     engine.tone(context, { frequency: 1046.5, startTime: time + 0.42, peak: 0.025 * END_LOUDNESS, decay: 0.8, waveform: 'square', filter: lead });
     engine.bell(context, { frequency: 1046.5, startTime: time + 0.42, peak: 0.035 * END_LOUDNESS, length: 1.2 });
   },
-  // 패배(묵직하게): 한 옥타브 낮춘 '빠-밤-빠-바아암~'. 음마다 한 옥타브 아래 금관을 겹치고 사인 저음 '둥'을 받친다.
+  // 패배(묵직하게): 한 옥타브 낮춘 '빠-밤-빠-바아암~'. 위는 트럼펫, 한 옥타브 아래는 호른, 사인 저음 '둥'을 받친다.
   // 마지막 음은 떨며 아래로 처지고, 그 밑에서 깊은 '쿠웅'(60→28Hz)과 어두운 잡음 울림이 길게 남는다(약 2.4초)
   defeat(engine, context, time) {
     const notes = [196, 185, 174.61];
     notes.forEach((frequency, index) => {
       const startTime = time + index * 0.34;
-      brassTone(engine, context, { frequency, startTime, length: 0.28, peak: 0.06 * END_LOUDNESS, cutoff: 700 });
-      brassTone(engine, context, { frequency: frequency / 2, startTime, length: 0.28, peak: 0.05 * END_LOUDNESS, cutoff: 500 });
+      brassTone(engine, context, { frequency, startTime, length: 0.28, peak: 0.06 * END_LOUDNESS, timbre: 'trumpet' });
+      brassTone(engine, context, { frequency: frequency / 2, startTime, length: 0.28, peak: 0.06 * END_LOUDNESS, timbre: 'horn' });
       engine.tone(context, { frequency: frequency / 2, startTime, peak: 0.08 * END_LOUDNESS, decay: 0.26 });
     });
     const last = time + notes.length * 0.34;
-    brassTone(engine, context, { frequency: 164.81, slideTo: 146.83, startTime: last, length: 1.2, peak: 0.065 * END_LOUDNESS, vibrato: 0.02, cutoff: 700 });
-    brassTone(engine, context, { frequency: 82.41, slideTo: 73.42, startTime: last, length: 1.2, peak: 0.055 * END_LOUDNESS, vibrato: 0.02, cutoff: 500 });
+    brassTone(engine, context, { frequency: 164.81, slideTo: 146.83, startTime: last, length: 1.2, peak: 0.065 * END_LOUDNESS, vibrato: 0.02, timbre: 'trumpet' });
+    brassTone(engine, context, { frequency: 82.41, slideTo: 73.42, startTime: last, length: 1.2, peak: 0.065 * END_LOUDNESS, vibrato: 0.02, timbre: 'horn' });
     engine.tone(context, { frequency: 60, sweepTo: 28, startTime: last, peak: 0.14 * END_LOUDNESS, decay: 0.9, attack: 0.004 });
     engine.noise(context, { startTime: last, peak: 0.05 * END_LOUDNESS, decay: 1, filterType: 'lowpass', frequency: 400, sweepTo: 80 });
   },
