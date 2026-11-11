@@ -304,25 +304,25 @@ export function drawDeveloper(context, {
   context.save();
   leanUpperBody();
   // 따라 휘두르는 동안(팔이 몸 앞으로 넘어감)은 팔이 몸통·머리 뒤로 가려진다
-  if (behind) drawLimb(context, [armGeometry.shoulder, armGeometry.elbow, armGeometry.hand], THROW_ARM_WIDTHS);
+  const hoodie = hoodieFill(context, rise);
+  if (behind) drawLimb(context, [armGeometry.shoulder, armGeometry.elbow, armGeometry.hand], THROW_ARM_WIDTHS, hoodie);
   drawTorso(context, { rise, twist });
   drawHead(context, { headX, headY, headTilt, lookSide, time, armSwing: (pose.upper - POSES.ready.upper) * -25 + keyPulse * 4, lives, laptopMode, gameOver, rise, twist });
   context.restore();
   drawChairBack(context, time, lives);
   context.save();
   leanUpperBody();
-  // 팔은 몸통과 같은 색의 '살 있는' 면(어깨 → 팔꿈치 → 손목으로 가늘어짐)으로 몸 앞에 그린다.
-  // 어깨는 둥근 어깨 머리(삼각근)로 몸통 윤곽에 이어지고, 겨드랑이 아래 반투명 그늘만으로 앞뒤를 나눈다(선 없음)
-  const typingShoulder = { x: -19, y: -11 - rise };
+  // 팔은 몸통과 같은 그라데이션의 '살 있는' 면(어깨 → 팔꿈치 → 손목으로 가늘어짐)으로 몸 앞에 그린다.
+  // 어깨 관절은 몸통의 둥근 어깨 안쪽에 두어 팔이 어깨에서 그대로 자라 나오고, 겹친 곳은 색이 같아 경계가 없다
+  const hoodieFront = hoodieFill(context, rise);
+  const typingShoulder = { x: -19.5, y: -9.6 - rise };
   const typingElbow = { x: -27.5, y: -8 - rise * 0.6 };
   const typingWrist = { x: typingHand.x + 0.6, y: typingHand.y + 2.6 };
-  drawArmpitShade(context, typingShoulder, -1);
-  drawLimb(context, [typingShoulder, typingElbow, typingWrist], TYPE_ARM_WIDTHS);
+  drawLimb(context, [typingShoulder, typingElbow, typingWrist], TYPE_ARM_WIDTHS, hoodieFront);
   drawKeyboardHand(context, typingHand.x, typingHand.y, { press: typingHand.press, keySide, relaxed: gameOver });
   let hand = armGeometry.hand;
   if (!behind) {
-    drawArmpitShade(context, armGeometry.shoulder, 1);
-    drawLimb(context, [armGeometry.shoulder, armGeometry.elbow, armGeometry.hand], THROW_ARM_WIDTHS);
+    drawLimb(context, [armGeometry.shoulder, armGeometry.elbow, armGeometry.hand], THROW_ARM_WIDTHS, hoodieFront);
     hand = drawThrowingHand(context, armGeometry, { aim, pose, gameOver, laptopMode, drawHeld });
   }
   drawReaction(context, { headX, headY, hurt, lives, time, gameOver });
@@ -351,14 +351,21 @@ function typingHandPosition({ time, keyPulse, keySide, typing, rise, slump, game
   };
 }
 
+// 후드티 색: 몸통과 팔이 같은 좌표의 같은 그라데이션을 써서 겹치는 곳에 경계가 생기지 않는다
+function hoodieFill(context, rise) {
+  const gradient = context.createLinearGradient(0, -15 - rise, 0, 14);
+  gradient.addColorStop(0, COLORS.hoodieLight);
+  gradient.addColorStop(1, COLORS.hoodie);
+  return gradient;
+}
+
 // 팔 굵기(어깨 · 팔꿈치 · 손목): 어깨에서 손목으로 가늘어진다
 const THROW_ARM_WIDTHS = Object.freeze([10, 8, 6.4]);
 const TYPE_ARM_WIDTHS = Object.freeze([9.4, 7.6, 6]);
-const ARM_COLOR = '#436586';
 
 // 마디가 이어진 팔 한 덩어리: 마디마다 굵기가 다른 사다리꼴 + 관절 원을 같은 색으로 칠해 이음선이 없다. O(마디 수)
-function drawLimb(context, points, widths) {
-  context.fillStyle = ARM_COLOR;
+function drawLimb(context, points, widths, fill) {
+  context.fillStyle = fill;
   for (let index = 0; index < points.length - 1; index++) {
     const from = points[index];
     const to = points[index + 1];
@@ -380,15 +387,6 @@ function drawLimb(context, points, widths) {
     context.arc(point.x, point.y, widths[index] / 2, 0, Math.PI * 2);
     context.fill();
   });
-}
-
-// 팔이 몸 앞에 있음을 보여 주는 겨드랑이 아래 반투명 그늘(side: -1 왼쪽, 1 오른쪽)
-function drawArmpitShade(context, shoulder, side) {
-  const shade = context.createRadialGradient(shoulder.x - side * 2, shoulder.y + 4, 0.5, shoulder.x - side * 2, shoulder.y + 4, 7);
-  shade.addColorStop(0, 'rgba(18, 30, 44, 0.32)');
-  shade.addColorStop(1, 'rgba(18, 30, 44, 0)');
-  context.fillStyle = shade;
-  context.fillRect(shoulder.x - 9, shoulder.y - 3, 18, 14);
 }
 
 // 키보드 위 왼손(뒤 위에서 본 손등): 손가락 넷이 앞(화면 위)으로 뻗어 키에 얹히고, 엄지는 안쪽(오른쪽)으로.
@@ -435,40 +433,31 @@ function drawKeyboardHand(context, x, y, { press, keySide, relaxed }) {
   context.restore();
 }
 
-// 몸통(후드티 뒷모습): 어깨가 머리 폭의 약 1.9배인 사다리꼴 + 둥근 어깨. 윤곽선 없이 한 실루엣으로 칠하고
-// 입체는 반투명 면으로만(가운데 등 그늘, 어깨 빛). 숨 쉴 때 어깨선이 오르내리고(rise),
-// 비틀면 오른쪽 어깨가 앞(위)·뒤(아래)로 움직인다(twist)
+// 몸통(후드티 뒷모습): 목 밑에서 어깨 끝으로 완만히 내려가는 승모근 선 + 둥근 어깨(팔이 나오는 곳) + 사다리꼴 등.
+// 어깨가 머리 폭의 약 1.9배. 윤곽선 없이 한 실루엣, 입체는 등 가운데 반투명 그늘 하나뿐(어깨·팔 쪽엔 닿지 않게).
+// 숨 쉴 때 어깨선이 오르내리고(rise), 비틀면 오른쪽 어깨가 앞(위)·뒤(아래)로 움직인다(twist)
 function drawTorso(context, { rise = 0, twist = 0 } = {}) {
   const shoulderY = -15 - rise;
   const rightDrop = twist * 2.5;
   const leftY = shoulderY - rightDrop * 0.4;
   const rightY = shoulderY + rightDrop;
   const rightEdge = 25 - Math.abs(twist) * 1.5;
-  const gradient = context.createLinearGradient(0, shoulderY, 0, 14);
-  gradient.addColorStop(0, COLORS.hoodieLight);
-  gradient.addColorStop(1, COLORS.hoodie);
-  context.fillStyle = gradient;
+  context.fillStyle = hoodieFill(context, rise);
   context.beginPath();
   context.moveTo(-24, 16);
-  context.bezierCurveTo(-25.5, 4, -26.5, leftY + 6, -21, leftY + 1.2);
-  context.quadraticCurveTo(-16, leftY - 1.2, -8, leftY - 0.4);
-  context.quadraticCurveTo(0, (leftY + rightY) / 2 + 1.4, 8, rightY - 0.4);
-  context.quadraticCurveTo(16, rightY - 1.2, rightEdge - 4, rightY + 1.2);
-  context.bezierCurveTo(rightEdge + 1.5, rightY + 6, rightEdge + 0.5, 4, rightEdge - 1, 16);
+  context.bezierCurveTo(-25.5, 4, -26.5, leftY + 8, -22.5, leftY + 4.6);
+  context.bezierCurveTo(-19.5, leftY + 2, -14, leftY + 0.4, -7.5, leftY - 1.6);
+  context.quadraticCurveTo(0, (leftY + rightY) / 2 - 0.6, 7.5, rightY - 1.6);
+  context.bezierCurveTo(14, rightY + 0.4, 19.5, rightY + 2, rightEdge - 2.5, rightY + 4.6);
+  context.bezierCurveTo(rightEdge + 1.5, rightY + 8, rightEdge + 0.5, 4, rightEdge - 1, 16);
   context.closePath();
   context.fill();
-  // 등 가운데 그늘(척추 쪽으로 살짝 들어감) — 선 대신 반투명 면
-  const spine = context.createRadialGradient(0, 8, 2, 0, 8, 20);
-  spine.addColorStop(0, 'rgba(18, 30, 44, 0.32)');
+  // 등 가운데 그늘(척추 쪽) — 가운데 아래에만 두어 어깨·팔과 색이 갈라지지 않게
+  const spine = context.createRadialGradient(0, 11, 1, 0, 11, 13);
+  spine.addColorStop(0, 'rgba(18, 30, 44, 0.28)');
   spine.addColorStop(1, 'rgba(18, 30, 44, 0)');
   context.fillStyle = spine;
-  context.fillRect(-24, shoulderY, 48, 32);
-  // 어깨 빛
-  context.fillStyle = 'rgba(255, 255, 255, 0.05)';
-  context.beginPath();
-  context.ellipse(-15, leftY + 3, 7, 2.6, -0.15, 0, Math.PI * 2);
-  context.ellipse(15, rightY + 3, 7, 2.6, 0.15, 0, Math.PI * 2);
-  context.fill();
+  context.fillRect(-14, -2, 28, 26);
 }
 
 // 목이 옷깃 속으로 들어가는 곳의 부드러운 그늘(선·덩어리 없이 반투명 면 하나)
@@ -607,7 +596,7 @@ function drawChairBack(context, time, lives) {
 // 던지는 오른팔 관절 위치(어깨 → 팔꿈치 → 손목). pose.upper는 조준 방향 기준 오프셋, pose.bend는 팔꿈치 굽힘.
 // 어깨는 비틀면 앞(위)·뒤(아래)로, 원근 때문에 몸 쪽으로 붙어 보인다
 function throwingArmGeometry({ aim, pose, twist = 0, rise = 0, gameOver, slump = 1 }) {
-  const shoulder = { x: 19 - Math.abs(twist) * 2, y: -11 + twist * 3 - rise };
+  const shoulder = { x: 19.5 - Math.abs(twist) * 2, y: -9.6 + twist * 2.5 - rise };
   const upperLength = 15;
   const foreLength = 14;
   const aimAngle = -Math.PI / 2 + aim * 0.75;
