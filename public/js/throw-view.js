@@ -18,6 +18,13 @@ const ITEM_STYLE = {
   battery: { color: '#39ff88', fill: '#123321', label: 'HP +1' }
 };
 // 금 단계별 화면색(금이 갈수록 어두워지고 붉어진다)과 금 무늬(단계마다 누적되는 선분 묶음, 화면 좌표 -4.5~4.5 × -8~6)
+// 휴대폰을 쥔 네 손가락(휴대폰 좌표계, 위 → 아래 = 검지 → 새끼): 세로 위치 · 굵기 · 손끝 x(베젤 -6 ~ -4.5 안)
+const GRIP_FINGERS = Object.freeze([
+  Object.freeze({ y: -1.6, width: 2.4, tip: -4.6 }),
+  Object.freeze({ y: 0.85, width: 2.5, tip: -4.4 }),
+  Object.freeze({ y: 3.3, width: 2.4, tip: -4.5 }),
+  Object.freeze({ y: 5.6, width: 2.1, tip: -4.9 })
+]);
 const PHONE_SCREEN_COLORS = ['#36e2ff', '#2fb8d1', '#2a7f95', '#5a2b3a'];
 const PHONE_CRACK_PATHS = [
   [[[4.5, -8], [1.5, -4], [2.5, -1], [-0.5, 2]], [[1.5, -4], [-2, -5.5]]],
@@ -697,6 +704,7 @@ export class ThrowRenderer {
     context.translate(x, y);
     context.rotate(angle);
     context.scale(scale, scale);
+    if (grip) this.drawGripBehind(context);
     context.fillStyle = '#0f141b';
     roundedRect(context, -6, -10, 12, 20, 3);
     context.fill();
@@ -706,73 +714,82 @@ export class ThrowRenderer {
     context.fillStyle = PHONE_SCREEN_COLORS[Math.min(cracks, PHONE_SCREEN_COLORS.length - 1)];
     context.fillRect(-4.5, -8, 9, 14);
     if (cracks > 0) this.drawPhoneCracks(context, cracks);
-    if (grip) this.drawHandBack(context);
+    if (grip) this.drawGripFront(context);
     context.restore();
   }
 
-  // 오른손 손등(뒤에서 봄): 팔(아래) → 손목 → 손등 → 오른쪽 테두리를 감아 넘어가는 네 손가락, 엄지는 왼쪽 테두리를 감싼다.
-  // 손가락 끝·엄지 끝은 화면 쪽으로 넘어가 보이지 않는다
-  drawHandBack(context) {
-    // 네 손가락: 손등 마디(x≈2.6)에서 오른쪽 테두리 밖으로 둥글게 말려 넘어간다(검지 → 새끼, 위 → 아래)
-    const fingers = [
-      { y: 1.1, width: 2.55, reach: 7.6 },
-      { y: 3.55, width: 2.6, reach: 7.9 },
-      { y: 6, width: 2.5, reach: 7.7 },
-      { y: 8.25, width: 2.15, reach: 7.2 }
-    ];
-    context.lineCap = 'round';
-    for (const pass of [{ extra: 0, color: SKIN.base }]) {
-      for (const { y, width, reach } of fingers) {
-        context.strokeStyle = pass.color;
-        context.lineWidth = width + pass.extra;
-        context.beginPath();
-        context.moveTo(1.8, y + 0.3);
-        context.lineTo(reach - width / 2, y);
-        context.stroke();
-      }
-    }
-    // 엄지: 손등 왼쪽 아래(엄지 두덩)에서 왼쪽 테두리를 따라 올라가 테두리 너머로 감긴다
+  // 휴대폰을 쥔 오른손(화면 쪽에서 본 모습). 참고: 손바닥은 휴대폰 뒤에 대부분 숨고(너무 높이 두지 않음),
+  // 엄지는 옆면을 타고 올라와 끝만 화면 쪽으로 살짝 말리고, 검지는 가장 높이 오되 손끝만 앞으로 넘어온다.
+  // 화면을 가리지 않게 손가락 끝은 테두리(베젤)까지만. 아래쪽 +y가 손목·팔(팔 축 x = 1.6)
+  drawGripBehind(context) {
     context.fillStyle = SKIN.base;
+    // 손목 + 손바닥 아랫부분(휴대폰 아래로만 보임) → 엄지 두덩으로 이어짐
     context.beginPath();
-    context.moveTo(-0.8, 11.6);
-    context.bezierCurveTo(-4.4, 11, -5.8, 8.4, -6.4, 5.2);
-    context.quadraticCurveTo(-6.9, 2.6, -6.7, 1.2);
-    context.quadraticCurveTo(-6.4, 0.2, -5.4, 0.5);
-    context.quadraticCurveTo(-4.8, 2.4, -4.4, 4.6);
-    context.bezierCurveTo(-3.8, 7.2, -2.4, 8.6, -0.4, 9);
+    context.moveTo(-1.3, 16);
+    context.bezierCurveTo(-1.6, 13.6, -3.4, 12.4, -4.2, 10.6);
+    context.lineTo(-4.2, 7);
+    context.lineTo(6.2, 7);
+    context.bezierCurveTo(6.6, 10.4, 5, 12.6, 4.6, 16);
     context.closePath();
     context.fill();
-    // 손등 + 손목: 마디 줄(오른쪽)에서 손목(아래, 팔 축 x≈1.6)으로 좁아진다
-    const handBack = () => {
+    // 네 손가락의 가운데 마디: 휴대폰 뒤 손바닥에서 왼쪽 테두리 밖으로 나와 앞으로 말린다(검지가 가장 위)
+    context.lineCap = 'round';
+    context.strokeStyle = SKIN.base;
+    for (const { y, width } of GRIP_FINGERS) {
+      context.lineWidth = width;
       context.beginPath();
-      context.moveTo(-1.4, 16);
-      context.bezierCurveTo(-1.8, 13.2, -4.6, 11.8, -5.3, 8.6);
-      context.bezierCurveTo(-5.7, 6, -5.6, 2.6, -4.4, 0.9);
-      context.quadraticCurveTo(-2.8, -0.6, 0.4, -0.3);
-      context.lineTo(2.2, -0.2);
-      context.quadraticCurveTo(3.5, 0.6, 3, 2.3);
-      context.quadraticCurveTo(3.6, 3.5, 3, 4.8);
-      context.quadraticCurveTo(3.6, 6, 3, 7.2);
-      context.quadraticCurveTo(3.5, 8.4, 2.7, 9.4);
-      context.bezierCurveTo(3.4, 11.2, 4.6, 12.8, 4.6, 16);
-      context.closePath();
-    };
-    context.fillStyle = SKIN.base;
-    handBack();
-    context.fill();
-    // 손등 빛(넓고 은은하게)
-    context.globalAlpha = 0.5;
-    context.fillStyle = SKIN.light;
-    context.beginPath();
-    context.ellipse(-0.6, 4.6, 1.6, 3.4, 0.1, 0, Math.PI * 2);
-    context.fill();
-    context.globalAlpha = 1;
-    // 소맷부리: 손목과 소매(팔)의 경계
+      context.moveTo(-2, y + 1.6);
+      context.lineTo(-8.1 + width / 2, y);
+      context.stroke();
+    }
+    // 소맷부리
     context.fillStyle = '#46698a';
     roundedRect(context, -1.9, 14.6, 7, 3.4, 1.7);
     context.fill();
     context.fillStyle = '#2f4a63';
     context.fillRect(-1.5, 16.8, 6.2, 0.7);
+  }
+
+  drawGripFront(context) {
+    // 손끝: 왼쪽 테두리를 넘어 베젤에만 얹힌다(화면은 거의 안 가림). 손가락 사이는 선 대신 아주 좁은 틈
+    context.fillStyle = SKIN.base;
+    for (const { y, width, tip } of GRIP_FINGERS) {
+      roundedRect(context, -7.4, y - width / 2 + 0.12, tip + 7.4, width - 0.24, (width - 0.24) / 2);
+      context.fill();
+    }
+    context.fillStyle = 'rgba(255, 244, 236, 0.85)';
+    for (const { y, width, tip } of GRIP_FINGERS) {
+      context.beginPath();
+      context.ellipse(tip - 0.9, y, 0.55, width * 0.26, 0, 0, Math.PI * 2);
+      context.fill();
+    }
+    // 엄지: 손바닥 아래(엄지 두덩)에서 오른쪽 옆면을 타고 휴대폰 중간 높이까지 길게 올라와 끝만 화면 쪽으로 말린다
+    context.fillStyle = SKIN.base;
+    context.beginPath();
+    context.moveTo(1.8, 12.6);
+    context.bezierCurveTo(5.6, 12.8, 8.3, 10.6, 8.3, 7);
+    context.bezierCurveTo(8.3, 3.6, 7.9, 0.2, 7, -2.2);
+    context.quadraticCurveTo(6.4, -3.7, 5.2, -3.3);
+    context.quadraticCurveTo(4.3, -2.8, 4.6, -1.6);
+    context.bezierCurveTo(5.4, 0.8, 5.9, 4, 5.8, 7);
+    context.bezierCurveTo(5.7, 9.2, 4.4, 10.4, 2, 10.6);
+    context.closePath();
+    context.fill();
+    // 엄지 등 빛 + 손톱
+    context.globalAlpha = 0.6;
+    context.fillStyle = SKIN.light;
+    context.beginPath();
+    context.ellipse(7.2, 3.6, 0.55, 3.2, 0.04, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 1;
+    context.save();
+    context.translate(5.6, -2.3);
+    context.rotate(-1.2);
+    context.fillStyle = 'rgba(255, 244, 236, 0.9)';
+    context.beginPath();
+    context.ellipse(0, 0, 0.9, 0.6, 0, 0, Math.PI * 2);
+    context.fill();
+    context.restore();
   }
 
   drawPhoneCracks(context, cracks) {
