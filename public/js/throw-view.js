@@ -721,49 +721,66 @@ export class ThrowRenderer {
   // 말린 네 손가락의 가운데 마디도 뒤에서 왼쪽 테두리 밖으로 나와 둥근 마디를 이루고(여기),
   // 끝마디가 테두리를 넘어 앞면에 얹힌다(drawGripFront) — 손바닥 → 마디 → 손끝이 끊기지 않게
   drawGripBack(context) {
-    const capsule = (from, to, width, color) => {
-      context.strokeStyle = color;
-      context.lineWidth = width;
-      context.lineCap = 'round';
-      context.beginPath();
-      context.moveTo(from.x, from.y);
-      context.lineTo(to.x, to.y);
-      context.stroke();
-    };
-    for (const pass of [{ extra: 0.5, color: SKIN.shade }, { extra: 0, color: SKIN.base }]) {
-      GRIP_FINGERS.forEach(({ y, reach, width }) => {
-        capsule({ x: -0.5, y: y + 3 }, { x: -reach + width / 2, y }, width + pass.extra, pass.color);
-      });
-    }
+    // 손바닥 + 네 손가락을 한 덩어리 실루엣으로: 휴대폰 왼쪽 테두리 밖으로 손가락 등이 둥글게 이어지고 아래로 손바닥까지 흐른다
+    const fingers = GRIP_FINGERS;
     context.fillStyle = SKIN.base;
     context.beginPath();
-    context.ellipse(0.6, 8.6, 7.4, 5.6, 0, 0, Math.PI * 2);
+    context.moveTo(5.5, fingers[0].y - 1.6);
+    context.lineTo(-fingers[0].reach + 1.2, fingers[0].y - fingers[0].width / 2);
+    for (const { y, reach, width } of fingers) {
+      context.quadraticCurveTo(-reach - 0.5, y, -reach + 1.2, y + width / 2);
+    }
+    context.quadraticCurveTo(-8.6, 11.8, -4.6, 13.9);
+    context.quadraticCurveTo(0.8, 15.2, 6, 13.2);
+    context.lineTo(6.5, fingers[0].y - 1.6);
+    context.closePath();
     context.fill();
+    // 바깥 윤곽은 연하게 한 줄로만(손가락 사이 선은 짧게)
+    context.strokeStyle = 'rgba(214, 150, 112, 0.55)';
+    context.lineWidth = 0.35;
+    context.lineCap = 'round';
+    context.beginPath();
+    context.moveTo(-fingers[0].reach + 1.2, fingers[0].y - fingers[0].width / 2);
+    for (const { y, reach, width } of fingers) context.quadraticCurveTo(-reach - 0.5, y, -reach + 1.2, y + width / 2);
+    context.quadraticCurveTo(-8.6, 11.8, -4.6, 13.9);
+    context.quadraticCurveTo(0.8, 15.2, 6, 13.2);
+    context.stroke();
+    context.beginPath();
+    for (const { y, reach, width } of fingers.slice(0, -1)) {
+      context.moveTo(-reach + 1, y + width / 2);
+      context.lineTo(-reach + 2.6, y + width / 2 + 0.1);
+    }
+    context.stroke();
     context.globalAlpha = 0.45;
     context.fillStyle = SKIN.light;
     context.beginPath();
-    context.ellipse(0.6, 11.4, 3.4, 1.4, 0, 0, Math.PI * 2);
+    context.ellipse(0.6, 12.2, 3.4, 1.2, 0, 0, Math.PI * 2);
     context.fill();
     context.globalAlpha = 1;
   }
 
   // 왼쪽 테두리를 넘어온 손가락 끝마디 넷(뒤의 마디에서 이어짐, 손톱이 보임) + 오른쪽 테두리를 감싼 엄지
   drawGripFront(context) {
+    // 손끝: 뒤 실루엣과 같은 살색으로 이어 붙여 테두리를 넘어온다(테두리선 없이, 손가락 사이만 가는 선)
+    context.fillStyle = SKIN.base;
     for (const { y, tip, width } of GRIP_FINGERS) {
-      const left = -7.9;
-      context.fillStyle = SKIN.shade;
-      roundedRect(context, left - 0.2, y - width / 2 - 0.25, tip - left + 0.45, width + 0.5, (width + 0.5) / 2);
+      roundedRect(context, -7.6, y - width / 2, tip + 7.6, width, width / 2);
       context.fill();
-      context.fillStyle = SKIN.base;
-      roundedRect(context, left, y - width / 2, tip - left, width, width / 2);
+    }
+    context.strokeStyle = 'rgba(214, 150, 112, 0.5)';
+    context.lineWidth = 0.3;
+    context.lineCap = 'round';
+    context.beginPath();
+    for (const { y, tip, width } of GRIP_FINGERS.slice(0, -1)) {
+      context.moveTo(-7.4, y + width / 2);
+      context.lineTo(tip - 0.6, y + width / 2);
+    }
+    context.stroke();
+    context.fillStyle = 'rgba(255, 244, 236, 0.9)';
+    for (const { y, tip, width } of GRIP_FINGERS) {
+      context.beginPath();
+      context.ellipse(tip - 0.95, y, 0.6, width * 0.28, 0, 0, Math.PI * 2);
       context.fill();
-      // 손톱
-      context.fillStyle = '#fff4ec';
-      roundedRect(context, tip - 1.75, y - width / 2 + 0.35, 1.4, width - 0.7, 0.55);
-      context.fill();
-      context.strokeStyle = 'rgba(214, 150, 112, 0.6)';
-      context.lineWidth = 0.25;
-      context.stroke();
     }
     this.drawGripThumb(context);
   }
