@@ -328,6 +328,9 @@ function ringTone(engine, context, { frequency, sweepTo, startTime, peak, decay,
   }
 }
 
+// 승리·패배음 세기 배율: 판이 끝나는 순간이라 다른 효과음보다 확실히 크게
+const END_LOUDNESS = 2.2;
+
 // 떨림(비브라토) 있는 금관 같은 음: 톱니파 → 저역 통과, 6Hz LFO로 음높이를 흔든다. 패배 '빠밤빠~' 용. 노드 5개, O(1)
 function brassTone(engine, context, { frequency, startTime, length, peak, vibrato = 0, slideTo = null }) {
   const oscillator = context.createOscillator();
@@ -589,25 +592,25 @@ const SOUNDS = {
   // 종료: 상행 아르페지오
   // 승리(PvP 승리·개인 최고 기록): 쿵 + 도미솔 빠른 상행 → 높은 도 '빠밤!' → 도·미·솔·도 화음이 반짝이며 울린다(약 1.6초)
   victory(engine, context, time) {
-    engine.tone(context, { frequency: 110, sweepTo: 50, startTime: time, peak: 0.12, decay: 0.18 });
+    engine.tone(context, { frequency: 110, sweepTo: 50, startTime: time, peak: 0.12 * END_LOUDNESS, decay: 0.18 });
     const lead = { type: 'lowpass', frequency: 3200 };
     [523.25, 659.25, 783.99].forEach((frequency, index) => {
-      engine.tone(context, { frequency, startTime: time + index * 0.08, peak: 0.05, decay: 0.09, waveform: 'square', filter: lead });
+      engine.tone(context, { frequency, startTime: time + index * 0.08, peak: 0.05 * END_LOUDNESS, decay: 0.09, waveform: 'square', filter: lead });
     });
-    engine.tone(context, { frequency: 1046.5, startTime: time + 0.26, peak: 0.06, decay: 0.12, waveform: 'square', filter: lead });
+    engine.tone(context, { frequency: 1046.5, startTime: time + 0.26, peak: 0.06 * END_LOUDNESS, decay: 0.12, waveform: 'square', filter: lead });
     for (const frequency of [523.25, 659.25, 783.99, 1046.5]) {
-      engine.tone(context, { frequency, startTime: time + 0.42, peak: 0.04, decay: 1.1, waveform: 'triangle', attack: 0.01 });
+      engine.tone(context, { frequency, startTime: time + 0.42, peak: 0.04 * END_LOUDNESS, decay: 1.1, waveform: 'triangle', attack: 0.01 });
     }
-    engine.tone(context, { frequency: 1046.5, startTime: time + 0.42, peak: 0.025, decay: 0.8, waveform: 'square', filter: lead });
-    engine.bell(context, { frequency: 1046.5, startTime: time + 0.42, peak: 0.035, length: 1.2 });
+    engine.tone(context, { frequency: 1046.5, startTime: time + 0.42, peak: 0.025 * END_LOUDNESS, decay: 0.8, waveform: 'square', filter: lead });
+    engine.bell(context, { frequency: 1046.5, startTime: time + 0.42, peak: 0.035 * END_LOUDNESS, length: 1.2 });
   },
   // 패배: 코믹한 '빠-밤-빠-바아암~' — 반음씩 내려가는 금관 세 음, 마지막 음은 길게 떨며 아래로 처진다 + 낮은 쿵(약 2초)
   defeat(engine, context, time) {
     [392, 369.99, 349.23].forEach((frequency, index) => {
-      brassTone(engine, context, { frequency, startTime: time + index * 0.32, length: 0.26, peak: 0.07 });
+      brassTone(engine, context, { frequency, startTime: time + index * 0.32, length: 0.26, peak: 0.07 * END_LOUDNESS });
     });
-    brassTone(engine, context, { frequency: 329.63, slideTo: 300, startTime: time + 0.96, length: 1, peak: 0.075, vibrato: 0.02 });
-    engine.tone(context, { frequency: 82, sweepTo: 40, startTime: time + 0.96, peak: 0.09, decay: 0.4 });
+    brassTone(engine, context, { frequency: 329.63, slideTo: 300, startTime: time + 0.96, length: 1, peak: 0.075 * END_LOUDNESS, vibrato: 0.02 });
+    engine.tone(context, { frequency: 82, sweepTo: 40, startTime: time + 0.96, peak: 0.09 * END_LOUDNESS, decay: 0.4 });
   },
   finish(engine, context, time) {
     [523.25, 659.25, 783.99, 1046.5].forEach((frequency, index) => {
