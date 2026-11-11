@@ -332,14 +332,14 @@ function ringTone(engine, context, { frequency, sweepTo, startTime, peak, decay,
 const END_LOUDNESS = 2.2;
 
 // 떨림(비브라토) 있는 금관 같은 음: 톱니파 → 저역 통과, 6Hz LFO로 음높이를 흔든다. 패배 '빠밤빠~' 용. 노드 5개, O(1)
-function brassTone(engine, context, { frequency, startTime, length, peak, vibrato = 0, slideTo = null }) {
+function brassTone(engine, context, { frequency, startTime, length, peak, vibrato = 0, slideTo = null, cutoff = 900 }) {
   const oscillator = context.createOscillator();
   oscillator.type = 'sawtooth';
   oscillator.frequency.setValueAtTime(frequency, startTime);
   if (slideTo) oscillator.frequency.exponentialRampToValueAtTime(slideTo, startTime + length);
   const filter = context.createBiquadFilter();
   filter.type = 'lowpass';
-  filter.frequency.value = 900;
+  filter.frequency.value = cutoff;
   oscillator.connect(filter);
   filter.connect(engine.envelope(context, startTime, peak, 0.03, length, engine.master));
   const nodes = [oscillator];
@@ -604,13 +604,21 @@ const SOUNDS = {
     engine.tone(context, { frequency: 1046.5, startTime: time + 0.42, peak: 0.025 * END_LOUDNESS, decay: 0.8, waveform: 'square', filter: lead });
     engine.bell(context, { frequency: 1046.5, startTime: time + 0.42, peak: 0.035 * END_LOUDNESS, length: 1.2 });
   },
-  // 패배: 코믹한 '빠-밤-빠-바아암~' — 반음씩 내려가는 금관 세 음, 마지막 음은 길게 떨며 아래로 처진다 + 낮은 쿵(약 2초)
+  // 패배(묵직하게): 한 옥타브 낮춘 '빠-밤-빠-바아암~'. 음마다 한 옥타브 아래 금관을 겹치고 사인 저음 '둥'을 받친다.
+  // 마지막 음은 떨며 아래로 처지고, 그 밑에서 깊은 '쿠웅'(60→28Hz)과 어두운 잡음 울림이 길게 남는다(약 2.4초)
   defeat(engine, context, time) {
-    [392, 369.99, 349.23].forEach((frequency, index) => {
-      brassTone(engine, context, { frequency, startTime: time + index * 0.32, length: 0.26, peak: 0.07 * END_LOUDNESS });
+    const notes = [196, 185, 174.61];
+    notes.forEach((frequency, index) => {
+      const startTime = time + index * 0.34;
+      brassTone(engine, context, { frequency, startTime, length: 0.28, peak: 0.06 * END_LOUDNESS, cutoff: 700 });
+      brassTone(engine, context, { frequency: frequency / 2, startTime, length: 0.28, peak: 0.05 * END_LOUDNESS, cutoff: 500 });
+      engine.tone(context, { frequency: frequency / 2, startTime, peak: 0.08 * END_LOUDNESS, decay: 0.26 });
     });
-    brassTone(engine, context, { frequency: 329.63, slideTo: 300, startTime: time + 0.96, length: 1, peak: 0.075 * END_LOUDNESS, vibrato: 0.02 });
-    engine.tone(context, { frequency: 82, sweepTo: 40, startTime: time + 0.96, peak: 0.09 * END_LOUDNESS, decay: 0.4 });
+    const last = time + notes.length * 0.34;
+    brassTone(engine, context, { frequency: 164.81, slideTo: 146.83, startTime: last, length: 1.2, peak: 0.065 * END_LOUDNESS, vibrato: 0.02, cutoff: 700 });
+    brassTone(engine, context, { frequency: 82.41, slideTo: 73.42, startTime: last, length: 1.2, peak: 0.055 * END_LOUDNESS, vibrato: 0.02, cutoff: 500 });
+    engine.tone(context, { frequency: 60, sweepTo: 28, startTime: last, peak: 0.14 * END_LOUDNESS, decay: 0.9, attack: 0.004 });
+    engine.noise(context, { startTime: last, peak: 0.05 * END_LOUDNESS, decay: 1, filterType: 'lowpass', frequency: 400, sweepTo: 80 });
   },
   finish(engine, context, time) {
     [523.25, 659.25, 783.99, 1046.5].forEach((frequency, index) => {
