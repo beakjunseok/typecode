@@ -723,21 +723,26 @@ export class ThrowRenderer {
   drawGripBack(context) {
     // 손목: 손바닥 아래에서 팔 쪽(+y)으로 이어지고, 후드 소맷부리가 팔(소매)과의 경계를 덮는다
     context.fillStyle = SKIN.base;
-    roundedRect(context, -2.1, 8, 5.9, 8.4, 2.4);
+    // 팔 축은 휴대폰 좌표 x = 1.6(GRIP_SIDE_SHIFT)에 있다 → 손목·소맷부리를 그 축에 맞춘다
+    context.beginPath();
+    context.moveTo(-1.6, 9);
+    context.bezierCurveTo(-1.5, 11.4, -1.2, 13.4, -1.3, 15.6);
+    context.lineTo(4.5, 15.6);
+    context.bezierCurveTo(4.6, 13.6, 5, 12.2, 5.9, 11);
+    context.lineTo(5.9, 9);
+    context.closePath();
     context.fill();
-    context.strokeStyle = 'rgba(214, 150, 112, 0.55)';
+    context.strokeStyle = 'rgba(214, 150, 112, 0.5)';
     context.lineWidth = 0.35;
     context.beginPath();
-    context.moveTo(-2.1, 11.2);
-    context.quadraticCurveTo(-2.3, 13.4, -1.9, 15.2);
-    context.moveTo(3.8, 12.1);
-    context.quadraticCurveTo(3.9, 13.8, 3.6, 15.2);
+    context.moveTo(-1.5, 11.6);
+    context.bezierCurveTo(-1.3, 13, -1.2, 14.2, -1.3, 15.2);
     context.stroke();
     context.fillStyle = '#46698a';
-    roundedRect(context, -3.3, 14.4, 8.2, 3.6, 1.6);
+    roundedRect(context, -1.9, 14.6, 7, 3.4, 1.7);
     context.fill();
     context.fillStyle = '#2f4a63';
-    context.fillRect(-3, 16.6, 7.6, 0.8);
+    context.fillRect(-1.5, 16.8, 6.2, 0.7);
     // 손바닥 + 네 손가락을 한 덩어리 실루엣으로: 휴대폰 왼쪽 테두리 밖으로 손가락 등이 둥글게 이어지고 아래로 손바닥까지 흐른다
     const fingers = GRIP_FINGERS;
     context.fillStyle = SKIN.base;
