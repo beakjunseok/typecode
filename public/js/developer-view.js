@@ -305,6 +305,9 @@ export function drawDeveloper(context, {
   leanUpperBody();
   // 따라 휘두르는 동안(팔이 몸 앞으로 넘어감)은 팔이 몸통·머리 뒤로 가려진다
   const hoodie = hoodieFill(context, rise);
+  // 왼팔: 뒤에서 보면 위팔은 옆구리를 따라 내려가 몸통에 가려지고, 몸통 위쪽 옆에서 아래팔만 키보드로 나온다.
+  // 몸통보다 먼저 같은 그라데이션으로 그려 나오는 곳에 경계·혹이 없다
+  drawLimb(context, [{ x: -18.5, y: -4 - rise * 0.5 }, { x: typingHand.x + 0.6, y: typingHand.y + 2.6 }], TYPE_ARM_WIDTHS.slice(1), hoodie, { startCap: false });
   if (behind) drawLimb(context, [armGeometry.shoulder, armGeometry.elbow, armGeometry.hand], THROW_ARM_WIDTHS, hoodie);
   drawTorso(context, { rise, twist });
   drawHead(context, { headX, headY, headTilt, lookSide, time, armSwing: (pose.upper - POSES.ready.upper) * -25 + keyPulse * 4, lives, laptopMode, gameOver, rise, twist });
@@ -315,17 +318,14 @@ export function drawDeveloper(context, {
   // 팔은 몸통과 같은 그라데이션의 '살 있는' 면(어깨 → 팔꿈치 → 손목으로 가늘어짐)으로 몸 앞에 그린다.
   // 어깨 관절은 몸통의 둥근 어깨 안쪽에 두어 팔이 어깨에서 그대로 자라 나오고, 겹친 곳은 색이 같아 경계가 없다
   const hoodieFront = hoodieFill(context, rise);
-  // 왼팔: 위팔은 옆구리 쪽으로 내려가 팔꿈치가 옆에 오고, 아래팔이 앞(키보드)으로 올라간다
-  const typingShoulder = { x: -19.5, y: -9.6 - rise };
-  const typingElbow = { x: -27.6, y: -5.2 - rise * 0.5 };
-  const typingWrist = { x: typingHand.x + 0.6, y: typingHand.y + 2.6 };
-  drawShoulderBlend(context, typingShoulder, typingElbow, TYPE_ARM_WIDTHS[0], { x: -8, y: -16.4 - rise }, hoodieFront);
-  drawLimb(context, [typingShoulder, typingElbow, typingWrist], TYPE_ARM_WIDTHS, hoodieFront);
   drawKeyboardHand(context, typingHand.x, typingHand.y, { press: typingHand.press, keySide, relaxed: gameOver });
   let hand = armGeometry.hand;
   if (!behind) {
-    drawShoulderBlend(context, armGeometry.shoulder, armGeometry.elbow, THROW_ARM_WIDTHS[0], { x: 8, y: -16.4 - rise + twist * 2.5 }, hoodieFront);
-    drawLimb(context, [armGeometry.shoulder, armGeometry.elbow, armGeometry.hand], THROW_ARM_WIDTHS, hoodieFront);
+    // 어깨 끝 둥근 마개를 그리지 않고 몸통 안쪽에서 시작해 어깨 바깥으로 혹이 생기지 않게
+    const { shoulder, elbow } = armGeometry;
+    const inward = { x: shoulder.x - 3.5, y: shoulder.y + 0.8 };
+    drawShoulderBlend(context, shoulder, elbow, THROW_ARM_WIDTHS[0], { x: 8, y: -16.4 - rise + twist * 2.5 }, hoodieFront);
+    drawLimb(context, [inward, shoulder, elbow, armGeometry.hand], [THROW_ARM_WIDTHS[0], ...THROW_ARM_WIDTHS], hoodieFront, { startCap: false });
     hand = drawThrowingHand(context, armGeometry, { aim, pose, gameOver, laptopMode, drawHeld });
   }
   drawReaction(context, { headX, headY, hurt, lives, time, gameOver });
@@ -394,7 +394,7 @@ function drawShoulderBlend(context, shoulder, elbow, width, neck, fill) {
 }
 
 // 마디가 이어진 팔 한 덩어리: 마디마다 굵기가 다른 사다리꼴 + 관절 원을 같은 색으로 칠해 이음선이 없다. O(마디 수)
-function drawLimb(context, points, widths, fill) {
+function drawLimb(context, points, widths, fill, { startCap = true } = {}) {
   context.fillStyle = fill;
   for (let index = 0; index < points.length - 1; index++) {
     const from = points[index];
@@ -413,6 +413,7 @@ function drawLimb(context, points, widths, fill) {
     context.fill();
   }
   points.forEach((point, index) => {
+    if (index === 0 && !startCap) return;
     context.beginPath();
     context.arc(point.x, point.y, widths[index] / 2, 0, Math.PI * 2);
     context.fill();
