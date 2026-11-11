@@ -595,29 +595,55 @@ function drawThrowingArm(context, { aim, pose, twist = 0, rise = 0, gameOver, sl
   context.arc(hand.x - Math.cos(foreAngle) * 2, hand.y - Math.sin(foreAngle) * 2, 4, 0, Math.PI * 2);
   context.fill();
 
-  // 그리는 순서: 팔 → 휴대폰 → 손. 손이 휴대폰 아래쪽을 감싸 쥔 모양이 되도록 휴대폰을 손끝 쪽으로 밀어 둔다
   const directionX = Math.cos(foreAngle);
   const directionY = Math.sin(foreAngle);
   const holding = gameOver || pose.held > 0.01;
-  // 휴대폰을 쥔 손은 휴대폰 그리기 쪽에서 함께 그린다(손바닥은 휴대폰 뒤, 손가락 끝·엄지는 양옆 테두리를 감쌈).
-  // 노트북이거나 새 휴대폰이 막 생기는 중(작음)이면 여기서 주먹을 그린다
   const phoneGrip = !laptopMode && (gameOver || pose.held > 0.6);
-  if (gameOver && droop > 0.95) {
-    drawHeld(context, hand.x + 4, hand.y + 7, 1.2, 1, false, true);
-  } else if (holding) {
-    // 손목은 엄지 쪽 아래에 오므로 휴대폰을 팔 축에서 반대쪽(휴대폰 기준 왼쪽)으로 조금 비켜 쥔다
-    const sideShift = laptopMode ? 0 : GRIP_SIDE_SHIFT * pose.held * nearness;
-    drawHeld(context, hand.x + directionX * GRIP_OFFSET + directionY * sideShift, hand.y + directionY * GRIP_OFFSET - directionX * sideShift,
-      foreAngle + Math.PI / 2, pose.held * nearness, laptopMode, phoneGrip);
+  if (laptopMode || !phoneGrip) {
+    if (holding) drawHeld(context, hand.x + directionX * GRIP_OFFSET, hand.y + directionY * GRIP_OFFSET, foreAngle + Math.PI / 2, pose.held * nearness, laptopMode, false);
+    drawHand(context, hand, foreAngle, holding);
+    return hand;
   }
-  if (!(holding && phoneGrip)) drawHand(context, hand, foreAngle, holding);
-  return hand;
+  // 손목 관절: 팔(소매)은 손목에서 끝나고 소맷부리를 두른다. 손은 손목을 축으로 휴대폰이 대체로 서 있도록 꺾이되
+  // 실제 손목처럼 팔 방향에서 ±WRIST_LIMIT 안에서만 꺾인다(휴대폰이 팔에 붙어 같이 돌아가지 않게)
+  drawCuff(context, hand, foreAngle);
+  const upright = -Math.PI / 2 + aim * 0.5;
+  const wanted = Math.atan2(Math.sin(upright - foreAngle), Math.cos(upright - foreAngle));
+  const handAngle = gameOver && droop > 0.95
+    ? foreAngle + 0.35
+    : foreAngle + Math.max(-WRIST_LIMIT, Math.min(WRIST_LIMIT, wanted));
+  // 휴대폰 좌표의 손목 점(WRIST_IN_PHONE)이 팔 끝(hand)에 오도록 휴대폰 중심을 잡는다
+  const phoneAngle = handAngle + Math.PI / 2;
+  const scale = PHONE_HELD_SCALE * (gameOver ? 1 : pose.held * nearness);
+  const localX = WRIST_IN_PHONE.x * scale;
+  const localY = WRIST_IN_PHONE.y * scale;
+  const center = {
+    x: hand.x - (localX * Math.cos(phoneAngle) - localY * Math.sin(phoneAngle)),
+    y: hand.y - (localX * Math.sin(phoneAngle) + localY * Math.cos(phoneAngle))
+  };
+  drawHeld(context, center.x, center.y, phoneAngle, gameOver ? 1 : pose.held * nearness, false, true);
+  return center;
+}
+
+// 소맷부리: 팔 끝(손목)에 두르는 후드 소매 끝단
+function drawCuff(context, wrist, foreAngle) {
+  context.save();
+  context.translate(wrist.x, wrist.y);
+  context.rotate(foreAngle);
+  context.fillStyle = COLORS.hoodieLight;
+  roundedRect(context, -4.6, -5.2, 5.4, 10.4, 2.4);
+  context.fill();
+  context.fillStyle = COLORS.hoodieDark;
+  context.fillRect(-4, -4.6, 1, 9.2);
+  context.restore();
 }
 
 // 휴대폰을 쥐지 않은 손: 가볍게 쥔 주먹(손등 + 손가락 마디 줄). holding이면(노트북) 손가락을 앞으로 말아 쥔다
 const GRIP_OFFSET = 9;
-// 휴대폰 좌표 1.6칸(× 휴대폰 배율 1.45)만큼: 팔 축이 휴대폰 아래 엄지 쪽 손목과 맞는다
-const GRIP_SIDE_SHIFT = 1.6 * 1.45;
+// 쥔 휴대폰 배율(throw-view의 휴대폰 그리기와 같은 값), 휴대폰 좌표계에서 손목 점(엄지 쪽 아래), 손목이 꺾일 수 있는 한도(rad)
+export const PHONE_HELD_SCALE = 1.45;
+const WRIST_IN_PHONE = Object.freeze({ x: 1.6, y: 14.4 });
+const WRIST_LIMIT = 0.7;
 function drawHand(context, hand, foreAngle, holding) {
   context.save();
   context.translate(hand.x, hand.y);
