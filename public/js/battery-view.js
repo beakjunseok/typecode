@@ -3,14 +3,10 @@
 import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
 import { BATTERY_RULES } from './battery-engine.js';
+import { MASCOT_PALETTES, createRig, reactRig, updateRig, drawPhoneMascot, drawDrainBot } from './battery-characters.js';
 import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom } from './game-view.js';
 
 const BEAM_SECONDS = 0.35;
-// 폰 마스코트 색: 나(하늘색) / PvP 상대(주황 — 방전봇 대신 또 하나의 폰)
-const MASCOT_PALETTES = Object.freeze({
-  me: Object.freeze({ screenTop: '#36e2ff', screenBottom: '#1a7fa0', body: '#1b2430', trim: '#8a98aa' }),
-  opponent: Object.freeze({ screenTop: '#ffb86c', screenBottom: '#c2563a', body: '#2a1c1c', trim: '#c9a08a' })
-});
 const isPvp = engine => engine.mode === 'battery-pvp';
 const rivalLabel = engine => engine.rivalName ?? '방전봇';
 const wallSeconds = () => performance.now() / 1000;
@@ -45,7 +41,10 @@ export class BatteryRenderer {
     this.beams = [];
     this.banner = null;
     this.visuals = new VisualStates(() => ({ labelPop: new Spring(0, { stiffness: 420, damping: 18 }) }));
-    this.bounce = { me: new Spring(0, { stiffness: 200, damping: 9 }), rival: new Spring(0, { stiffness: 200, damping: 9 }) };
+    // 캐릭터 리그(숨쉬기·시선·조준·반응 스프링). 시간은 실제 시계로 흘러 게임이 끝나도 승패 동작이 이어진다
+    this.rigs = { me: createRig({ seed: 1, facing: 1 }), rival: createRig({ seed: 4, facing: -1 }) };
+    this.rigClock = null;
+    this.rivalKeys = 0;
     this.displayCells = { me: BATTERY_RULES.startCells, rival: BATTERY_RULES.startCells };
   }
 
@@ -88,10 +87,8 @@ export class BatteryRenderer {
   onEvent(type, payload, engine) {
     if (type === 'lock') this.visuals.get(payload.target.id).labelPop.kick(14);
     else if (type === 'mistake' && payload.target) this.visuals.get(payload.target.id).labelPop.kick(-10);
-    else if (type === 'item' || type === 'drain') this.bounce[type === 'item' ? 'me' : 'rival'].kick(type === 'item' ? -140 : 160);
-    else if (type === 'rival-take') this.bounce.rival.kick(-140);
-    else if (type === 'rival-attack') this.bounce.me.kick(160);
-    else if (type === 'round-end') this.banner = {
+    this.reactCharacters(type, payload);
+    if (type === 'round-end') this.banner = {
       text: `ROUND ${payload.round} ${payload.mine ? 'WIN' : 'LOSE'}`,
       sub: `${payload.wins.mine} : ${payload.wins.theirs} · ${payload.how === 'charged' ? '100% 충전' : '상대 방전'}`,
       at: wallSeconds(), color: payload.mine ? '#4df0a6' : '#ff5d73'
@@ -137,8 +134,7 @@ export class BatteryRenderer {
     this.lastGameTime = engine.gameTime;
     this.particles.update(frameSeconds);
     this.visuals.step(frameSeconds, new Set([...engine.items.map(item => item.id), engine.rivalWord.id, engine.myWord.id]));
-    this.bounce.me.step(frameSeconds);
-    this.bounce.rival.step(frameSeconds);
+    this.updateCharacters(engine);
     // 탑 높이는 부드럽게 따라간다(셀이 쑥 늘거나 깎일 때 출렁임)
     for (const side of ['me', 'rival']) {
       const target = Math.max(0, engine[side].cells);
@@ -556,148 +552,105 @@ export class BatteryRenderer {
     context.restore();
   }
 
-  // 캐릭터: 내 폰(스마트폰 마스코트) / 방전봇(플러그 머리 로봇). 위험하면 땀, 이기면 환호.
+  // 사건 → 캐릭터 반응. 내 쪽: 조준·한 타·오타·발사·충전 / 상대 쪽: 가져감·공격 / 판·스테이지 끝
+  reactCharacters(type, payload) {
+    const { me, rival } = this.rigs;
+    if (type === 'lock') reactRig(me, 'lock');
+    else if (type === 'keystroke') reactRig(me, 'key');
+    else if (type === 'mistake' || type === 'claim-rejected') reactRig(me, 'oops');
+    else if (type === 'throw') reactRig(me, 'cast');
+    else if (type === 'item') reactRig(me, 'cheer');
+    else if (type === 'drain') {
+      reactRig(me, 'cheer');
+      reactRig(rival, 'hurt');
+    } else if (type === 'rival-take') {
+      reactRig(rival, 'cheer');
+      reactRig(me, 'oops');
+    } else if (type === 'rival-attack') {
+      reactRig(rival, 'cast');
+      reactRig(me, 'hurt');
+    } else if (type === 'stage-clear') {
+      reactRig(me, 'cheer');
+      reactRig(rival, 'hurt');
+    } else if (type === 'round-end') {
+      reactRig(payload.mine ? me : rival, 'cheer');
+      reactRig(payload.mine ? rival : me, 'hurt');
+    }
+  }
+
+  // 매 프레임: 상대가 한 글자 칠 때마다 손 까딱 + 두 캐릭터의 상태(조준 대상·위급·잠·승패)를 리그에 넘긴다. O(1)
+  updateCharacters(engine) {
+    const now = performance.now() / 1000;
+    const seconds = this.rigClock === null ? 1 / 60 : now - this.rigClock;
+    this.rigClock = now;
+    const rivalKeys = engine.ai.targetId === null ? 0 : Math.floor(engine.ai.progress);
+    if (rivalKeys > this.rivalKeys) reactRig(this.rigs.rival, 'key');
+    this.rivalKeys = rivalKeys;
+    for (const side of ['me', 'rival']) updateRig(this.rigs[side], this.characterState(side, engine), seconds);
+  }
+
+  characterState(side, engine) {
+    const opponent = side === 'me' ? 'rival' : 'me';
+    const position = this.characterPosition(side);
+    const finished = engine.status === 'finished';
+    const iWon = engine.me.cells >= engine.rival.cells;
+    const sleeping = side === 'rival'
+      ? engine.gameTime < engine.ai.pausedUntil
+      : isPvp(engine) && engine.gameTime < (engine.blockedUntil ?? 0);
+    const targetId = side === 'me' ? engine.targetId : engine.ai.targetId;
+    const target = targetId === null || targetId === undefined ? null : engine.findEntity(targetId);
+    let aimPoint = null;
+    if (target && !(target.kind === 'item' && target.consumed)) {
+      if (target.kind === 'item') aimPoint = this.itemPosition(target);
+      else {
+        const other = this.characterPosition(opponent);
+        aimPoint = { x: other.x, y: other.y - 26 };
+      }
+    }
+    const look = aimPoint ? { x: aimPoint.x - position.x, y: aimPoint.y - (position.y - 26) } : null;
+    // 목표가 등 뒤에 있으면 돌아선다. 목표가 없으면 상대 쪽을 본다
+    const defaultFacing = side === 'me' ? 1 : -1;
+    const facing = look && Math.abs(look.x) > 24 ? Math.sign(look.x) : defaultFacing;
+    const typing = side === 'me'
+      ? targetId !== null && engine.typed.length > 0 && engine.status === 'running'
+      : targetId !== null && engine.status === 'running';
+    const cells = engine[side].cells;
+    return {
+      typing, look, facing, sleeping,
+      worried: !finished && cells < 1.6,
+      excited: !finished && cells / BATTERY_RULES.goalCells > 0.78,
+      result: finished ? ((side === 'me') === iWon ? 'win' : 'lose') : null
+    };
+  }
+
+  // 캐릭터: 내 폰(스마트폰 마스코트) / 상대(PvP 폰 · 방전봇). 몸놀림은 battery-characters.js의 리그가 정한다
   drawCharacter(context, side, engine) {
     const { x, y } = this.characterPosition(side);
-    const bounce = this.bounce[side].value * 0.06;
-    const cells = engine[side].cells;
-    const worried = cells < 1.6;
-    const bob = Math.sin(engine.gameTime * 3 + (side === 'me' ? 0 : 1.5)) * 2;
-    context.save();
-    context.translate(x, y - 4 + bob + bounce);
-    if (side === 'me') this.drawPhoneMascot(context, engine, worried, 'me');
-    else if (isPvp(engine)) {
-      context.scale(-1, 1);
-      this.drawPhoneMascot(context, engine, worried, 'rival');
-    } else this.drawDrainBot(context, engine, worried);
-    context.restore();
-  }
-
-  // side: 'me' | 'rival'(PvP 상대 — 좌우 반전·주황 화면, 화면 꺼짐이면 잠든 얼굴)
-  drawPhoneMascot(context, engine, worried, side = 'me') {
-    const palette = side === 'me' ? MASCOT_PALETTES.me : MASCOT_PALETTES.opponent;
-    const sleeping = side === 'rival' && engine.gameTime < engine.ai.pausedUntil;
-    // 다리
-    context.strokeStyle = '#c9d4e0';
-    context.lineWidth = 3;
-    context.lineCap = 'round';
-    context.beginPath();
-    context.moveTo(-6, -4);
-    context.lineTo(-7, 0);
-    context.moveTo(6, -4);
-    context.lineTo(7, 0);
-    context.stroke();
-    // 몸(폰)
-    context.fillStyle = palette.body;
-    roundedRect(context, -15, -44, 30, 42, 7);
-    context.fill();
-    context.strokeStyle = palette.trim;
-    context.lineWidth = 1.5;
-    context.stroke();
-    const screen = context.createLinearGradient(0, -40, 0, -8);
-    screen.addColorStop(0, sleeping ? '#2a2f3a' : palette.screenTop);
-    screen.addColorStop(1, sleeping ? '#151922' : palette.screenBottom);
-    context.fillStyle = screen;
-    roundedRect(context, -12, -40, 24, 32, 4);
-    context.fill();
-    // 얼굴
-    context.fillStyle = sleeping ? '#8a98aa' : '#05111a';
-    const blink = sleeping || (engine.gameTime % 3.4) < 0.12;
-    if (blink) {
-      context.fillRect(-7, -29, 5, 2);
-      context.fillRect(2, -29, 5, 2);
-    } else {
-      context.beginPath();
-      context.arc(-5, -28, 2.5, 0, Math.PI * 2);
-      context.arc(5, -28, 2.5, 0, Math.PI * 2);
-      context.fill();
-    }
-    context.strokeStyle = '#05111a';
-    context.lineWidth = 2;
-    context.beginPath();
-    if (worried) context.arc(0, -15, 4, Math.PI * 1.15, Math.PI * 1.85);
-    else context.arc(0, -20, 4, Math.PI * 0.15, Math.PI * 0.85);
-    context.stroke();
-    // 배터리 표시(머리 위 상태바)
+    const rig = this.rigs[side];
+    const state = this.characterState(side, engine);
     const percent = Math.max(0, Math.min(1, engine[side].cells / BATTERY_RULES.goalCells));
-    context.fillStyle = '#0b1017';
-    context.fillRect(-9, -38, 14, 5);
-    context.fillStyle = percent < 0.2 ? '#ff5d73' : '#4df0a6';
-    context.fillRect(-8, -37, 12 * percent, 3);
-    // 팔: 위급하면 허우적, 아니면 손 흔들기
-    const wave = Math.sin(engine.gameTime * (worried ? 14 : 4)) * (worried ? 8 : 4);
-    context.strokeStyle = '#c9d4e0';
-    context.lineWidth = 3;
-    context.beginPath();
-    context.moveTo(-15, -26);
-    context.lineTo(-23, -34 - wave);
-    context.moveTo(15, -26);
-    context.lineTo(23, -32 + wave);
-    context.stroke();
-    if (worried) {
-      context.fillStyle = '#9cc3ff';
-      context.beginPath();
-      context.arc(16, -44 + ((engine.gameTime * 30) % 10), 2.5, 0, Math.PI * 2);
-      context.fill();
+    context.save();
+    context.translate(x, y - 2);
+    if (side === 'me' || isPvp(engine)) {
+      drawPhoneMascot(context, rig, {
+        palette: side === 'me' ? MASCOT_PALETTES.me : MASCOT_PALETTES.opponent,
+        percent, sleeping: state.sleeping, worried: state.worried, result: state.result
+      });
+    } else {
+      drawDrainBot(context, rig, { paused: state.sleeping, worried: state.worried, result: state.result });
     }
-  }
-
-  drawDrainBot(context, engine, worried) {
-    const paused = engine.gameTime < engine.ai.pausedUntil;
-    context.fillStyle = '#1b2430';
-    context.fillRect(-10, -8, 6, 8);
-    context.fillRect(4, -8, 6, 8);
-    const body = context.createLinearGradient(-16, -40, 16, 0);
-    body.addColorStop(0, '#6a3a55');
-    body.addColorStop(1, '#3b1f33');
-    context.fillStyle = body;
-    roundedRect(context, -17, -40, 34, 34, 9);
-    context.fill();
-    context.strokeStyle = '#ff5d73';
-    context.lineWidth = 1.5;
-    context.stroke();
-    // 플러그 머리(두 갈래 단자)
-    context.fillStyle = '#c9d4e0';
-    context.fillRect(-8, -50, 4, 11);
-    context.fillRect(4, -50, 4, 11);
-    // 얼굴창: 화면 꺼짐이면 어둡고 Zz
-    context.fillStyle = paused ? '#05080c' : '#0b1017';
-    roundedRect(context, -12, -34, 24, 14, 4);
-    context.fill();
-    if (paused) {
+    if (state.sleeping) {
       context.fillStyle = '#c792ea';
       context.font = canvasFont(12);
-      context.fillText('z', 2, -24);
-      context.fillText('Z', 8, -30 - Math.sin(engine.gameTime * 3) * 2);
-    } else {
-      context.strokeStyle = '#ff5d73';
-      context.shadowColor = '#ff5d73';
-      context.shadowBlur = 8;
-      context.lineWidth = 2;
-      context.beginPath();
-      context.moveTo(-9, -30);
-      context.lineTo(-3, -26);
-      context.moveTo(9, -30);
-      context.lineTo(3, -26);
-      context.stroke();
-      context.shadowBlur = 0;
+      context.textAlign = 'center';
+      const drift = (rig.clock * 0.8) % 1;
+      context.globalAlpha = 1 - drift;
+      context.fillText('Z', rig.facing * 12 + drift * 8 * rig.facing, -50 - drift * 14);
+      context.globalAlpha = 1;
+      context.fillText('z', rig.facing * 8, -44);
+      context.textAlign = 'start';
     }
-    // 타이핑 중이면 팔이 빠르게 움직인다
-    const typing = engine.ai.targetId !== null && !paused;
-    const arm = Math.sin(engine.gameTime * (typing ? 26 : 3)) * (typing ? 4 : 2);
-    context.strokeStyle = '#6a3a55';
-    context.lineWidth = 4;
-    context.lineCap = 'round';
-    context.beginPath();
-    context.moveTo(-17, -22);
-    context.lineTo(-24, -14 + arm);
-    context.moveTo(17, -22);
-    context.lineTo(24, -14 - arm);
-    context.stroke();
-    if (worried) {
-      context.fillStyle = '#ffe08a';
-      context.fillRect(-20 + Math.random() * 40, -44 + Math.random() * 30, 2, 2);
-    }
+    context.restore();
   }
 
   // 탑 꼭대기 셀 낱말: 상대 탑 = 내가 칠 낱말, 내 탑 = 방전봇이 노리는 낱말(AI 진행도 빨간 밑줄)
@@ -870,7 +823,8 @@ export class BatteryRenderer {
     const target = engine.findEntity(projectile.targetId);
     if (!target) return;
     const progress = easeOutCubic(Math.min(1, (engine.gameTime - projectile.launchedAt) / ARCADE_RULES.projectileSeconds));
-    const start = this.characterPosition('me');
+    const origin = this.characterPosition('me');
+    const start = { x: origin.x + this.rigs.me.facing * 22, y: origin.y + 4 };
     const end = target.kind === 'item' ? this.itemPosition(target) : this.characterPosition('rival');
     const x = start.x + (end.x - start.x) * progress;
     const y = start.y - 30 + (end.y - 20 - start.y + 30) * progress - Math.sin(progress * Math.PI) * 40;
