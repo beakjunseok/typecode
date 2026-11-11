@@ -721,6 +721,23 @@ export class ThrowRenderer {
   // 말린 네 손가락의 가운데 마디도 뒤에서 왼쪽 테두리 밖으로 나와 둥근 마디를 이루고(여기),
   // 끝마디가 테두리를 넘어 앞면에 얹힌다(drawGripFront) — 손바닥 → 마디 → 손끝이 끊기지 않게
   drawGripBack(context) {
+    // 손목: 손바닥 아래에서 팔 쪽(+y)으로 이어지고, 후드 소맷부리가 팔(소매)과의 경계를 덮는다
+    context.fillStyle = SKIN.base;
+    roundedRect(context, -2.1, 8, 5.9, 8.4, 2.4);
+    context.fill();
+    context.strokeStyle = 'rgba(214, 150, 112, 0.55)';
+    context.lineWidth = 0.35;
+    context.beginPath();
+    context.moveTo(-2.1, 11.2);
+    context.quadraticCurveTo(-2.3, 13.4, -1.9, 15.2);
+    context.moveTo(3.8, 12.1);
+    context.quadraticCurveTo(3.9, 13.8, 3.6, 15.2);
+    context.stroke();
+    context.fillStyle = '#46698a';
+    roundedRect(context, -3.3, 14.4, 8.2, 3.6, 1.6);
+    context.fill();
+    context.fillStyle = '#2f4a63';
+    context.fillRect(-3, 16.6, 7.6, 0.8);
     // 손바닥 + 네 손가락을 한 덩어리 실루엣으로: 휴대폰 왼쪽 테두리 밖으로 손가락 등이 둥글게 이어지고 아래로 손바닥까지 흐른다
     const fingers = GRIP_FINGERS;
     context.fillStyle = SKIN.base;
