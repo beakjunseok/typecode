@@ -371,23 +371,42 @@ function resultHeading(summary) {
   return {};
 }
 
+// 모드별 개인 최고 점수를 기기에 저장하고, 이번 판이 그 기록을 넘었는지 돌려준다(첫 판은 0점이 아니면 기록)
+function recordPersonalBest(summary) {
+  const key = `best:${summary.mode}`;
+  const best = Number(preferences.get(key, 0)) || 0;
+  if (!(summary.score > best)) return false;
+  preferences.set(key, summary.score);
+  return true;
+}
+
+// 끝 효과음: 이기면(PvP 승리·개인 최고 기록) 승리음, 지면(PvP 패배·연결 끊김, 아케이드 게임 오버) 패배음, 그 밖엔 완료음
+function endSound(summary, newBest) {
+  if (isPvp()) return summary.outcome === 'win' ? 'victory' : 'defeat';
+  if (newBest) return 'victory';
+  return isArcade() ? 'defeat' : 'finish';
+}
+
 function handleFinish(summary) {
   if (isPvp()) {
     pvp.phase = 'ended';
     pvp.lastOutcome = summary.outcome;
   }
   stopTicking();
-  sound.play(isPvp() ? (summary.outcome === 'win' ? 'newRecord' : 'gameOver') : isArcade() ? 'gameOver' : 'finish');
+  const newBest = !isPvp() && recordPersonalBest(summary);
+  sound.play(endSound(summary, newBest));
   bgm.duck(true);
   ui.elements.hiddenInput.blur();
   renderStats();
   ui.setFocusState({ focused: false, finished: true, arcade: isArcade() });
   keyboard.setNext(null);
   ui.log('sys', `run finished · score ${summary.score} · ${summary.charactersPerMinute}타 (${summary.wordsPerMinute} WPM) · ${summary.accuracy}%`);
+  const heading = resultHeading(summary);
   ui.showResult(summary, {
     languageKey: settings.languageKey,
     playerName: preferences.get('name', ''),
-    ...resultHeading(summary)
+    ...heading,
+    ...(newBest ? { subtitle: `🏆 개인 최고 기록${heading.subtitle ? ` · ${heading.subtitle}` : ''}` } : {})
   });
 }
 
