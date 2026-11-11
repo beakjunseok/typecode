@@ -77,6 +77,15 @@ test('로봇 명중음: 종류·무기·남은 체력마다 오류 없이 울리
     assert.equal(count({ type: 'tank', remainingHp: 2 }), count({ type: 'tank', remainingHp: 0 }) + 2, '버티면 장갑 "땡" 두 음이 더해짐');
     assert.ok(count() > 0, '옵션 없이도 울림');
     for (const combo of [0, 1, 7, 40]) assert.ok(count({ combo }) > 0, `combo ${combo}`);
+    const kill = options => {
+      const before = stats.oscillators + stats.noises;
+      sound.play('robotKill', options);
+      return stats.oscillators + stats.noises - before;
+    };
+    const [one, two, three] = [0, 1, 2].map(tier => kill({ tier }));
+    assert.ok(one < two && two < three, `단계마다 음이 늘어남: ${one} < ${two} < ${three}`);
+    assert.equal(kill({ tier: 9 }), three, '범위 밖 단계는 3단계로');
+    assert.equal(kill({ tier: -1 }), one, '음수 단계는 1단계로');
     assert.deepEqual(stats.errors, []);
   } finally {
     delete globalThis.AudioContext;
