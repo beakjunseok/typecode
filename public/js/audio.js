@@ -50,7 +50,7 @@ const COMBO_BASE_FREQUENCY = 523.25; // C5
 // 로봇 종류별 몸체: plate 장갑 '팅' 기준음(Hz), thud 몸통 '퉁'(Hz), ring 울림(초), punch '퍽' 음높이 배율, voice 반응음 배율
 const ROBOT_HIT_BODIES = Object.freeze({
   basic: Object.freeze({ plate: 760, thud: 150, ring: 0.16, punch: 1, voice: 1 }),
-  fast: Object.freeze({ plate: 1180, thud: 200, ring: 0.1, punch: 1.25, voice: 1.5 }),
+  fast: Object.freeze({ plate: 1180, thud: 200, ring: 0.1, punch: 1.15, voice: 1.2 }),
   tank: Object.freeze({ plate: 360, thud: 95, ring: 0.3, punch: 0.7, voice: 0.5 })
 });
 
@@ -293,6 +293,11 @@ export class SoundEngine {
   }
 }
 
+// 로봇 반응음·점수음은 콤보 1·2단계 음높이까지만 쓴다(그 위는 귀에 쨍해서): 홀짝 콤보로 두 음을 번갈아
+function robotVoiceFrequency(combo) {
+  return comboFrequency(combo % 2 === 0 ? 2 : 1);
+}
+
 function comboFrequency(combo) {
   const step = Math.max(0, combo - 1) % (PENTATONIC_STEPS.length * 2);
   const semitones = PENTATONIC_STEPS[step % PENTATONIC_STEPS.length] + 12 * Math.floor(step / PENTATONIC_STEPS.length);
@@ -393,7 +398,7 @@ const SOUNDS = {
   },
   // 로봇 명중(레트로 아케이드풍): ① 8비트 '퍽'(사각파가 520→90Hz로 곤두박질) ② 부서지는 '빡'(대역 잡음)
   // ③ 몸통 '퉁' ④ 전기 스파크 '지직'(무작위 간격 고역 틱 3개) ⑤ 로봇 반응음 — 처치되면 위로 '삐빅!', 버티면 아래로 '삐-익'.
-  // 반응음 음높이는 콤보마다 5음 음계로 올라가 연속 명중이 점점 신난다. 종류별로 탱크는 낮고 굵게, 빠른 로봇은 높고 가볍게,
+  // 반응음은 콤보 1·2단계 두 음을 번갈아 써서 너무 높아지지 않는다. 종류별로 탱크는 낮고 굵게, 빠른 로봇은 높고 가볍게,
   // 노트북은 더 세게. 매 타 음높이 ±4% 흔들기. 노드 약 12개, O(1)
   robotHit(engine, context, time, { type = 'basic', weapon = 'phone', remainingHp = 0, combo = 1 } = {}) {
     const body = ROBOT_HIT_BODIES[type] ?? ROBOT_HIT_BODIES.basic;
@@ -405,9 +410,9 @@ const SOUNDS = {
     engine.noise(context, { startTime: time, peak: 0.09 * weight, decay: 0.05, filterType: 'bandpass', frequency: heavy ? 1300 : 1900, q: 0.9 });
     engine.tone(context, { frequency: body.thud * pitch, sweepTo: 45, startTime: time, peak: 0.1 * weight, decay: 0.1, attack: 0.002 });
     for (let index = 0; index < 3; index++) {
-      engine.noise(context, { startTime: time + 0.03 + index * 0.018 + Math.random() * 0.012, peak: 0.035, decay: 0.008, filterType: 'highpass', frequency: 5000 + Math.random() * 2500 });
+      engine.noise(context, { startTime: time + 0.03 + index * 0.018 + Math.random() * 0.012, peak: 0.035, decay: 0.008, filterType: 'highpass', frequency: 3200 + Math.random() * 1200 });
     }
-    const voice = comboFrequency(combo) * body.voice * pitch;
+    const voice = robotVoiceFrequency(combo) * body.voice * pitch;
     if (remainingHp > 0) {
       engine.tone(context, { frequency: voice * 1.5, sweepTo: voice * 0.7, startTime: time + 0.05, peak: 0.035, decay: 0.16, waveform: 'square', filter: crunchy });
       engine.tone(context, { frequency: body.plate * 3.1 * pitch, sweepTo: body.plate * 2.95 * pitch, startTime: time + 0.02, peak: 0.02, decay: 0.22, attack: 0.002 });
@@ -416,16 +421,16 @@ const SOUNDS = {
       engine.tone(context, { frequency: voice * 1.5, startTime: time + 0.1, peak: 0.04, decay: 0.07, waveform: 'square', filter: crunchy });
     }
   },
-  // 로봇 처치(휴대폰 던지기): 펑 터지는 폭발 + 로봇이 꺼지는 '뿌우웅↓'(톱니파 하강) + 파편 '찰랑'(높은 틱 5개)
-  // + 점수 '띠링'(동전음, 콤보만큼 높아짐). O(1)
+  // 로봇 처치(휴대폰 던지기): 펑 터지는 폭발 + 로봇이 꺼지는 '뿌우웅↓'(톱니파 하강) + 파편 '찰랑'(중고역 틱 5개)
+  // + 점수 '띠링'(반응음과 같은 두 음). O(1)
   robotKill(engine, context, time, { type = 'basic', combo = 1 } = {}) {
     const big = type === 'tank' ? 1.3 : 1;
     engine.noise(context, { startTime: time, peak: 0.14 * big, decay: 0.38 * big, filterType: 'lowpass', frequency: 1800, sweepTo: 120 });
     engine.tone(context, { frequency: 620, sweepTo: 70, startTime: time + 0.04, peak: 0.05, decay: 0.32 * big, waveform: 'sawtooth', filter: { type: 'lowpass', frequency: 1400 } });
     for (let index = 0; index < 5; index++) {
-      engine.tone(context, { frequency: 2400 + Math.random() * 2200, startTime: time + 0.08 + index * 0.04 + Math.random() * 0.02, peak: 0.012, decay: 0.05 });
+      engine.tone(context, { frequency: 1400 + Math.random() * 900, startTime: time + 0.08 + index * 0.04 + Math.random() * 0.02, peak: 0.012, decay: 0.05 });
     }
-    const coin = comboFrequency(combo) * 2;
+    const coin = robotVoiceFrequency(combo);
     engine.tone(context, { frequency: coin, startTime: time + 0.16, peak: 0.035, decay: 0.05, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
     engine.tone(context, { frequency: coin * 4 / 3, startTime: time + 0.21, peak: 0.035, decay: 0.2, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
   },
