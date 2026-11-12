@@ -331,11 +331,11 @@ function ringTone(engine, context, { frequency, sweepTo, startTime, peak, decay,
 // 승리·패배음 세기 배율: 판이 끝나는 순간이라 다른 효과음보다 확실히 크게
 const END_LOUDNESS = 2.2;
 
-// 금관 음색: 트럼펫은 밝고 '빠!' 하고 터지며, 호른은 부드럽고 둥글다.
+// 금관 음색: 트럼펫은 밝고, 호른은 부드럽고 둥글다. 튕기는 느낌이 없도록 필터가 터지지 않고(open = body) 음도 곧게 들어간다.
 // open 터질 때 필터가 열리는 높이(Hz), body 이어지는 동안 필터 높이(Hz), attack 차오름(초), scoop 시작 음이 낮게 들어갔다 올라오는 비율
 const BRASS_TIMBRES = Object.freeze({
-  trumpet: Object.freeze({ open: 3200, body: 1500, attack: 0.03, scoop: 0.035, q: 1.4 }),
-  horn: Object.freeze({ open: 1100, body: 650, attack: 0.07, scoop: 0.02, q: 0.8 })
+  trumpet: Object.freeze({ open: 1500, body: 1500, attack: 0.05, scoop: 0, q: 0.7 }),
+  horn: Object.freeze({ open: 650, body: 650, attack: 0.08, scoop: 0, q: 0.7 })
 });
 
 // 금관 음: 톱니파 → 공명 저역 필터. 숨을 넣는 순간 필터가 확 열렸다 닫히고(금관 특유의 '빠') 음이 살짝 아래에서 올라온다.
@@ -618,15 +618,14 @@ const SOUNDS = {
     engine.tone(context, { frequency: 1046.5, startTime: time + 0.42, peak: 0.025 * END_LOUDNESS, decay: 0.8, waveform: 'square', filter: lead });
     engine.bell(context, { frequency: 1046.5, startTime: time + 0.42, peak: 0.035 * END_LOUDNESS, length: 1.2 });
   },
-  // 패배(묵직하게): 한 옥타브 낮춘 '빠-밤-빠-바아암~'. 위는 트럼펫, 한 옥타브 아래는 호른, 사인 저음 '둥'을 받친다.
+  // 패배(묵직하게): 한 옥타브 낮춘 '빠-밤-빠-바아암~'. 위는 트럼펫, 한 옥타브 아래는 호른. 음을 이어 불어(레가토) 튕기지 않게 한다.
   // 마지막 음은 떨며 아래로 처지고, 그 밑에서 깊은 '쿠웅'(60→28Hz)과 어두운 잡음 울림이 길게 남는다(약 2.4초)
   defeat(engine, context, time) {
     const notes = [196, 185, 174.61];
     notes.forEach((frequency, index) => {
       const startTime = time + index * 0.34;
-      brassTone(engine, context, { frequency, startTime, length: 0.28, peak: 0.06 * END_LOUDNESS, timbre: 'trumpet' });
-      brassTone(engine, context, { frequency: frequency / 2, startTime, length: 0.28, peak: 0.06 * END_LOUDNESS, timbre: 'horn' });
-      engine.tone(context, { frequency: frequency / 2, startTime, peak: 0.08 * END_LOUDNESS, decay: 0.26 });
+      brassTone(engine, context, { frequency, startTime, length: 0.36, peak: 0.06 * END_LOUDNESS, timbre: 'trumpet' });
+      brassTone(engine, context, { frequency: frequency / 2, startTime, length: 0.36, peak: 0.06 * END_LOUDNESS, timbre: 'horn' });
     });
     const last = time + notes.length * 0.34;
     brassTone(engine, context, { frequency: 164.81, slideTo: 146.83, startTime: last, length: 1.2, peak: 0.065 * END_LOUDNESS, vibrato: 0.02, timbre: 'trumpet' });
