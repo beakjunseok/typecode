@@ -418,47 +418,245 @@ td.num:last-child { font-weight: 600; }
 .input-bar .target-hint.notice { color: var(--amber); font-weight: 700; }
 #hiddenInput { position: fixed; opacity: 0; left: 0; top: 0; width: 1px; height: 1px; border: 0; padding: 0; resize: none; font-size: 16px; }
 
-/* ---------- 블랙 RGB 키보드 ---------- */
+/* ---------- 화면 키보드: 스킨(--kc-*, --case-bg, data-material) + LED(키마다 --led 색, --led-a 세기) ---------- */
 .keyboard-section { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .keyboard-section[hidden] { display: none; }
 .keyboard {
   --unit: min(52px, calc((100vw - 64px) / 15.6));
-  display: flex; flex-direction: column; gap: 5px; padding: 12px; border-radius: 16px;
-  background: linear-gradient(180deg, #14172a, #0a0c17); border: 1px solid #22284a;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --gap: 5px;
+  --kc-alpha-bg: #1e2133; --kc-alpha-fg: #d8e0ff; --kc-mod-bg: #161927; --kc-mod-fg: #9aa4c8;
+  --kc-accent-bg: #232846; --kc-accent-fg: #ffffff; --case-bg: #0e1120;
+  --under: transparent; --under-a: 0;
+  position: relative; display: flex; flex-direction: column; gap: var(--gap); padding: 12px; border-radius: 16px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--case-bg) 82%, #fff 18%), var(--case-bg) 22%, color-mix(in srgb, var(--case-bg) 80%, #000 20%));
+  border: 1px solid color-mix(in srgb, var(--case-bg) 70%, #fff 30%);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 -2px 0 rgba(0, 0, 0, 0.35);
 }
-.kb-row { display: flex; gap: 5px; justify-content: center; }
+/* 미리보기 키보드: 담긴 상자의 폭에 맞춘다(15.6키 + 틈 + 여백) */
+.gacha-preview, .collection-preview { container-type: inline-size; width: 100%; display: flex; justify-content: center; }
+.keyboard.compact { --unit: min(30px, calc((100cqi - 60px) / 15.6)); --gap: 3px; padding: 7px; border-radius: 10px; }
+.keyboard.underglow::after {
+  content: ''; position: absolute; inset: auto 6% -10px; height: 22px; border-radius: 50%; z-index: -1; pointer-events: none;
+  background: var(--under); opacity: calc(var(--under-a) * 0.9); filter: blur(14px);
+}
+/* 소재별 케이스 */
+.keyboard[data-material='wood'] {
+  background:
+    repeating-linear-gradient(97deg, rgba(0, 0, 0, 0.16) 0 2px, transparent 2px 9px, rgba(255, 255, 255, 0.05) 9px 10px, transparent 10px 17px),
+    linear-gradient(180deg, #7a5233, var(--case-bg) 40%, #3e2716);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -6px 0 #c9a24a, inset 0 -7px 0 #f3d98a;
+}
+.keyboard[data-material='metal'] {
+  background: linear-gradient(115deg, color-mix(in srgb, var(--case-bg) 70%, #fff 30%), var(--case-bg) 35%, color-mix(in srgb, var(--case-bg) 75%, #000 25%) 70%, color-mix(in srgb, var(--case-bg) 80%, #fff 20%));
+}
+.keyboard[data-material='frost'] {
+  background: linear-gradient(180deg, rgba(220, 235, 255, 0.30), rgba(170, 195, 235, 0.16));
+  border-color: rgba(220, 235, 255, 0.45); backdrop-filter: blur(8px);
+}
+.kb-row { display: flex; gap: var(--gap); justify-content: center; }
 .key {
-  position: relative; width: calc(var(--unit) * var(--w) + 5px * (var(--w) - 1)); height: var(--unit);
-  border-radius: 7px; background: linear-gradient(180deg, #1e2133 0%, #13151f 100%);
-  box-shadow: inset 0 -3px 0 #05060b, inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 2px 0 #000;
+  --bg: var(--kc-alpha-bg); --fg: var(--kc-alpha-fg);
+  position: relative; width: calc(var(--unit) * var(--w) + var(--gap) * (var(--w) - 1)); height: var(--unit);
+  border-radius: 7px; background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 88%, #fff 12%) 0%, var(--bg) 55%, color-mix(in srgb, var(--bg) 85%, #000 15%) 100%);
+  box-shadow: inset 0 -3px 0 color-mix(in srgb, var(--bg) 60%, #000 40%), inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 2px 0 rgba(0, 0, 0, 0.55);
   display: flex; align-items: flex-start; justify-content: flex-start; padding: 5px 7px; overflow: hidden;
   transition: transform 0.06s, box-shadow 0.12s;
 }
+.key.mod { --bg: var(--kc-mod-bg); --fg: var(--kc-mod-fg); }
+.key.accent { --bg: var(--kc-accent-bg); --fg: var(--kc-accent-fg); }
+.compact .key { border-radius: 4px; padding: 2px 3px; }
 .key.wide .legend { font-size: 10px; letter-spacing: 0.5px; }
-/* RGB 백라이트: 키 위치별 색상 위상 + 전체가 천천히 색상 회전 */
+/* LED 백라이트: JS가 키마다 색(--led)과 세기(--led-a)를 매 프레임 넣는다 */
 .key .glow {
-  position: absolute; inset: auto 0 0 0; height: 100%; pointer-events: none;
-  background: radial-gradient(120% 80% at 50% 110%, hsl(var(--hue) 95% 55% / 0.55), transparent 65%);
-  animation: rgb-wave 6s linear infinite;
+  position: absolute; inset: 0; pointer-events: none; opacity: var(--led-a, 0);
+  background: radial-gradient(120% 85% at 50% 108%, var(--led, transparent), transparent 70%);
+  mix-blend-mode: screen;
 }
 .key .legend { position: relative; display: flex; flex-direction: column; gap: 1px; font: 600 13px/1.1 var(--font-code); }
-.key .base { color: hsl(var(--hue) 100% 80%); text-shadow: 0 0 6px hsl(var(--hue) 100% 60% / 0.8); animation: rgb-wave 6s linear infinite; }
-.key .shifted { font-size: 9px; color: #6b7390; }
+.compact .key .legend { font-size: 8px; }
+.compact .key .shifted, .compact .key::before { display: none; }
+.key .base { color: var(--fg); }
+.keyboard.shine .key .base { color: var(--led-text, var(--fg)); text-shadow: 0 0 6px var(--led-text, transparent); }
+.key .shifted { font-size: 9px; color: color-mix(in srgb, var(--fg) 55%, var(--bg) 45%); }
 .key::before { content: ''; position: absolute; left: 6px; right: 6px; bottom: 3px; height: 2px; border-radius: 1px; background: var(--finger); opacity: 0.35; }
-.key.home::after { content: ''; position: absolute; left: 50%; bottom: 8px; width: 10px; height: 2px; margin-left: -5px; background: #6b7390; border-radius: 1px; }
-.key.next { transform: translateY(-2px); box-shadow: 0 0 0 2px #ffffff, 0 0 18px rgba(255, 255, 255, 0.55), inset 0 -3px 0 #05060b; }
-.key.next .glow, .key.next-shift .glow { animation: none; background: radial-gradient(120% 90% at 50% 100%, rgba(255, 255, 255, 0.4), transparent 70%); }
-.key.next .base { color: #ffffff; animation: none; }
+.key.home::after { content: ''; position: absolute; left: 50%; bottom: 8px; width: 10px; height: 2px; margin-left: -5px; background: color-mix(in srgb, var(--fg) 60%, transparent); border-radius: 1px; }
+/* 소재별 키캡 */
+[data-material='pudding'] .key {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg) 90%, #fff 10%) 0 58%, color-mix(in srgb, var(--bg) 25%, transparent) 62% 100%);
+}
+[data-material='pudding'] .key .glow { background: radial-gradient(140% 70% at 50% 115%, var(--led, transparent), transparent 75%); }
+[data-material='crystal'] .key {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--bg) 40%, transparent), color-mix(in srgb, var(--bg) 14%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bg) 60%, #fff 40%), inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+[data-material='crystal'] .key .glow { background: radial-gradient(60% 60% at 50% 60%, var(--led, transparent), transparent 80%); }
+[data-material='ceramic'] .key {
+  background: radial-gradient(70% 45% at 32% 22%, rgba(255, 255, 255, 0.55), transparent 60%), linear-gradient(180deg, color-mix(in srgb, var(--bg) 85%, #fff 15%), var(--bg));
+}
+[data-material='blank'] .key { align-items: flex-end; }
+[data-material='blank'] .key .legend { font-size: 9px; opacity: 0.9; }
+[data-material='blank'] .key .shifted { display: none; }
+.key.next { transform: translateY(-2px); box-shadow: 0 0 0 2px #ffffff, 0 0 18px rgba(255, 255, 255, 0.55), inset 0 -3px 0 rgba(0, 0, 0, 0.5); }
+.key.next .base { color: #ffffff; text-shadow: 0 0 4px #000, 0 0 8px rgba(255, 255, 255, 0.6); }
 .key.next::after, .key.next-shift::after {
   content: ''; position: absolute; right: 7px; top: 7px; width: 10px; height: 10px; margin: 0; border-radius: 50%;
   background: #ff8a1f; box-shadow: 0 0 10px #ff8a1f; left: auto; bottom: auto;
 }
-.key.next-shift { box-shadow: 0 0 0 2px #ff8a1f, 0 0 14px rgba(255, 138, 31, 0.5), inset 0 -3px 0 #05060b; }
-.key.pressed-ok { transform: translateY(2px); box-shadow: 0 0 0 2px var(--mint), 0 0 20px var(--mint), inset 0 -1px 0 #05060b; }
-.key.pressed-bad { transform: translateY(2px); box-shadow: 0 0 0 2px var(--coral), 0 0 20px var(--coral), inset 0 -1px 0 #05060b; }
-@keyframes rgb-wave { to { filter: hue-rotate(360deg); } }
+.key.next-shift { box-shadow: 0 0 0 2px #ff8a1f, 0 0 14px rgba(255, 138, 31, 0.5), inset 0 -3px 0 rgba(0, 0, 0, 0.5); }
+.key.pressed-ok { transform: translateY(2px); box-shadow: 0 0 0 2px var(--mint), 0 0 20px var(--mint), inset 0 -1px 0 rgba(0, 0, 0, 0.5); }
+.key.pressed-bad { transform: translateY(2px); box-shadow: 0 0 0 2px var(--coral), 0 0 20px var(--coral), inset 0 -1px 0 rgba(0, 0, 0, 0.5); }
 .kb-hint { font-size: 13px; color: var(--finger, var(--dim)); min-height: 18px; }
+body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
+
+/* ---------- 키보드 뽑기 ---------- */
+.gacha-button { position: relative; }
+.gacha-button.has-draw::after {
+  content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--coral); box-shadow: 0 0 0 2px var(--ink), 0 0 8px var(--coral); animation: draw-dot 1.6s ease-in-out infinite;
+}
+@keyframes draw-dot { 50% { transform: scale(1.35); } }
+.gacha-card { max-width: 560px; --tier-color: #ffd36e; }
+.gacha-stage {
+  --rarity: #e9edf8;
+  position: relative; height: 300px; margin: 0 0 14px; border-radius: 14px; overflow: hidden; cursor: pointer;
+  background: radial-gradient(80% 70% at 50% 60%, color-mix(in srgb, var(--rarity) 16%, #0b0e1c), #05070f 75%);
+  border: 1px solid var(--rule); transition: background 0.4s;
+  isolation: isolate;
+}
+.gacha-stage::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: 0.5;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px);
+}
+.gacha-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.gacha-rays {
+  position: absolute; left: 50%; top: 50%; width: 760px; height: 760px; margin: -380px 0 0 -380px; pointer-events: none; opacity: 0;
+  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--rarity) 55%, transparent) 0 6deg, transparent 6deg 20deg);
+  mask-image: radial-gradient(closest-side, #000 15%, transparent 72%); -webkit-mask-image: radial-gradient(closest-side, #000 15%, transparent 72%);
+  transition: opacity 0.5s;
+}
+.gacha-stage[data-phase='charge'] .gacha-rays { opacity: 0.18; animation: rays-spin 6s linear infinite; }
+.gacha-stage.tell .gacha-rays { opacity: 0.45; animation-duration: 2.4s; }
+.gacha-stage[data-phase='burst'] .gacha-rays, .gacha-stage[data-phase='result'] .gacha-rays { animation: rays-spin 14s linear infinite; }
+.gacha-stage[data-rank='0'][data-phase='result'] .gacha-rays { opacity: 0.08; }
+.gacha-stage[data-rank='1'][data-phase='result'] .gacha-rays { opacity: 0.18; }
+.gacha-stage[data-rank='2'][data-phase='result'] .gacha-rays { opacity: 0.3; }
+.gacha-stage[data-rank='3'][data-phase='result'] .gacha-rays { opacity: 0.45; }
+.gacha-stage[data-rank='4'][data-phase='result'] .gacha-rays { opacity: 0.65; animation-duration: 8s; }
+@keyframes rays-spin { to { transform: rotate(360deg); } }
+
+/* 키캡 캡슐: 큰 키캡 하나. 윗면에 '?' */
+.gacha-capsule { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; margin: -70px 0 0 -60px; z-index: 1; }
+.cap-shadow { position: absolute; left: 10%; right: 10%; bottom: -26px; height: 16px; border-radius: 50%; background: rgba(0, 0, 0, 0.6); filter: blur(6px); }
+.cap-body {
+  position: absolute; inset: 0; border-radius: 22px;
+  background: linear-gradient(180deg, #3a4270, #1c2142 70%, #12162e);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rarity) 60%, transparent), 0 0 34px color-mix(in srgb, var(--rarity) 55%, transparent), inset 0 -10px 0 #0b0e20;
+  transition: box-shadow 0.35s;
+}
+.cap-top {
+  position: absolute; inset: 12px 14px 22px; border-radius: 14px; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(90% 80% at 50% 35%, #4a5390, #262c58);
+  box-shadow: inset 0 3px 8px rgba(0, 0, 0, 0.45), inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+}
+.cap-mark { font: 400 48px/1 var(--font-display); color: var(--rarity); text-shadow: 0 0 18px var(--rarity); transition: color 0.35s, text-shadow 0.35s; }
+.gacha-stage[data-phase='idle'] .gacha-capsule { animation: cap-float 2.4s ease-in-out infinite; }
+.gacha-stage[data-phase='done'] .gacha-capsule { opacity: 0.35; filter: grayscale(1); }
+.gacha-stage[data-phase='drop'] .gacha-capsule { animation: cap-drop 0.48s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+.gacha-stage[data-phase='charge'] .cap-body { animation: cap-shake 0.09s linear infinite; }
+.gacha-stage.tell .cap-body { animation-duration: 0.06s; }
+.gacha-stage[data-phase='charge'] .gacha-capsule { animation: cap-grow 2.4s ease-in both; }
+.gacha-stage[data-phase='burst'] .gacha-capsule, .gacha-stage[data-phase='result'] .gacha-capsule { animation: cap-pop 0.45s ease-out forwards; }
+@keyframes cap-float { 50% { transform: translateY(-8px); } }
+@keyframes cap-drop { from { transform: translateY(-260px) scale(0.7); } to { transform: none; } }
+@keyframes cap-shake { 0% { transform: translate(0, 0) rotate(0); } 25% { transform: translate(-3px, 1px) rotate(-3deg); } 50% { transform: translate(2px, -1px) rotate(2deg); } 75% { transform: translate(3px, 2px) rotate(-1deg); } }
+@keyframes cap-grow { to { transform: scale(1.18); } }
+@keyframes cap-pop { 0% { transform: scale(1.18); opacity: 1; } 40% { transform: scale(1.6); opacity: 0.9; filter: brightness(3); } 100% { transform: scale(2.4); opacity: 0; } }
+.gacha-stage[data-phase='result'] .gacha-capsule { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .gacha-stage[data-phase='burst'] .gacha-capsule { opacity: 0; } }
+.gacha-flash { position: absolute; inset: 0; z-index: 4; pointer-events: none; opacity: 0; background: radial-gradient(circle at 50% 50%, #fff, color-mix(in srgb, var(--rarity) 70%, #fff) 35%, transparent 75%); }
+.gacha-stage[data-phase='burst'] .gacha-flash { animation: flash 0.7s ease-out; }
+@keyframes flash { 0% { opacity: 0; } 12% { opacity: 1; } 100% { opacity: 0; } }
+.gacha-stage[data-phase='burst'][data-rank='3'], .gacha-stage[data-phase='burst'][data-rank='4'] { animation: stage-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97); }
+@keyframes stage-shake { 10%, 90% { transform: translate(-2px, 1px); } 20%, 80% { transform: translate(4px, -2px); } 30%, 50%, 70% { transform: translate(-6px, 3px); } 40%, 60% { transform: translate(6px, -3px); } }
+.gacha-tap { position: absolute; left: 0; right: 0; bottom: 14px; margin: 0; text-align: center; font-size: 12px; color: var(--fog); pointer-events: none; }
+.gacha-stage:not([data-phase='idle']) .gacha-tap { display: none; }
+
+.gacha-result {
+  position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px; text-align: center; pointer-events: auto;
+}
+.gacha-result[hidden] { display: none; }
+.gacha-stage[data-phase='burst'] .gacha-result > *, .gacha-stage[data-phase='result'] .gacha-result > * { animation: rise-in 0.55s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.gacha-result > :nth-child(2) { animation-delay: 0.08s !important; }
+.gacha-result > :nth-child(3) { animation-delay: 0.16s !important; }
+.gacha-result > :nth-child(4) { animation-delay: 0.3s !important; }
+@keyframes rise-in { from { opacity: 0; transform: translateY(18px) scale(0.92); } }
+.gacha-rarity { font: 400 14px/1 var(--font-display); color: var(--rarity); letter-spacing: 1px; text-shadow: 0 0 12px var(--rarity); }
+.gacha-name { font: 400 26px/1.1 var(--font-display); color: #fff; text-shadow: 0 0 18px color-mix(in srgb, var(--rarity) 80%, transparent), 0 2px 0 #000; }
+.gacha-stage[data-rank='4'] .gacha-name {
+  background: linear-gradient(90deg, #fff1b8, #ffd24a, #fff, #ff9f1c, #fff1b8); background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: gold-sweep 2.4s linear infinite, rise-in 0.55s both;
+}
+@keyframes gold-sweep { to { background-position: -200% 0; } }
+.gacha-preview { filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.6)); }
+.gacha-note { font-size: 13px; color: var(--fog); }
+.gacha-note b { color: var(--amber); }
+.new-badge { display: inline-block; padding: 2px 6px; margin-right: 4px; border-radius: 5px; font: 400 11px/1 var(--font-display); color: #1d1300; background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+.gacha-pity { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 14px; font-size: 12px; color: var(--fog); }
+.gacha-pity span { --rarity: var(--paper); }
+.gacha-pity b { color: var(--rarity); font-weight: 700; }
+.gacha-odds { margin-top: 14px; font-size: 12px; color: var(--fog); }
+.gacha-odds summary { cursor: pointer; }
+.gacha-odds table { width: 100%; margin: 8px 0; border-collapse: collapse; }
+.gacha-odds td { padding: 5px 4px; border-bottom: 1px solid var(--rule-soft); }
+.gacha-odds .odds-name { color: var(--rarity); }
+.gacha-odds p { margin: 6px 0 0; line-height: 1.6; }
+
+/* ---------- 도감 ---------- */
+.collection-card { max-width: 780px; --tier-color: #8be9fd; }
+.collection-detail {
+  --rarity: #e9edf8;
+  display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: center; padding: 14px; margin-bottom: 12px;
+  border: 1px solid color-mix(in srgb, var(--rarity) 45%, var(--rule)); border-radius: 14px;
+  background: radial-gradient(90% 120% at 0% 50%, color-mix(in srgb, var(--rarity) 12%, transparent), transparent 70%), rgba(9, 12, 24, 0.5);
+}
+.collection-preview { width: 480px; max-width: 100%; }
+.collection-rarity { font: 400 13px/1 var(--font-display); color: var(--rarity); letter-spacing: 1px; }
+.collection-name { margin: 6px 0 4px; font: 400 22px/1.15 var(--font-display); color: var(--paper); }
+.collection-desc { margin: 0 0 6px; font-size: 13px; line-height: 1.55; color: var(--fog); }
+.collection-led { margin: 0 0 10px; font-size: 12px; color: var(--dim); }
+.collection-info .actions button { padding: 9px 10px; font-size: 13px; }
+.collection-info .actions button[hidden] { display: none; }
+.led-settings { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 12px; font-size: 12px; color: var(--fog); }
+.led-settings-title { font-weight: 700; color: var(--paper); }
+.led-settings label { display: flex; gap: 6px; align-items: center; }
+.led-settings select { max-width: 210px; font-size: 12px; padding: 6px 28px 6px 9px; }
+.led-settings button { margin-left: auto; padding: 6px 10px; font-size: 12px; }
+.collection-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.collection-filters .chip { font: 600 12px/1 var(--font-ui); color: var(--fog); border-color: var(--rule); padding: 7px 10px; }
+.collection-filters .chip.active { color: #0b0e1c; background: var(--rarity); border-color: var(--rarity); }
+.collection-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; max-height: 340px; overflow-y: auto; padding: 2px; }
+.skin-tile {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 8px; text-align: left;
+  border: 1px solid color-mix(in srgb, var(--rarity) 35%, var(--rule)); border-radius: 10px; background: rgba(9, 12, 24, 0.55);
+}
+.skin-tile.selected { border-color: var(--rarity); box-shadow: 0 0 0 1px var(--rarity), 0 0 16px color-mix(in srgb, var(--rarity) 40%, transparent); }
+.skin-tile .swatch {
+  position: relative; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; width: 100%; padding: 6px; border-radius: 6px;
+  background: var(--case); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+.skin-tile .swatch i { height: 14px; border-radius: 3px; box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.3); }
+.skin-tile .swatch .a { background: var(--alpha); }
+.skin-tile .swatch .m { background: var(--mod); }
+.skin-tile .swatch .x { background: var(--accent); }
+.skin-tile .swatch .led { position: absolute; right: 4px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--led); box-shadow: 0 0 6px rgba(255, 255, 255, 0.5); }
+.tile-stars { font-size: 10px; color: var(--rarity); letter-spacing: 1px; }
+.tile-name { font-size: 12px; font-weight: 600; color: var(--paper); line-height: 1.25; }
+.skin-tile.locked .swatch { filter: grayscale(0.85) brightness(0.55); }
+.skin-tile.locked .tile-name { color: var(--dim); }
+.tile-lock { position: absolute; right: 8px; bottom: 8px; font-size: 11px; opacity: 0.7; }
+.tile-tag { position: absolute; left: 6px; top: 6px; padding: 2px 5px; border-radius: 4px; font-size: 10px; font-weight: 700; color: #0b0e1c; background: var(--mint); }
+.collection-grid .empty { grid-column: 1 / -1; color: var(--dim); font-size: 13px; }
 
 /* ---------- 배터리 구조 PvP 로비 ---------- */
 .stage.arcade { position: relative; }
@@ -520,11 +718,11 @@ td.num:last-child { font-weight: 600; }
   .mode-tabs { display: grid; grid-template-columns: 0.75fr 1.2fr 1.1fr; gap: 6px; }
   .keycap { justify-content: center; gap: 5px; padding: 10px 4px 11px; font-size: 13px; border-radius: 8px; }
   .keycap-icon { font-size: 13px; }
-  .controls { gap: 6px; flex-wrap: nowrap; }
+  .controls { gap: 6px; flex-wrap: wrap; }
   .controls select { flex: 1; min-width: 0; padding: 7px 24px 7px 8px; font-size: 12px; background-position: right 8px center, 0 0; }
   .segmented { padding: 2px; }
   .segmented button { padding: 6px 6px; font-size: 12px; }
-  .icon-buttons { gap: 0; }
+  .icon-buttons { gap: 0; flex: 1 0 100%; justify-content: flex-end; margin-top: -2px; }
   button.icon { width: 30px; height: 32px; font-size: 15px; }
   #keyboardToggle { font-size: 17px; }
 
@@ -548,15 +746,21 @@ td.num:last-child { font-weight: 600; }
   .card { padding: 22px 16px 18px; border-radius: 16px; }
   .pvp-code { font-size: 36px; letter-spacing: 10px; }
 
-  .keyboard { padding: 6px; gap: 3px; border-radius: 10px; }
-  .kb-row { gap: 3px; }
+  .keyboard { padding: 6px; --gap: 3px; border-radius: 10px; }
   .key { padding: 2px 3px; border-radius: 4px; }
+  .gacha-stage { height: 270px; }
+  .collection-detail { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; padding: 10px; }
+  .collection-preview { width: 100%; }
+  .collection-info .actions { justify-content: center; }
+  .led-settings button { margin-left: 0; }
+  .collection-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); max-height: 300px; }
   .key .legend { font-size: 9px; }
   .key .shifted { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .spark { display: none; }
+  .gacha-stage *, .gacha-stage, .gacha-button::after,
   .stage.shake, .stage.tier-flash, .current.enter, .stat.time.low .value, .key .glow, .key .base,
   .logo-caret, .input-bar .caret, .time-bonus, .pvp-countdown.pop { animation: none; }
   .keycap, .rules summary::before { transition: none; }

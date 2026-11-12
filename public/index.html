@@ -42,6 +42,8 @@
       <div class="icon-buttons">
         <button type="button" class="icon" id="soundToggle" aria-pressed="true" title="효과음">🔊</button>
         <button type="button" class="icon" id="bgmToggle" aria-pressed="true" title="배경음악">♫</button>
+        <button type="button" class="icon gacha-button" id="gachaButton" title="오늘의 키보드 뽑기">🎁</button>
+        <button type="button" class="icon" id="collectionButton" title="키보드 도감">📖</button>
         <button type="button" class="icon" id="keyboardToggle" aria-pressed="true" title="화면 키보드">⌨</button>
         <button type="button" class="icon" id="restartButton" title="재시작 (Esc)">↻</button>
       </div>
@@ -200,6 +202,69 @@
         <button type="submit" class="primary" id="saveButton">랭킹 등록</button>
       </div>
     </form>
+  </div>
+</div>
+<div class="modal gacha-modal" id="gachaModal" hidden>
+  <div class="card gacha-card" role="dialog" aria-modal="true" aria-labelledby="gachaTitle">
+    <button type="button" class="modal-close" id="gachaClose" aria-label="닫기" title="닫기">✕</button>
+    <h3 id="gachaTitle">오늘의 키보드 뽑기</h3>
+    <p class="sub" id="gachaSub"></p>
+    <div class="gacha-stage" id="gachaStage" data-phase="idle">
+      <div class="gacha-rays" aria-hidden="true"></div>
+      <canvas class="gacha-canvas" id="gachaCanvas" aria-hidden="true"></canvas>
+      <div class="gacha-capsule" id="gachaCapsule" aria-hidden="true">
+        <span class="cap-shadow"></span>
+        <span class="cap-body"><span class="cap-top"><span class="cap-mark">?</span></span></span>
+      </div>
+      <div class="gacha-result" id="gachaResult" role="status" hidden>
+        <div class="gacha-rarity" id="gachaRarity"></div>
+        <div class="gacha-name" id="gachaName"></div>
+        <div class="gacha-preview" id="gachaPreview"></div>
+        <div class="gacha-note" id="gachaNote"></div>
+      </div>
+      <div class="gacha-flash" aria-hidden="true"></div>
+      <p class="gacha-tap">눌러서 뽑기</p>
+    </div>
+    <div class="gacha-pity" id="gachaPity"></div>
+    <div class="actions">
+      <button type="button" id="gachaToCollection">📖 도감</button>
+      <button type="button" id="gachaSkip" hidden>건너뛰기</button>
+      <button type="button" id="gachaEquip" hidden>바로 장착</button>
+      <button type="button" class="primary" id="gachaDraw">뽑기</button>
+    </div>
+    <details class="gacha-odds"><summary>등급별 확률 · 천장</summary>
+      <table id="gachaOdds"></table>
+      <p>희귀 이상은 10회, 영웅 이상은 30회 안에 반드시 나오고, 전설은 45회째부터 확률이 매회 5%씩 올라 60회째에 확정돼요. 확정된 영웅·전설은 아직 없는 키보드부터 나와요. 첫 뽑기는 희귀 이상이에요.</p>
+    </details>
+  </div>
+</div>
+
+<div class="modal" id="collectionModal" hidden>
+  <div class="card collection-card" role="dialog" aria-modal="true" aria-labelledby="collectionTitle">
+    <button type="button" class="modal-close" id="collectionClose" aria-label="닫기" title="닫기">✕</button>
+    <h3 id="collectionTitle">키보드 도감</h3>
+    <p class="sub" id="collectionSub"></p>
+    <div class="collection-detail">
+      <div class="collection-preview" id="collectionPreview"></div>
+      <div class="collection-info">
+        <div class="collection-rarity" id="collectionRarity"></div>
+        <div class="collection-name" id="collectionName"></div>
+        <p class="collection-desc" id="collectionDesc"></p>
+        <p class="collection-led" id="collectionLed"></p>
+        <div class="actions">
+          <button type="button" id="collectionBuy" hidden></button>
+          <button type="button" class="primary" id="collectionEquip"></button>
+        </div>
+      </div>
+    </div>
+    <div class="led-settings">
+      <span class="led-settings-title">내 키보드 LED</span>
+      <label>무늬 <select id="ledPattern"></select></label>
+      <label>터치 반응 <select id="ledReactive"></select></label>
+      <button type="button" id="collectionToGacha">🎁 뽑기</button>
+    </div>
+    <div class="collection-filters" id="collectionFilters" role="group" aria-label="등급 필터"></div>
+    <div class="collection-grid" id="collectionGrid"></div>
   </div>
 </div>
 </body>

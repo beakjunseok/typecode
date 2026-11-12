@@ -112,6 +112,8 @@ export class SoundEngine {
     this.context = context;
     this.master = master;
     this.keyOut = keyOut;
+    this.outputs = [compressor, limiter];
+    this.analyser = null;
     this.noiseBuffer = this.createNoiseBuffer(context, 0.5);
     this.room = this.createRoom(context, keyOut);
   }
@@ -229,6 +231,40 @@ export class SoundEngine {
   }
 
   // 소리 이름으로 재생. 어떤 실패도 게임을 멈추지 않는다.
+  // 지금 나는 소리(효과음·BGM·키 소리)의 대역별 크기. 소리 반응 키보드 LED가 읽는다.
+  // 분석기는 처음 부를 때 출력 끝에 한 번만 붙인다. 소리를 아직 안 켰으면 null. O(bandCount + 128)
+  spectrum(bandCount = 8) {
+    const context = this.context;
+    if (!context || !this.outputs) return null;
+    try {
+      if (!this.analyser) {
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.72;
+        for (const output of this.outputs) output.connect(analyser);
+        this.analyser = analyser;
+        this.spectrumBins = new Uint8Array(analyser.frequencyBinCount);
+      }
+      const bins = this.spectrumBins;
+      this.analyser.getByteFrequencyData(bins);
+      const bands = [];
+      let total = 0;
+      // 낮은 대역이 넓게 보이도록 로그 간격으로 묶는다(1~96번 칸 ≈ 170Hz~16kHz)
+      for (let band = 0; band < bandCount; band++) {
+        const from = Math.max(1, Math.floor(96 ** (band / bandCount)));
+        const to = Math.max(from + 1, Math.floor(96 ** ((band + 1) / bandCount)));
+        let sum = 0;
+        for (let bin = from; bin < to; bin++) sum += bins[bin];
+        const value = Math.min(1, sum / (to - from) / 200);
+        bands.push(value);
+        total += value;
+      }
+      return { bands, level: Math.min(1, total / bandCount * 1.6) };
+    } catch (error) {
+      return null;
+    }
+  }
+
   play(soundName, options = {}) {
     if (!this.enabled) return;
     const context = this.ensureContext();
@@ -272,6 +308,7 @@ export class SoundEngine {
   noise(context, { startTime, peak, decay, filterType, frequency, q = 1, attack = 0.002, sweepTo = null, destination }) {
     const source = context.createBufferSource();
     source.buffer = this.noiseBuffer;
+    source.loop = true;
     const filter = context.createBiquadFilter();
     filter.type = filterType;
     filter.frequency.setValueAtTime(frequency, startTime);
@@ -641,6 +678,47 @@ const SOUNDS = {
     brassTone(engine, context, { frequency: 82.41, startTime: last, length: 1.1, peak: 0.065 * END_LOUDNESS, timbre: 'horn' });
     engine.tone(context, { frequency: 60, sweepTo: 28, startTime: last, peak: 0.14 * END_LOUDNESS, decay: 0.9, attack: 0.004 });
     engine.noise(context, { startTime: last, peak: 0.05 * END_LOUDNESS, decay: 1, filterType: 'lowpass', frequency: 400, sweepTo: 80 });
+  },
+  // ---------- 키보드 뽑기 ----------
+  // 캡슐이 흔들리며 힘을 모으는 소리: 필터가 열리는 잡음 '쉬이익' + 등급만큼 높이 올라가는 사이렌. rarity 0~4. length초
+  gachaCharge(engine, context, time, { rarity = 0, length = 1.6 } = {}) {
+    const top = 2400 + rarity * 1400;
+    engine.noise(context, { startTime: time, peak: 0.05, attack: length * 0.9, decay: 0.12, filterType: 'bandpass', frequency: 300, sweepTo: top, q: 3 });
+    engine.tone(context, { frequency: 160, sweepTo: 320 + rarity * 120, startTime: time, peak: 0.035, attack: length * 0.85, decay: 0.15, waveform: 'sawtooth', filter: { type: 'lowpass', frequency: 1200 } });
+    const ticks = 6 + rarity * 2;
+    for (let index = 0; index < ticks; index++) {
+      const progress = index / ticks;
+      engine.tone(context, { frequency: 700 + progress * (500 + rarity * 250), startTime: time + length * (1 - (1 - progress) ** 1.6), peak: 0.025 + progress * 0.02, decay: 0.035, waveform: 'square', filter: { type: 'lowpass', frequency: 3500 } });
+    }
+  },
+  // 캡슐이 열리는 순간: '팡' + 등급별 보상음. 일반은 짧은 '띵', 높을수록 화음·종소리·저음이 쌓이고 길어진다
+  gachaReveal(engine, context, time, { rarity = 0 } = {}) {
+    engine.noise(context, { startTime: time, peak: 0.1 + rarity * 0.025, decay: 0.12 + rarity * 0.06, filterType: 'highpass', frequency: 1800 });
+    engine.tone(context, { frequency: 120, sweepTo: 45, startTime: time, peak: 0.1 + rarity * 0.03, decay: 0.2 + rarity * 0.08 });
+    const root = 523.25;
+    const ladders = [[1, 1.5], [1, 1.26, 1.5], [1, 1.26, 1.5, 2], [1, 1.26, 1.5, 1.68, 2], [1, 1.26, 1.5, 2, 2.52, 3]];
+    const steps = ladders[Math.max(0, Math.min(4, rarity))];
+    const lead = { type: 'lowpass', frequency: 4200 };
+    steps.forEach((step, index) => {
+      const last = index === steps.length - 1;
+      engine.tone(context, { frequency: root * step, startTime: time + 0.04 + index * 0.07, peak: 0.055, decay: last ? 0.5 + rarity * 0.15 : 0.1, waveform: 'triangle' });
+      if (rarity >= 2) engine.tone(context, { frequency: root * step, startTime: time + 0.04 + index * 0.07, peak: 0.02, decay: last ? 0.4 : 0.08, waveform: 'square', filter: lead });
+    });
+    if (rarity >= 2) engine.bell(context, { frequency: root * steps[steps.length - 1], startTime: time + 0.04 + steps.length * 0.07, peak: 0.03 + rarity * 0.008, length: 0.8 + rarity * 0.3 });
+    if (rarity >= 3) {
+      const chordAt = time + 0.1 + steps.length * 0.07;
+      for (const step of [1, 1.26, 1.5, 2]) engine.tone(context, { frequency: root * step, startTime: chordAt, peak: 0.035, attack: 0.02, decay: 1.2 + (rarity - 3) * 0.6, waveform: 'triangle' });
+    }
+    if (rarity >= 4) {
+      engine.tone(context, { frequency: 65, sweepTo: 32, startTime: time, peak: 0.16, decay: 0.9 });
+      for (let index = 0; index < 8; index++) {
+        engine.tone(context, { frequency: 2093 * (1 + (index % 4) * 0.25), startTime: time + 0.5 + index * 0.06, peak: 0.018, decay: 0.12 });
+      }
+    }
+  },
+  // 결과를 고를 때·버튼 피드백: 짧은 '틱'
+  gachaTick(engine, context, time) {
+    engine.tone(context, { frequency: 1600, startTime: time, peak: 0.03, decay: 0.03, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
   },
   finish(engine, context, time) {
     [523.25, 659.25, 783.99, 1046.5].forEach((frequency, index) => {
