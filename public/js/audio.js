@@ -334,9 +334,11 @@ const END_LOUDNESS = 2.2;
 // 금관 음색: 트럼펫은 밝고, 호른은 부드럽고 둥글다. 튕기는 느낌이 없도록 필터가 터지지 않고(open = body) 음도 곧게 들어간다.
 // open 터질 때 필터가 열리는 높이(Hz), body 이어지는 동안 필터 높이(Hz), attack 차오름(초), scoop 시작 음이 낮게 들어갔다 올라오는 비율
 const BRASS_TIMBRES = Object.freeze({
-  trumpet: Object.freeze({ open: 1500, body: 1500, attack: 0.05, scoop: 0, q: 0.7 }),
-  horn: Object.freeze({ open: 650, body: 650, attack: 0.08, scoop: 0, q: 0.7 })
+  trumpet: Object.freeze({ open: 1700, body: 1700, attack: 0.015, scoop: 0, q: 0.7 }),
+  horn: Object.freeze({ open: 650, body: 650, attack: 0.03, scoop: 0, q: 0.7 })
 });
+
+const BRASS_RELEASE = 0.06;
 
 // 금관 음: 톱니파 → 공명 저역 필터. 숨을 넣는 순간 필터가 확 열렸다 닫히고(금관 특유의 '빠') 음이 살짝 아래에서 올라온다.
 // vibrato를 주면 0.25초 뒤부터 6Hz로 떤다. 노드 4~6개, O(1)
@@ -354,7 +356,14 @@ function brassTone(engine, context, { frequency, startTime, length, peak, timbre
   filter.frequency.exponentialRampToValueAtTime(voice.open, startTime + voice.attack);
   filter.frequency.exponentialRampToValueAtTime(voice.body, startTime + voice.attack + 0.12);
   oscillator.connect(filter);
-  filter.connect(engine.envelope(context, startTime, peak, voice.attack, length, engine.master));
+  // 힘이 빠지지 않게: 바로 최대 세기로 올라가 음 길이 내내 그대로 유지하고, 끝에서만 짧게(60ms) 끊는다
+  const gain = context.createGain();
+  gain.gain.setValueAtTime(0.0001, startTime);
+  gain.gain.exponentialRampToValueAtTime(peak, startTime + voice.attack);
+  gain.gain.setValueAtTime(peak, startTime + length);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startTime + length + BRASS_RELEASE);
+  filter.connect(gain);
+  gain.connect(engine.master);
   const nodes = [oscillator];
   if (vibrato > 0) {
     const lfo = context.createOscillator();
@@ -368,7 +377,7 @@ function brassTone(engine, context, { frequency, startTime, length, peak, timbre
   }
   for (const node of nodes) {
     node.start(startTime);
-    node.stop(startTime + voice.attack + length + 0.08);
+    node.stop(startTime + length + BRASS_RELEASE + 0.02);
   }
 }
 
@@ -619,17 +628,17 @@ const SOUNDS = {
     engine.bell(context, { frequency: 1046.5, startTime: time + 0.42, peak: 0.035 * END_LOUDNESS, length: 1.2 });
   },
   // 패배(묵직하게): 한 옥타브 낮춘 '빠-밤-빠-바아암~'. 위는 트럼펫, 한 옥타브 아래는 호른. 음을 이어 불어(레가토) 튕기지 않게 한다.
-  // 마지막 음은 떨며 아래로 처지고, 그 밑에서 깊은 '쿠웅'(60→28Hz)과 어두운 잡음 울림이 길게 남는다(약 2.4초)
+  // 모든 음은 바로 제 세기로 곧게 불어 끝까지 유지하고(힘 빠짐·처짐·떨림 없음), 마지막 긴 음 밑에 깊은 '쿠웅'(60→28Hz)과 어두운 울림(약 2.2초)
   defeat(engine, context, time) {
     const notes = [196, 185, 174.61];
     notes.forEach((frequency, index) => {
       const startTime = time + index * 0.34;
-      brassTone(engine, context, { frequency, startTime, length: 0.36, peak: 0.06 * END_LOUDNESS, timbre: 'trumpet' });
-      brassTone(engine, context, { frequency: frequency / 2, startTime, length: 0.36, peak: 0.06 * END_LOUDNESS, timbre: 'horn' });
+      brassTone(engine, context, { frequency, startTime, length: 0.3, peak: 0.06 * END_LOUDNESS, timbre: 'trumpet' });
+      brassTone(engine, context, { frequency: frequency / 2, startTime, length: 0.3, peak: 0.06 * END_LOUDNESS, timbre: 'horn' });
     });
     const last = time + notes.length * 0.34;
-    brassTone(engine, context, { frequency: 164.81, slideTo: 146.83, startTime: last, length: 1.2, peak: 0.065 * END_LOUDNESS, vibrato: 0.02, timbre: 'trumpet' });
-    brassTone(engine, context, { frequency: 82.41, slideTo: 73.42, startTime: last, length: 1.2, peak: 0.065 * END_LOUDNESS, vibrato: 0.02, timbre: 'horn' });
+    brassTone(engine, context, { frequency: 164.81, startTime: last, length: 1.1, peak: 0.065 * END_LOUDNESS, timbre: 'trumpet' });
+    brassTone(engine, context, { frequency: 82.41, startTime: last, length: 1.1, peak: 0.065 * END_LOUDNESS, timbre: 'horn' });
     engine.tone(context, { frequency: 60, sweepTo: 28, startTime: last, peak: 0.14 * END_LOUDNESS, decay: 0.9, attack: 0.004 });
     engine.noise(context, { startTime: last, peak: 0.05 * END_LOUDNESS, decay: 1, filterType: 'lowpass', frequency: 400, sweepTo: 80 });
   },
