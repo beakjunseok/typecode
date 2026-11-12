@@ -1,5 +1,7 @@
-// 블랙 RGB 화면 키보드: 다음에 칠 키(주황 점)와 필요한 Shift(반대 손), 손가락 구역, 누름 피드백을 보여준다.
-// 코드 토큰은 ASCII라 US ANSI 배열을 쓴다.
+// 화면 키보드: 다음에 칠 키(주황 점)와 필요한 Shift(반대 손), 손가락 구역, 누름 피드백을 보여준다.
+// 스킨(키캡 3단 배색·케이스·소재)과 LED(평상시 무늬 + 터치 반응)를 입힐 수 있다. 코드 토큰은 ASCII라 US ANSI 배열을 쓴다.
+import { createLedState } from './keyboard-led.js';
+import { getSkin, MATERIALS } from './keyboard-skins.js';
 
 const FINGERS = Object.freeze({
   LP: { label: '왼손 새끼', hand: 'left', color: '#ff5c8a' },
@@ -57,25 +59,31 @@ export function shiftKeyFor(finger) {
   return FINGERS[finger]?.hand === 'left' ? 'ShiftRight' : 'ShiftLeft';
 }
 
-export function createKeyboard(container) {
+const ACCENT_KEYS = new Set(['Enter', 'Backspace']);
+const LED_FRAME_MS = 1000 / 40;
+const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+const ledCss = color => `hsl(${color.h.toFixed(0)} ${color.s.toFixed(0)}% ${color.l.toFixed(0)}%)`;
+
+// options.compact: 미리보기용 작은 키보드(손가락 힌트 없음) / options.interactive: 키를 누르면(클릭·탭) LED 반응
+export function createKeyboard(container, { compact = false, interactive = false } = {}) {
   if (!container) return createNullKeyboard();
   const keyElements = new Map();
+  const ledKeys = [];
   let nextKeyIds = [];
   let offset = 0;
 
   const board = document.createElement('div');
-  board.className = 'keyboard';
+  board.className = `keyboard${compact ? ' compact' : ''}`;
   LAYOUT.forEach((row, rowIndex) => {
     const rowElement = document.createElement('div');
     rowElement.className = 'kb-row';
     offset = 0;
     for (const [base, shifted, finger, width = 1] of row) {
       const key = document.createElement('div');
-      key.className = `key${base.length > 1 ? ' wide' : ''}${HOME_KEYS.has(base) ? ' home' : ''}`;
+      const role = ACCENT_KEYS.has(base) ? ' accent' : base.length > 1 ? ' mod' : '';
+      key.className = `key${base.length > 1 ? ' wide' : ''}${role}${HOME_KEYS.has(base) ? ' home' : ''}`;
       key.dataset.key = base;
       key.style.setProperty('--w', width);
-      // RGB 웨이브: 키의 가로 위치로 색상 위상을 정해 무지개가 왼쪽에서 오른쪽으로 흐르게 한다.
-      key.style.setProperty('--hue', String(Math.round((offset + width / 2) * 22 + rowIndex * 14) % 360));
       key.style.setProperty('--finger', FINGERS[finger].color);
       key.title = FINGERS[finger].label;
       const glow = document.createElement('span');
@@ -95,13 +103,106 @@ export function createKeyboard(container) {
       key.append(glow, legend);
       rowElement.appendChild(key);
       keyElements.set(base, key);
+      // LED 좌표: 키 가운데의 가로 위치(키 단위)와 줄 번호
+      key.ledIndex = ledKeys.length;
+      ledKeys.push({ index: ledKeys.length, x: offset + width / 2, y: rowIndex, mod: base.length > 1, element: key });
       offset += width;
     }
     board.appendChild(rowElement);
   });
   const fingerHint = document.createElement('div');
   fingerHint.className = 'kb-hint';
-  container.replaceChildren(board, fingerHint);
+  container.replaceChildren(...(compact ? [board] : [board, fingerHint]));
+
+  // ---------- 스킨·LED ----------
+  const led = createLedState(ledKeys);
+  const colors = [];
+  let ledConfig = getSkin(null).led;
+  let ledGlow = 1;
+  let shine = false;
+  let energy = 0;
+  let audioSource = null;
+  let frameId = 0;
+  let lastFrameAt = 0;
+  const clock = () => (globalThis.performance?.now() ?? Date.now()) / 1000;
+
+  function paintLeds(time) {
+    const audio = ledConfig.pattern.startsWith('audio') ? audioSource?.() : null;
+    led.frame(time, ledConfig, { bands: audio?.bands, level: audio?.level, energy }, colors);
+    for (const key of ledKeys) {
+      const color = colors[key.index];
+      const style = key.element.style;
+      style.setProperty('--led', ledCss(color));
+      style.setProperty('--led-a', (color.a * ledGlow).toFixed(3));
+      if (shine) style.setProperty('--led-text', color.a > 0.08 ? ledCss({ ...color, l: Math.max(color.l, 66) }) : '');
+    }
+    const space = colors[ledKeys.length - 1];
+    if (space) {
+      board.style.setProperty('--under', ledCss(space));
+      board.style.setProperty('--under-a', space.a.toFixed(3));
+    }
+  }
+
+  function loop(timestamp) {
+    frameId = 0;
+    if (!board.isConnected || container.hidden) return;
+    if (timestamp - lastFrameAt >= LED_FRAME_MS) {
+      lastFrameAt = timestamp;
+      paintLeds(reducedMotion() ? 0 : clock());
+    }
+    frameId = globalThis.requestAnimationFrame?.(loop) ?? 0;
+  }
+
+  function startLeds() {
+    if (frameId || !globalThis.requestAnimationFrame) {
+      if (!globalThis.requestAnimationFrame) paintLeds(0);
+      return;
+    }
+    frameId = globalThis.requestAnimationFrame(loop);
+  }
+
+  // 스킨(아이디 또는 스킨 객체)을 입힌다. override = { pattern, reactive } 로 LED만 바꿀 수 있다
+  function setSkin(skinOrId, override = null) {
+    const skin = typeof skinOrId === 'string' || !skinOrId ? getSkin(skinOrId) : skinOrId;
+    const material = MATERIALS[skin.material] ?? MATERIALS.pbt;
+    const { colors: palette } = skin;
+    const style = board.style;
+    style.setProperty('--kc-alpha-bg', palette.alphaBg);
+    style.setProperty('--kc-alpha-fg', palette.alphaFg);
+    style.setProperty('--kc-mod-bg', palette.modBg);
+    style.setProperty('--kc-mod-fg', palette.modFg);
+    style.setProperty('--kc-accent-bg', palette.accentBg);
+    style.setProperty('--kc-accent-fg', palette.accentFg);
+    style.setProperty('--case-bg', palette.case);
+    board.dataset.material = skin.material;
+    board.dataset.rarity = skin.rarity;
+    board.classList.toggle('underglow', skin.underglow);
+    ledGlow = material.glow;
+    shine = Boolean(material.shine);
+    board.classList.toggle('shine', shine);
+    if (!shine) for (const key of ledKeys) key.element.style.removeProperty('--led-text');
+    ledConfig = { ...skin.led, ...(override?.pattern ? { pattern: override.pattern } : {}), ...(override?.reactive ? { reactive: override.reactive } : {}) };
+    led.reset();
+    paintLeds(clock());
+    startLeds();
+  }
+
+  function flashLed(keyId, correct) {
+    const key = keyElements.get(keyId);
+    if (key) led.hit(key.ledIndex, clock(), correct);
+  }
+
+  if (interactive) {
+    board.addEventListener('pointerdown', event => {
+      const key = event.target.closest?.('.key');
+      if (!key) return;
+      flashLed(key.dataset.key, true);
+      key.classList.remove('pressed-ok');
+      void key.offsetWidth;
+      key.classList.add('pressed-ok');
+      setTimeout(() => key.classList.remove('pressed-ok'), PRESS_FLASH_MS);
+    });
+  }
 
   // 다음에 칠 글자 표시. null이면 표시 없음. 'Backspace'면 지우기 키.
   function setNext(character) {
@@ -125,12 +226,13 @@ export function createKeyboard(container) {
     fingerHint.style.setProperty('--finger', FINGERS[info.finger].color);
   }
 
-  // 실제로 친 글자를 잠깐 초록(맞음)/빨강(틀림)으로 번쩍인다.
+  // 실제로 친 글자를 잠깐 초록(맞음)/빨강(틀림)으로 번쩍이고 LED 터치 반응을 일으킨다
   function press(character, correct) {
-    const info = describeKey(character);
+    const info = character === 'Enter' ? { keyId: 'Enter', shift: false } : describeKey(character);
     if (!info) return;
     const targets = [info.keyId];
     if (info.shift) targets.push(shiftKeyFor(info.finger));
+    flashLed(info.keyId, correct);
     for (const keyId of targets) {
       const key = keyElements.get(keyId);
       if (!key) continue;
@@ -144,11 +246,18 @@ export function createKeyboard(container) {
 
   function setVisible(visible) {
     container.hidden = !visible;
+    if (visible) startLeds();
   }
 
-  return { setNext, press, setVisible, element: board };
+  // 0~1: 콤보 등. 'energy' LED(전설)는 이 값만큼 빨라지고 밝아진다
+  const setEnergy = value => { energy = Math.max(0, Math.min(1, Number(value) || 0)); };
+  // () => { bands: number[0~1], level: 0~1 } — 소리 반응 LED가 읽는다
+  const setAudioSource = source => { audioSource = typeof source === 'function' ? source : null; };
+
+  setSkin(null);
+  return { setNext, press, setVisible, setSkin, setEnergy, setAudioSource, element: board };
 }
 
 function createNullKeyboard() {
-  return { setNext() {}, press() {}, setVisible() {}, element: null };
+  return { setNext() {}, press() {}, setVisible() {}, setSkin() {}, setEnergy() {}, setAudioSource() {}, element: null };
 }

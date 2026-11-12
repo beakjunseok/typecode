@@ -15,6 +15,7 @@ import { SoundEngine } from './audio.js';
 import { BgmEngine } from './bgm.js';
 import { emitSparks, pulseClass } from './effects.js';
 import { createKeyboard } from './keyboard.js';
+import { createKeyboardCollection } from './gacha-view.js';
 import { requestSession, submitScore, fetchBoard, localBoard, preferences } from './api.js';
 import { createUi, TIER_COLORS } from './ui.js';
 import { getWeekLabel } from './week.js';
@@ -48,6 +49,7 @@ const ui = createUi(document);
 const sound = new SoundEngine();
 const bgm = new BgmEngine(sound);
 const keyboard = createKeyboard(ui.elements.keyboardSection);
+keyboard.setAudioSource(() => sound.spectrum(8));
 const renderers = {};
 const savedMode = preferences.get('mode', 'practice') === 'rescue' ? 'battery' : preferences.get('mode', 'practice');
 const settings = {
@@ -57,7 +59,9 @@ const settings = {
   practiceVariant: PRACTICE_VARIANTS.includes(preferences.get('practiceVariant', 'timed')) ? preferences.get('practiceVariant', 'timed') : 'timed',
   level: DIFFICULTY_LEVELS[preferences.get('level', 2)] ? Number(preferences.get('level', 2)) : 2,
   batteryVariant: preferences.get('batteryVariant', 'ai') === 'pvp' ? 'pvp' : 'ai',
-  keyboardVisible: preferences.get('keyboard', true) !== false
+  keyboardVisible: preferences.get('keyboard', true) !== false,
+  // 게임(휴대폰 던지기·배터리 구조) 화면의 키보드는 기본으로 숨긴다
+  keyboardInGame: preferences.get('keyboardGame', false) === true
 };
 const run = { engine: null, generation: 0, sessionPromise: null, submitted: false, tickId: null, frameId: null, highlightId: null, lastTier: 0, powerActive: false, lastImeWarning: 0 };
 const now = () => performance.now();
@@ -414,7 +418,10 @@ function handleFinish(summary) {
 function renderStats() {
   const engine = run.engine;
   if (!engine) return;
-  ui.renderStats(isArcade() ? engine.snapshot() : engine.snapshot(now()));
+  const snapshot = isArcade() ? engine.snapshot() : engine.snapshot(now());
+  ui.renderStats(snapshot);
+  // 콤보가 오를수록 키보드 LED(전설 스킨)가 빨라지고 밝아진다: 30콤보(×2 단계)에서 최대
+  keyboard.setEnergy((snapshot.combo ?? 0) / 30);
 }
 
 function startTicking() {
@@ -525,12 +532,30 @@ function updateKeyboardHint() {
   keyboard.setNext(engine.wrongInBuffer > 0 ? 'Backspace' : engine.current.text[engine.cursor]);
 }
 
+// 연습 화면과 게임 화면의 키보드 표시는 따로 기억한다(게임은 기본 숨김)
+const keyboardShown = () => (isArcade() ? settings.keyboardInGame : settings.keyboardVisible);
+
 function applyKeyboardVisibility() {
-  keyboard.setVisible(settings.keyboardVisible && !isArcade());
-  ui.elements.keyboardToggle.hidden = isArcade();
+  const shown = keyboardShown();
+  keyboard.setVisible(shown);
+  ui.elements.keyboardToggle.hidden = false;
   ui.elements.keyboardToggle.textContent = '⌨';
-  ui.elements.keyboardToggle.classList.toggle('off', !settings.keyboardVisible);
-  ui.elements.keyboardToggle.setAttribute('aria-pressed', String(settings.keyboardVisible));
+  ui.elements.keyboardToggle.title = `${isArcade() ? '게임 화면' : '화면'} 키보드 ${shown ? '숨기기' : '보이기'}`;
+  ui.elements.keyboardToggle.classList.toggle('off', !shown);
+  ui.elements.keyboardToggle.setAttribute('aria-pressed', String(shown));
+  if (isArcade()) requestAnimationFrame(fitArcadeCanvas);
+}
+
+// 게임 화면 키보드: 잡고 있는 낱말의 다음 글자(오타가 있으면 Backspace)를 표시한다
+function updateArcadeKeyboardHint() {
+  if (!isArcade() || !settings.keyboardInGame) return;
+  const engine = run.engine;
+  const target = engine?.target;
+  if (!target || engine.status === 'finished') {
+    keyboard.setNext(null);
+    return;
+  }
+  keyboard.setNext(engine.wrongInBuffer > 0 ? 'Backspace' : target.token.text[engine.typed.length] ?? null);
 }
 
 // ---------- 입력 ----------
@@ -563,7 +588,8 @@ function applyCharacter(character) {
   startMusic();
   const engine = run.engine;
   if (isArcade()) {
-    engine.input(character, now());
+    const result = engine.input(character, now());
+    if (result?.accepted) keyboard.press(character, result.correct !== false);
     renderStats();
     renderInputBar();
     return;
@@ -583,6 +609,7 @@ function applyBackspace(wholeToken) {
   const engine = run.engine;
   if (!engine.backspace(now(), { wholeToken }).accepted) return;
   if (isArcade()) {
+    keyboard.press('Backspace', true);
     renderInputBar();
     return;
   }
@@ -601,7 +628,10 @@ function applyEnter() {
   run.lastEnterAt = time;
   const engine = run.engine;
   if (isArcade()) {
-    if (engine.clearInput(time).accepted) renderInputBar();
+    if (engine.clearInput(time).accepted) {
+      keyboard.press('Enter', true);
+      renderInputBar();
+    }
     return;
   }
   if (!engine.skipToken(time).accepted) return;
@@ -662,6 +692,7 @@ function renderInputBar() {
   const notice = run.inputNotice && run.inputNotice.until > Date.now() ? run.inputNotice.message : '';
   ui.elements.inputTarget.textContent = notice || (target ? '' : engine.status === 'finished' ? 'game over' : '낱말의 첫 글자를 치세요');
   ui.elements.inputTarget.classList.toggle('notice', Boolean(notice));
+  updateArcadeKeyboardHint();
 }
 
 // 입력창 안내(영문 키보드 전환 등)를 잠깐 띄운다. 게임 로그는 모바일에서 화면 밖이라 입력창에 직접 보여준다.
@@ -1149,9 +1180,15 @@ function bindSettings() {
     if (bgm.enabled) startMusic();
   });
   ui.elements.keyboardToggle.addEventListener('click', () => {
-    settings.keyboardVisible = !settings.keyboardVisible;
-    preferences.set('keyboard', settings.keyboardVisible);
+    if (isArcade()) {
+      settings.keyboardInGame = !settings.keyboardInGame;
+      preferences.set('keyboardGame', settings.keyboardInGame);
+    } else {
+      settings.keyboardVisible = !settings.keyboardVisible;
+      preferences.set('keyboard', settings.keyboardVisible);
+    }
     applyKeyboardVisibility();
+    if (isArcade()) updateArcadeKeyboardHint();
   });
 }
 
@@ -1203,6 +1240,17 @@ function bindEvents() {
 // 캔버스는 DOM과 달리 글꼴이 늦게 와도 다시 그려 주지 않으므로, 캔버스용 픽셀 글꼴을 미리 불러 둔다(실패해도 대체 글꼴로 그린다)
 document.fonts?.load?.("12px 'Galmuri11'").catch(() => {});
 
+// 키보드 뽑기·도감: 장착한 스킨을 화면 키보드에 입힌다. 창이 열려 있는 동안 게임 입력은 쉬게 한다
+const collection = createKeyboardCollection({
+  sound,
+  preferences,
+  onSkinChange: (skin, ledOverride) => keyboard.setSkin(skin, ledOverride),
+  onOpen: () => ui.elements.hiddenInput.blur(),
+  onClose: () => {
+    if (run.engine?.status !== 'finished' && !isPvp()) focusTypingArea();
+  }
+});
+
 applyInviteLink();
 bindSettings();
 bindEvents();
@@ -1212,4 +1260,4 @@ resetGame();
 refreshBoard();
 
 // 자동화 테스트·디버깅용 읽기 창구(게임 상태 조회). 게임 로직은 이 값에 의존하지 않는다.
-globalThis.__TYPECODE__ = { run, settings, renderers, pvp };
+globalThis.__TYPECODE__ = { run, settings, renderers, pvp, collection, keyboard };
