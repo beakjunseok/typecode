@@ -24,6 +24,7 @@
         <button type="button" class="keycap" data-mode="practice" role="tab"><span class="keycap-icon" aria-hidden="true">⌨</span>연습</button>
         <button type="button" class="keycap" data-mode="throw" role="tab"><span class="keycap-icon" aria-hidden="true">📱</span>휴대폰 던지기</button>
         <button type="button" class="keycap" data-mode="battery" role="tab"><span class="keycap-icon" aria-hidden="true">🔋</span>배터리 구조</button>
+        <button type="button" class="keycap" data-mode="rhythm" role="tab"><span class="keycap-icon" aria-hidden="true">🎵</span>리듬</button>
       </div>
     </div>
     <div class="controls">
@@ -159,6 +160,16 @@
       <li>버그봇은 한 방, 스피드봇은 두 배로 빠르고, 헤비봇은 세 방(맞을 때마다 낱말이 바뀌어요).</li>
       <li>💻 노트북을 치면 8초 동안 위력이 세 배. 🔋 건전지는 생명이 줄었을 때 가끔 나와요.</li>
       <li><kbd>Enter</kbd>로 치던 낱말을 지우고 다른 로봇을 노릴 수 있어요.</li>
+    </ul>
+  </details>
+  <details class="rules" id="rhythmHint" hidden>
+    <summary>리듬 규칙</summary>
+    <ul>
+      <li>128 BPM 반주에 맞춰 낱말이 4개 레인(키워드 · 타입·내장 · 값·지시자 · 연산자)으로 떨어져요. 아무 키나 치면 두 마디 카운트 뒤 시작해요.</li>
+      <li>떨어지는 순서대로 칩니다. 앞 글자는 미리 쳐 두고, <b>마지막 글자</b>를 노트가 판정선에 닿는 순간 누르세요.</li>
+      <li>정박에서 ±50ms PERFECT, ±100ms GREAT, ±150ms GOOD, 그보다 어긋나면 BAD, 판정선을 0.25초 지나면 MISS.</li>
+      <li>MISS·BAD·오타는 콤보를 끊고 HP를 깎아요. HP가 0이 되면 실패, 40마디(약 75초)를 버티면 클리어.</li>
+      <li>레벨이 오를수록 노트가 촘촘하고 빨리 떨어져요(Lv.1 4박 간격 ~ Lv.4 1박 간격).</li>
     </ul>
   </details>
   <details class="rules" id="batteryHint" hidden>

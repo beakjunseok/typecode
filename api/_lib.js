@@ -7,6 +7,7 @@ import { TIME_ATTACK_RULES, TIME_ATTACK_MAX_SECONDS_PER_CHARACTER, TIME_ATTACK_M
 import { getWeekLabel } from '../public/js/week.js';
 import { MAX_POINTS_PER_CHARACTER as THROW_MAX_POINTS_PER_CHARACTER } from '../public/js/throw-engine.js';
 import { BATTERY_MAX_POINTS_PER_CHARACTER } from '../public/js/battery-engine.js';
+import { RHYTHM_MAX_POINTS_PER_CHARACTER } from '../public/js/rhythm-engine.js';
 
 export { DURATIONS, getWeekLabel };
 export const LANGUAGES = LANGUAGE_KEYS;
@@ -30,7 +31,8 @@ export const MODES = Object.freeze({
     ) + TIME_ATTACK_TOLERANCE_SECONDS
   }),
   throw: Object.freeze({ prefix: 'lb-throw', timed: false, maxPointsPerCharacter: THROW_MAX_POINTS_PER_CHARACTER }),
-  battery: Object.freeze({ prefix: 'lb-battery', timed: false, maxPointsPerCharacter: BATTERY_MAX_POINTS_PER_CHARACTER })
+  battery: Object.freeze({ prefix: 'lb-battery', timed: false, maxPointsPerCharacter: BATTERY_MAX_POINTS_PER_CHARACTER }),
+  rhythm: Object.freeze({ prefix: 'lb-rhythm', timed: false, maxPointsPerCharacter: RHYTHM_MAX_POINTS_PER_CHARACTER })
 });
 
 export function resolveMode(rawMode) {

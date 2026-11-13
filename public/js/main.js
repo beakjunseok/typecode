@@ -1,4 +1,4 @@
-// 진입점: 모드(연습 · 휴대폰 던지기 · 에러 구조 SOS)를 고르고, 엔진 이벤트를 화면·효과음·키보드·서버 호출에 연결한다.
+// 진입점: 모드(연습 · 휴대폰 던지기 · 에러 구조 SOS · 리듬)를 고르고, 엔진 이벤트를 화면·효과음·키보드·서버 호출에 연결한다.
 import { TypingEngine, DURATIONS, getTierIndex } from './engine.js';
 import { TimeAttackEngine, TIME_ATTACK_RULES } from './time-attack-engine.js';
 import { LANGUAGES, getTokenPool } from './tokens.js';
@@ -10,6 +10,9 @@ import { createPvpLobby } from './pvp-lobby.js';
 import { DIFFICULTY_LEVELS } from './target-game.js';
 import { ThrowRenderer } from './throw-view.js';
 import { BatteryRenderer } from './battery-view.js';
+import { RhythmEngine, RHYTHM_RULES } from './rhythm-engine.js';
+import { RhythmRenderer } from './rhythm-view.js';
+import { RhythmMusic, hitFrequency } from './rhythm-music.js';
 import { createInputDiffer, INPUT_SENTINEL } from './input.js';
 import { SoundEngine } from './audio.js';
 import { BgmEngine } from './bgm.js';
@@ -39,16 +42,23 @@ const MODE_CONFIG = Object.freeze({
     label: '배터리 구조 SOS', arcade: true, title: 'battery-rescue.sh', resultTitle: 'BATTERY REPORT',
     hint: '지나가는 셀 낱말로 충전 · 방전봇 탑 낱말로 공격', Renderer: BatteryRenderer,
     createEngine: options => new BatteryEngine({ ...options, maxTokenLength: options.narrow ? 14 : 18 })
+  },
+  rhythm: {
+    label: '리듬', arcade: true, title: 'beat-compiler.wav', resultTitle: 'STAGE CLEAR',
+    hint: `♩=${RHYTHM_RULES.bpm} · 낱말을 미리 쳐 두고 마지막 글자를 판정선에 맞춰 누르세요`, Renderer: RhythmRenderer,
+    // 오디오 시계로 박자를 맞춘다(소리를 꺼 두면 성능 시계)
+    createEngine: options => new RhythmEngine({ ...options, getAudioContext: () => sound.context })
   }
 });
 
 // 연습 모드의 세부 방식: 고정 제한 시간(30·60·120초) 또는 시간 연장(⏳). 랭킹은 따로 집계한다
 const PRACTICE_VARIANTS = Object.freeze(['timed', 'timeattack']);
-const BOARD_LABELS = Object.freeze({ practice: '연습', timeattack: '연습 · 시간 연장', throw: '휴대폰 던지기', battery: '배터리 구조 SOS' });
+const BOARD_LABELS = Object.freeze({ practice: '연습', timeattack: '연습 · 시간 연장', throw: '휴대폰 던지기', battery: '배터리 구조 SOS', rhythm: '리듬' });
 
 const ui = createUi(document);
 const sound = new SoundEngine();
 const bgm = new BgmEngine(sound);
+const rhythmMusic = new RhythmMusic(sound);
 const keyboard = createKeyboard(ui.elements.keyboardSection);
 keyboard.setAudioSource(() => sound.spectrum(8));
 const renderers = {};
@@ -152,7 +162,10 @@ function handleArcadeEvent(type, payload) {
   const battery = settings.mode === 'battery';
   switch (type) {
     case 'start':
-      sound.play('gameStart');
+      if (settings.mode === 'rhythm') {
+        sound.ensureContext();
+        rhythmMusic.reset();
+      } else sound.play('gameStart');
       if (isPvp()) {
         ui.log('sys', `PvP 시작 · vs ${pvp.opponentName} · ${LANGUAGES[pvp.hostSettings.language].label} · ${DIFFICULTY_LEVELS[pvp.hostSettings.level].label}`);
         break;
@@ -249,7 +262,23 @@ function handleArcadeEvent(type, payload) {
         : `로봇이 빨간 선 돌파 — 건전지 ${payload.lives}칸 · 휴대폰에 금이 갔습니다`);
       run.lastTier = 0;
       break;
+    case 'judge':
+      sound.play('rhythmHit', { frequency: hitFrequency(payload.beat, payload.lane), judgement: payload.judgement });
+      if (payload.tier > run.lastTier) {
+        sound.play('tierUp', { tier: payload.tier });
+        pulseClass(ui.elements.arcadeStage, 'tier-flash', 600);
+        ui.log('info', `combo ${payload.combo} → multiplier ×${payload.tier === 2 ? '2.0' : '1.5'}`);
+      }
+      run.lastTier = payload.tier;
+      if (payload.judgement === 'bad') ui.log('warn', `BAD '${payload.token.text}' — ${payload.delta < 0 ? '빠름' : '늦음'} ${Math.round(Math.abs(payload.delta) * 1000)}ms`);
+      break;
+    case 'miss':
+      sound.play('rhythmMiss');
+      ui.log('err', `MISS '${payload.note.token.text}' — 판정선을 지나갔습니다`);
+      run.lastTier = 0;
+      break;
     case 'finish':
+      rhythmMusic.reset();
       handleFinish(payload.summary);
       break;
     default:
@@ -346,6 +375,10 @@ async function refreshBoard() {
 
 // ---------- 결과 ----------
 function arcadeSubtitle(summary) {
+  if (summary.mode === 'rhythm') {
+    const j = summary.judgements;
+    return `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[summary.level].label} · ♩=${summary.bpm} · 랭크 ${summary.rank} · 판정 정확도 ${summary.timingAccuracy}% · PERFECT ${j.perfect} · GREAT ${j.great} · GOOD ${j.good} · BAD ${j.bad} · MISS ${j.miss} / ${summary.totalNotes}노트`;
+  }
   const base = `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[summary.level].label} · 생존 ${summary.survivedSeconds}s`;
   if (summary.mode === 'battery') {
     const cause = summary.outcome === 'rival-charged' ? '방전봇 선충전' : '방전';
@@ -372,6 +405,7 @@ function pvpSubtitle(summary) {
 function resultHeading(summary) {
   if (summary.mode === 'battery-pvp') return { title: PVP_RESULT_TITLES[summary.outcome] ?? 'PvP', subtitle: pvpSubtitle(summary), saveable: false };
   if (summary.mode === 'timeattack') return { title: 'TIME UP', subtitle: timeAttackSubtitle(summary) };
+  if (summary.mode === 'rhythm') return { title: summary.outcome === 'cleared' ? `STAGE CLEAR · ${summary.rank}` : 'STAGE FAILED', subtitle: arcadeSubtitle(summary) };
   if (isArcade()) return { title: modeConfig().resultTitle, subtitle: arcadeSubtitle(summary) };
   return {};
 }
@@ -389,6 +423,7 @@ function recordPersonalBest(summary) {
 function endSound(summary, newBest) {
   if (isPvp()) return summary.outcome === 'win' ? 'victory' : 'defeat';
   if (newBest) return 'victory';
+  if (summary.mode === 'rhythm') return summary.outcome === 'cleared' ? 'finish' : 'defeat';
   return isArcade() ? 'defeat' : 'finish';
 }
 
@@ -457,6 +492,7 @@ function startFrameLoop() {
     engine.update(now());
     if (pvpConnected()) pumpPvp();
     const snapshot = engine.snapshot();
+    if (settings.mode === 'rhythm') rhythmMusic.pump(engine, snapshot.tierProgress.index);
     renderers[settings.mode]?.render(engine, { accent: TIER_COLORS[snapshot.tierProgress.index] });
     if (engine.status === 'running') {
       renderStats();
@@ -470,6 +506,7 @@ function startFrameLoop() {
 
 // 게임 상황 → BGM: 던지기는 콤보 단계, 구조는 SLA 위기도. 아이템 효과가 끝나면 종료음.
 function updateArcadeMusic(snapshot) {
+  if (settings.mode === 'rhythm') return;
   const powerActive = snapshot.powerRemaining > 0;
   if (run.powerActive && !powerActive) sound.play('powerDown');
   run.powerActive = powerActive;
@@ -481,7 +518,12 @@ function updateArcadeMusic(snapshot) {
   }
 }
 
+// 리듬 모드는 BGM 대신 게임이 직접 박자에 맞춘 반주를 낸다
 function startMusic() {
+  if (settings.mode === 'rhythm') {
+    bgm.stop();
+    return;
+  }
   bgm.play(settings.mode);
 }
 
@@ -511,6 +553,7 @@ function resetGame() {
   run.lastTier = 0;
   run.powerActive = false;
   run.engine = createEngine();
+  rhythmMusic.reset();
   bgm.setIntensity(0);
   bgm.duck(false);
   ui.hideResult();
@@ -560,7 +603,7 @@ function applyKeyboardVisibility() {
 function updateArcadeKeyboardHint() {
   if (!isArcade() || !settings.keyboardInGame) return;
   const engine = run.engine;
-  const target = engine?.target;
+  const target = engine?.target ?? (settings.mode === 'rhythm' && engine?.status === 'running' ? engine.targetables()[0] : null);
   if (!target || engine.status === 'finished') {
     keyboard.setNext(null);
     return;
@@ -1089,8 +1132,9 @@ function applyMode() {
   document.getElementById('practiceHint').hidden = arcade;
   document.getElementById('throwHint').hidden = settings.mode !== 'throw';
   document.getElementById('batteryHint').hidden = settings.mode !== 'battery';
+  document.getElementById('rhythmHint').hidden = settings.mode !== 'rhythm';
   document.body.dataset.mode = settings.mode;
-  document.getElementById('arcadeOverlayHint').textContent = arcade ? `${modeConfig().hint} · 첫 글자를 치면 시작` : '';
+  document.getElementById('arcadeOverlayHint').textContent = arcade ? `${modeConfig().hint} · ${settings.mode === 'rhythm' ? '아무 키나 치면 시작' : '첫 글자를 치면 시작'}` : '';
   applyKeyboardVisibility();
   renderInputBar();
   requestAnimationFrame(fitArcadeCanvas);
