@@ -608,7 +608,9 @@ function updateArcadeKeyboardHint() {
   if (!isArcade() || !settings.keyboardInGame) return;
   const engine = run.engine;
   if (settings.mode === 'rhythm') {
-    keyboard.setNext(engine?.status === 'running' ? engine.nextCharacter() : null);
+    // 대문자는 소문자로 쳐도 되므로 Shift 없이 그 글자 키만 표시
+    const next = engine?.status === 'running' ? engine.nextCharacter() : null;
+    keyboard.setNext(next && /[A-Z]/.test(next) ? next.toLowerCase() : next);
     return;
   }
   const target = engine?.target;

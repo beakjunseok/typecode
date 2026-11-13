@@ -62,6 +62,9 @@ export const RHYTHM_CHORDS = Object.freeze([
 ]);
 export const chordAtBeat = beat => RHYTHM_CHORDS[Math.floor(Math.max(0, beat) / RHYTHM_RULES.beatsPerBar) % RHYTHM_CHORDS.length];
 
+// 리듬 모드에서는 대문자 노트를 소문자로 쳐도 맞다(Shift를 박에 맞추기 어려우므로). 반대(소문자 노트에 대문자)는 오타
+export const matchesNote = (typed, expected) => typed === expected || (expected !== expected.toLowerCase() && typed === expected.toLowerCase());
+
 export function judgeTiming(deltaSeconds) {
   const distance = Math.abs(deltaSeconds);
   const { windows } = RHYTHM_RULES;
@@ -291,7 +294,7 @@ export class RhythmEngine extends TargetGameEngine {
     if (this.status !== 'running') return { accepted: false, reason: 'finished' };
     const head = this.headNote();
     if (!head || head.hitTime - this.gameTime > RHYTHM_RULES.missAfter) return { accepted: false, reason: 'too_early' };
-    if (character !== head.character) {
+    if (!matchesNote(character, head.character)) {
       head.word.mistakes++;
       this.wrongKeystrokes++;
       const comboLost = this.combo;

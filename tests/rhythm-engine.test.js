@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RhythmEngine, RHYTHM_RULES, RHYTHM_CHARTS, BeatClock, judgeTiming, chordAtBeat, laneOfCharacter, RHYTHM_MAX_POINTS_PER_CHARACTER } from '../public/js/rhythm-engine.js';
+import { RhythmEngine, RHYTHM_RULES, RHYTHM_CHARTS, BeatClock, judgeTiming, chordAtBeat, laneOfCharacter, matchesNote, RHYTHM_MAX_POINTS_PER_CHARACTER } from '../public/js/rhythm-engine.js';
 import { getTokenPool } from '../public/js/tokens.js';
 
 const seeded = seed => {
@@ -130,4 +130,21 @@ test('오디오 시계: 돌고 있으면 오디오 증가분, 멈추면 성능 �
   context.state = 'suspended';
   assert.ok(Math.abs(clock.advance(5066, 0.35) - 0.05) < 1e-9);
   assert.equal(clock.audioOffset, null);
+});
+
+test('대문자 노트는 소문자로 쳐도 맞고, 소문자 노트에 대문자는 오타', () => {
+  assert.ok(matchesNote('n', 'N'));
+  assert.ok(matchesNote('N', 'N'));
+  assert.ok(!matchesNote('N', 'n'));
+  assert.ok(!matchesNote('m', 'N'));
+  assert.ok(!matchesNote('1', '!'), '기호는 그대로');
+  const engine = create({ level: 2 });
+  const state = { ms: 0 };
+  engine.input('x', state.ms);
+  const note = engine.notes[0];
+  note.character = 'S';
+  advanceTo(engine, note.hitTime, state);
+  const result = engine.input('s', state.ms);
+  assert.equal(result.correct, true);
+  assert.equal(result.judgement, 'perfect');
 });
