@@ -612,6 +612,45 @@ body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
 .gacha-odds .odds-name { color: var(--rarity); }
 .gacha-odds p { margin: 6px 0 0; line-height: 1.6; }
 
+.gacha-points { margin: -6px 0 12px; font-size: 13px; color: var(--fog); }
+.gacha-points b { color: var(--mint); }
+.gacha-actions + .gacha-actions { margin-top: 8px; }
+.gacha-actions button[hidden] { display: none; }
+.gacha-actions .paid { display: flex; flex-direction: column; align-items: center; gap: 3px; line-height: 1.1; }
+.gacha-actions .paid small { font-size: 11px; font-weight: 500; color: var(--fog); }
+.gacha-actions .paid.multi { border-color: color-mix(in srgb, #a855f7 60%, var(--rule)); background: linear-gradient(180deg, color-mix(in srgb, #a855f7 22%, var(--raised)), var(--raised)); }
+.gacha-stage[data-multi='true'][data-phase='drop'] .cap-body, .gacha-stage[data-multi='true'][data-phase='charge'] .cap-body { background: linear-gradient(180deg, #5a3f8f, #2c1d52 70%, #1a1033); }
+.gacha-multi {
+  position: absolute; inset: 0; z-index: 3; display: grid; grid-template-columns: repeat(5, 1fr); grid-auto-rows: 1fr; gap: 8px; padding: 14px 12px 34px;
+}
+.gacha-multi[hidden] { display: none; }
+.multi-card {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 3px; padding: 6px; min-width: 0; text-align: left;
+  border: 1px solid color-mix(in srgb, var(--rarity) 55%, transparent); border-radius: 9px;
+  background: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--rarity) 22%, transparent), rgba(9, 12, 24, 0.85) 70%);
+  animation: card-flip 0.45s cubic-bezier(0.2, 1.3, 0.4, 1) var(--delay) both; transform-origin: 50% 50%;
+}
+.multi-card.rank-3, .multi-card.rank-4 { box-shadow: 0 0 14px color-mix(in srgb, var(--rarity) 55%, transparent); }
+.multi-card.rank-4 { animation: card-flip 0.45s cubic-bezier(0.2, 1.3, 0.4, 1) var(--delay) both, card-glow 1.6s ease-in-out calc(var(--delay) + 0.45s) infinite; }
+@keyframes card-flip { from { opacity: 0; transform: rotateY(90deg) scale(0.8); } }
+@keyframes card-glow { 50% { box-shadow: 0 0 26px var(--rarity); } }
+.multi-card .swatch { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; width: 100%; padding: 4px; border-radius: 4px; background: var(--case); }
+.multi-card .swatch i { height: 9px; border-radius: 2px; }
+.multi-card .swatch .a { background: var(--alpha); }
+.multi-card .swatch .m { background: var(--mod); }
+.multi-card .swatch .x { background: var(--accent); }
+.multi-card .tile-stars { font-size: 9px; }
+.multi-card .tile-name { font-size: 11px; font-weight: 600; color: var(--paper); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.multi-card .new-badge { position: absolute; top: 5px; right: 5px; font-size: 9px; padding: 1px 4px; }
+.multi-dup { font-size: 10px; color: var(--fog); }
+.multi-summary { position: absolute; left: 0; right: 0; bottom: 9px; margin: 0; text-align: center; font-size: 12px; color: var(--fog); }
+.multi-summary b { color: var(--amber); }
+.gacha-back { position: absolute; left: 10px; top: 10px; z-index: 5; padding: 5px 9px; font-size: 12px; }
+.gacha-back[hidden] { display: none; }
+.gacha-stage[data-multi='true'] .gacha-result { display: none; }
+.result-points { margin: 4px 0 12px; font-size: 13px; color: var(--fog); text-align: center; }
+.result-points b { color: var(--mint); }
+
 /* ---------- 도감 ---------- */
 .collection-card { max-width: 780px; --tier-color: #8be9fd; }
 .collection-detail {
@@ -749,6 +788,9 @@ body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
   .keyboard { padding: 6px; --gap: 3px; border-radius: 10px; }
   .key { padding: 2px 3px; border-radius: 4px; }
   .gacha-stage { height: 270px; }
+  .gacha-multi { grid-template-columns: repeat(5, 1fr); gap: 5px; padding: 10px 8px 30px; }
+  .multi-card { padding: 4px; }
+  .multi-card .tile-name { font-size: 9.5px; }
   .collection-detail { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; padding: 10px; }
   .collection-preview { width: 100%; }
   .collection-info .actions { justify-content: center; }

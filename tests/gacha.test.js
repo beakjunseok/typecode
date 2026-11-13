@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SKINS, COLLECTIBLE_SKINS, RARITIES, RARITY_ORDER, DEFAULT_SKIN_ID, MATERIALS, unlockedLedModes, hexToHsl } from '../public/js/keyboard-skins.js';
 import { AMBIENT, AMBIENT_NAMES, REACTIVE_NAMES, LED_LABELS, createLedState, paletteColor } from '../public/js/keyboard-led.js';
-import { createGachaState, normalizeGachaState, draw, buy, equip, canDraw, legendaryChance, PITY } from '../public/js/gacha.js';
+import { createGachaState, normalizeGachaState, draw, drawWithPoints, addPoints, pointsForGame, buy, equip, canDraw, legendaryChance, PITY, COSTS, EARNING } from '../public/js/gacha.js';
 
 const seeded = seed => {
   let value = seed;
@@ -138,4 +138,32 @@ test('조각 상점·장착·저장값 검증', () => {
   assert.equal(repaired.fragments, 0);
   assert.deepEqual(repaired.pity, { rare: 3, epic: 0, legendary: 0 });
   assert.deepEqual(normalizeGachaState(null), createGachaState());
+});
+
+test('게임 포인트: 판 결과로 적립, 1회 100P·10회 900P, 10회는 희귀 이상 1개 보장, 무료 뽑기와 별개', () => {
+  assert.equal(pointsForGame({ correctKeystrokes: 10, accuracy: 100, maxCombo: 50 }), 0, '너무 짧은 판은 0P');
+  assert.equal(pointsForGame({ correctKeystrokes: 300, accuracy: 100, maxCombo: 25 }), 30 + 4);
+  assert.equal(pointsForGame({ correctKeystrokes: 300, accuracy: 50, maxCombo: 0 }), 7, '정확도² 반영');
+  assert.equal(pointsForGame({ correctKeystrokes: 99999, accuracy: 100, maxCombo: 999 }), EARNING.maxPerGame);
+  assert.equal(pointsForGame(null), 0);
+
+  let state = addPoints(createGachaState(), 950);
+  assert.equal(state.points, 950);
+  assert.equal(drawWithPoints(state, 3).reason, 'bad_count');
+  const free = draw(state, { random: seeded(1), today: day(1) });
+  state = free.state;
+  assert.equal(drawWithPoints({ ...state, points: 50 }, 1).reason, 'not_enough_points');
+
+  for (let seed = 1; seed <= 200; seed++) {
+    const multi = drawWithPoints({ ...state, points: COSTS.multi, pity: { rare: 0, epic: 0, legendary: 0 } }, 10, { random: seeded(seed) });
+    assert.ok(multi.ok);
+    assert.equal(multi.results.length, 10);
+    assert.equal(multi.state.points, 0);
+    assert.ok(multi.results.some(entry => ['rare', 'epic', 'legendary'].includes(entry.rarity)), `seed ${seed}: 희귀 이상 없음`);
+    assert.equal(multi.state.lastDrawDay, state.lastDrawDay, '포인트 뽑기는 무료 뽑기 날짜를 건드리지 않음');
+    assert.equal(multi.state.draws, state.draws + 10);
+  }
+  const single = drawWithPoints({ ...state, points: 100 }, 1, { random: seeded(3) });
+  assert.ok(single.ok && single.results.length === 1 && single.state.points === 0);
+  assert.equal(normalizeGachaState({ points: 120.9 }).points, 120);
 });

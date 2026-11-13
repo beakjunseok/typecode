@@ -16,6 +16,7 @@ import { BgmEngine } from './bgm.js';
 import { emitSparks, pulseClass } from './effects.js';
 import { createKeyboard } from './keyboard.js';
 import { createKeyboardCollection } from './gacha-view.js';
+import { pointsForGame, EARNING } from './gacha.js';
 import { requestSession, submitScore, fetchBoard, localBoard, preferences } from './api.js';
 import { createUi, TIER_COLORS } from './ui.js';
 import { getWeekLabel } from './week.js';
@@ -406,6 +407,15 @@ function handleFinish(summary) {
   keyboard.setNext(null);
   ui.log('sys', `run finished · score ${summary.score} · ${summary.charactersPerMinute}타 (${summary.wordsPerMinute} WPM) · ${summary.accuracy}%`);
   const heading = resultHeading(summary);
+  // 판마다 키보드 뽑기 포인트 적립(결과창에 표시)
+  const earned = collection.earnPoints(pointsForGame(summary));
+  const pointsLine = document.getElementById('resultPoints');
+  if (pointsLine) {
+    pointsLine.hidden = false;
+    pointsLine.innerHTML = earned
+      ? `🎁 뽑기 포인트 <b>+${earned}P</b> · 보유 ${collection.points()}P`
+      : `🎁 이번 판은 포인트가 없어요(맞게 친 글자 ${EARNING.minimumCharacters}개 이상부터) · 보유 ${collection.points()}P`;
+  }
   ui.showResult(summary, {
     languageKey: settings.languageKey,
     playerName: preferences.get('name', ''),

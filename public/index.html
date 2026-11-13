@@ -192,6 +192,7 @@
       <div class="section-head"><span>자주 틀린 토큰</span></div>
       <div class="chips" id="weakTokens"></div>
     </div>
+    <p class="result-points" id="resultPoints" hidden></p>
     <p class="pvp-result-note" id="pvpResultNote" hidden>PvP 결과는 랭킹에 올라가지 않아요</p>
     <form id="saveForm">
       <label for="playerName">랭킹에 남길 이름</label>
@@ -222,19 +223,26 @@
         <div class="gacha-preview" id="gachaPreview"></div>
         <div class="gacha-note" id="gachaNote"></div>
       </div>
+      <div class="gacha-multi" id="gachaMultiGrid" hidden></div>
+      <button type="button" class="gacha-back" id="gachaBack" hidden>← 10개 결과</button>
       <div class="gacha-flash" aria-hidden="true"></div>
       <p class="gacha-tap">눌러서 뽑기</p>
     </div>
     <div class="gacha-pity" id="gachaPity"></div>
-    <div class="actions">
+    <p class="gacha-points" id="gachaPoints"></p>
+    <div class="actions gacha-actions">
+      <button type="button" class="primary" id="gachaDraw">뽑기</button>
+      <button type="button" class="paid" id="gachaSingle">1회</button>
+      <button type="button" class="paid multi" id="gachaMulti">10회</button>
+    </div>
+    <div class="actions gacha-actions">
       <button type="button" id="gachaToCollection">📖 도감</button>
       <button type="button" id="gachaSkip" hidden>건너뛰기</button>
       <button type="button" id="gachaEquip" hidden>바로 장착</button>
-      <button type="button" class="primary" id="gachaDraw">뽑기</button>
     </div>
     <details class="gacha-odds"><summary>등급별 확률 · 천장</summary>
       <table id="gachaOdds"></table>
-      <p>희귀 이상은 10회, 영웅 이상은 30회 안에 반드시 나오고, 전설은 45회째부터 확률이 매회 5%씩 올라 60회째에 확정돼요. 확정된 영웅·전설은 아직 없는 키보드부터 나와요. 첫 뽑기는 희귀 이상이에요.</p>
+      <p>무료 뽑기는 하루 한 번(자정 기준), 포인트 뽑기는 1회 100P · 10회 900P예요. 포인트는 게임을 하면 쌓여요(맞게 친 글자 10개당 1P × 정확도², 최대 콤보 10마다 2P, 한 판 최대 300P). 10회 뽑기에는 희귀 이상이 1개 이상 들어 있어요. 천장 횟수는 무료·포인트 뽑기를 합쳐서 세요. 희귀 이상은 10회, 영웅 이상은 30회 안에 반드시 나오고, 전설은 45회째부터 확률이 매회 5%씩 올라 60회째에 확정돼요. 확정된 영웅·전설은 아직 없는 키보드부터 나와요. 첫 뽑기는 희귀 이상이에요.</p>
     </details>
   </div>
 </div>

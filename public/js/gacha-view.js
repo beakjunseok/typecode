@@ -2,7 +2,7 @@
 import { createKeyboard } from './keyboard.js';
 import { SKINS, COLLECTIBLE_SKINS, RARITIES, RARITY_ORDER, getSkin, unlockedLedModes, skinsWithLedMode, MATERIALS } from './keyboard-skins.js';
 import { AMBIENT_NAMES, REACTIVE_NAMES, LED_LABELS } from './keyboard-led.js';
-import { normalizeGachaState, canDraw, draw, buy, equip, dayKey, PITY, legendaryChance } from './gacha.js';
+import { normalizeGachaState, canDraw, draw, drawWithPoints, addPoints, buy, equip, dayKey, PITY, COSTS, legendaryChance } from './gacha.js';
 
 const CHARGE_SECONDS = [1.2, 1.35, 1.6, 1.9, 2.4];
 const STARS = count => '★'.repeat(count) + '☆'.repeat(5 - count);
@@ -134,7 +134,8 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
     gachaCanvas: byId('gachaCanvas'), gachaCapsule: byId('gachaCapsule'), gachaResult: byId('gachaResult'), gachaRarity: byId('gachaRarity'),
     gachaPreview: byId('gachaPreview'), gachaName: byId('gachaName'), gachaNote: byId('gachaNote'), gachaPity: byId('gachaPity'),
     gachaDraw: byId('gachaDraw'), gachaSkip: byId('gachaSkip'), gachaEquip: byId('gachaEquip'), gachaToCollection: byId('gachaToCollection'),
-    gachaOdds: byId('gachaOdds'),
+    gachaOdds: byId('gachaOdds'), gachaSingle: byId('gachaSingle'), gachaMulti: byId('gachaMulti'),
+    gachaMultiGrid: byId('gachaMultiGrid'), gachaBack: byId('gachaBack'), gachaPoints: byId('gachaPoints'),
     collectionModal: byId('collectionModal'), collectionClose: byId('collectionClose'), collectionSub: byId('collectionSub'),
     collectionPreview: byId('collectionPreview'), collectionRarity: byId('collectionRarity'), collectionName: byId('collectionName'),
     collectionDesc: byId('collectionDesc'), collectionLed: byId('collectionLed'), collectionEquip: byId('collectionEquip'),
@@ -174,7 +175,9 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
   function refreshButtons() {
     const available = canDraw(state);
     elements.gachaButton.classList.toggle('has-draw', available);
-    elements.gachaButton.title = available ? '오늘의 키보드 뽑기 — 뽑을 수 있어요!' : `키보드 뽑기 — 다음 뽑기까지 ${untilMidnight()}`;
+    const affordable = state.points >= COSTS.single;
+    elements.gachaButton.classList.toggle('has-draw', available || affordable);
+    elements.gachaButton.title = `${available ? '오늘의 무료 뽑기를 할 수 있어요!' : `키보드 뽑기 — 무료 뽑기까지 ${untilMidnight()}`} · 포인트 ${state.points}P`;
     elements.collectionButton.title = `키보드 도감 (${state.owned.length - 1}/${COLLECTIBLE_SKINS.length})`;
   }
 
@@ -191,8 +194,13 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
   function renderGachaInfo() {
     const available = canDraw(state);
     elements.gachaDraw.disabled = !available || Boolean(drawing);
-    elements.gachaDraw.textContent = available ? (state.draws === 0 ? '첫 뽑기 (희귀 이상 확정)' : '뽑기') : `다음 뽑기까지 ${untilMidnight()}`;
-    elements.gachaSub.textContent = available ? '하루에 한 번, 무료로 키보드 스킨을 뽑을 수 있어요' : '오늘은 이미 뽑았어요. 자정이 지나면 다시 뽑을 수 있어요';
+    elements.gachaDraw.textContent = available ? (state.draws === 0 ? '무료 뽑기 (희귀 이상 확정)' : '오늘의 무료 뽑기') : `무료 뽑기까지 ${untilMidnight()}`;
+    elements.gachaSingle.disabled = state.points < COSTS.single || Boolean(drawing);
+    elements.gachaSingle.innerHTML = `1회 <small>${COSTS.single}P</small>`;
+    elements.gachaMulti.disabled = state.points < COSTS.multi || Boolean(drawing);
+    elements.gachaMulti.innerHTML = `10회 <small>${COSTS.multi}P · 희귀 이상 1개 보장</small>`;
+    elements.gachaPoints.innerHTML = `보유 포인트 <b>${state.points}P</b> · 게임을 하면 쌓여요`;
+    elements.gachaSub.textContent = available ? '하루 한 번 무료, 그 밖에는 게임 포인트로 뽑을 수 있어요' : '오늘의 무료 뽑기는 끝났어요. 게임 포인트로 더 뽑을 수 있어요';
     const left = (limit, count) => Math.max(1, limit - count);
     elements.gachaPity.innerHTML = [
       `<span style="--rarity:${RARITIES.rare.color}">희귀 이상 확정까지 <b>${left(PITY.rare, state.pity.rare)}</b>회</span>`,
@@ -231,34 +239,49 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
     elements.gachaEquip.dataset.skin = result.skin.id;
   }
 
-  async function startDraw() {
-    if (drawing || !canDraw(state)) return;
-    const result = draw(state);
-    if (!result.ok) return;
-    state = result.state;
+  // kind: 'free'(하루 한 번) · 'single'(100P) · 'multi'(10회 900P)
+  async function startDraw(kind = 'free') {
+    if (drawing) return;
+    let results;
+    if (kind === 'free') {
+      const result = draw(state);
+      if (!result.ok) return;
+      state = result.state;
+      results = [result];
+    } else {
+      const result = drawWithPoints(state, kind === 'multi' ? COSTS.multiCount : 1);
+      if (!result.ok) return;
+      state = result.state;
+      results = result.results;
+    }
     save();
     refreshButtons();
-    const rank = RARITY_ORDER.indexOf(result.rarity);
-    const color = RARITIES[result.rarity].color;
+    const best = results.reduce((top, entry) => RARITY_ORDER.indexOf(entry.rarity) > RARITY_ORDER.indexOf(top.rarity) ? entry : top, results[0]);
+    const rank = RARITY_ORDER.indexOf(best.rarity);
+    const color = RARITIES[best.rarity].color;
     const calm = reducedMotion();
+    const multi = results.length > 1;
     drawing = { skipped: false, wake: null };
-    elements.gachaDraw.hidden = true;
+    for (const button of [elements.gachaDraw, elements.gachaSingle, elements.gachaMulti]) button.hidden = true;
     elements.gachaSkip.hidden = false;
     elements.gachaEquip.hidden = true;
     elements.gachaResult.hidden = true;
+    elements.gachaMultiGrid.hidden = true;
+    elements.gachaBack.hidden = true;
     elements.gachaStage.dataset.rank = String(rank);
+    elements.gachaStage.dataset.multi = String(multi);
     elements.gachaStage.style.setProperty('--rarity', '#e9edf8');
     particles.resize();
 
-    // ① 키캡 캡슐이 떨어져 내려앉는다
+    // ① 키캡 캡슐이 떨어져 내려앉는다(10회는 캡슐이 금속 상자처럼 묵직하게)
     setPhase('drop');
     sound.play('gachaTick');
     await pause(calm ? 150 : 480);
-    // ② 흔들리며 빛을 빨아들인다. 희귀 이상은 중간에 빛 색이 등급 색으로 바뀐다(무슨 등급인지 슬쩍 알려 준다)
-    const charge = CHARGE_SECONDS[rank];
+    // ② 흔들리며 빛을 빨아들인다. 희귀 이상(10회면 가장 좋은 것)은 중간에 빛 색이 등급 색으로 바뀐다
+    const charge = CHARGE_SECONDS[rank] + (multi ? 0.4 : 0);
     setPhase('charge');
     if (!drawing.skipped) sound.play('gachaCharge', { rarity: rank, length: charge });
-    if (!calm) particles.gather(26 + rank * 10, 'rgba(233, 237, 248, 0.9)', charge * 0.7);
+    if (!calm) particles.gather((26 + rank * 10) * (multi ? 2 : 1), 'rgba(233, 237, 248, 0.9)', charge * 0.7);
     await pause(charge * 520);
     if (rank >= 2) {
       elements.gachaStage.style.setProperty('--rarity', color);
@@ -266,24 +289,61 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
       if (!calm && !drawing.skipped) particles.gather(20 + rank * 14, color, charge * 0.45);
     }
     await pause(charge * 480);
-    // ③ 터진다: 섬광 + 키캡 조각 + 등급 빛줄기(영웅 이상은 화면이 흔들린다)
+    // ③ 터진다
     setPhase('burst');
     elements.gachaStage.style.setProperty('--rarity', color);
     sound.play('gachaReveal', { rarity: rank });
     if (!calm) {
-      const skinColors = [color, result.skin.colors.alphaBg, result.skin.colors.accentBg, result.skin.colors.modBg, '#ffffff'];
-      particles.burst(40 + rank * 35, skinColors, 0.8 + rank * 0.15);
+      const skinColors = [color, ...results.flatMap(entry => [entry.skin.colors.alphaBg, entry.skin.colors.accentBg]), '#ffffff'];
+      particles.burst((40 + rank * 35) * (multi ? 1.5 : 1), skinColors, 0.8 + rank * 0.15);
     }
-    showResult(result);
+    if (multi) showMulti(results, drawing.skipped || calm);
+    else showResult(results[0]);
     await pause(calm ? 100 : 700);
     // ④ 결과
     setPhase('result');
     elements.gachaStage.classList.remove('tell');
     elements.gachaSkip.hidden = true;
-    elements.gachaDraw.hidden = false;
+    for (const button of [elements.gachaDraw, elements.gachaSingle, elements.gachaMulti]) button.hidden = false;
     drawing = null;
     renderGachaInfo();
     renderCollection();
+  }
+
+  // 10회 결과: 카드 10장이 한 장씩 뒤집힌다(희귀 이상은 등급 소리). 카드를 누르면 그 키보드를 크게 본다
+  let lastMulti = [];
+  function showMulti(results, instant) {
+    lastMulti = results;
+    elements.gachaMultiGrid.innerHTML = results.map((entry, index) => {
+      const info = RARITIES[entry.rarity];
+      const { colors } = entry.skin;
+      return `<button type="button" class="multi-card rank-${RARITY_ORDER.indexOf(entry.rarity)}" data-index="${index}" style="--rarity:${info.color};--case:${colors.case};--alpha:${colors.alphaBg};--mod:${colors.modBg};--accent:${colors.accentBg};--delay:${instant ? 0 : index * 110}ms" aria-label="${entry.skin.name} (${info.label})">
+        <span class="swatch" aria-hidden="true"><i class="a"></i><i class="a"></i><i class="m"></i><i class="x"></i></span>
+        <span class="tile-stars">${'★'.repeat(info.stars)}</span>
+        <span class="tile-name">${entry.skin.name}</span>
+        ${entry.duplicate ? `<span class="multi-dup">+${entry.refund} 조각</span>` : '<span class="new-badge">NEW</span>'}
+      </button>`;
+    }).join('');
+    elements.gachaMultiGrid.hidden = false;
+    elements.gachaStage.style.setProperty('--rarity', RARITIES[results.reduce((top, entry) => RARITY_ORDER.indexOf(entry.rarity) > RARITY_ORDER.indexOf(top) ? entry.rarity : top, 'common')].color);
+    const fresh = results.filter(entry => !entry.duplicate).length;
+    const refund = results.reduce((sum, entry) => sum + entry.refund, 0);
+    elements.gachaMultiGrid.insertAdjacentHTML('beforeend', `<p class="multi-summary">새 키보드 <b>${fresh}</b>개 · 키캡 조각 <b>+${refund}</b> · 카드를 누르면 크게 보여요</p>`);
+    if (!instant) {
+      results.forEach((entry, index) => {
+        const rank = RARITY_ORDER.indexOf(entry.rarity);
+        setTimeout(() => sound.play(rank >= 2 ? 'gachaCard' : 'gachaTick', { rarity: rank }), 250 + index * 110);
+      });
+    }
+  }
+
+  function backToMulti() {
+    elements.gachaResult.hidden = true;
+    elements.gachaEquip.hidden = true;
+    elements.gachaBack.hidden = true;
+    elements.gachaMultiGrid.hidden = false;
+    elements.gachaStage.dataset.multi = 'true';
+    sound.play('gachaTick');
   }
 
   function skipDraw() {
@@ -403,11 +463,14 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
 
   function openGacha() {
     if (!drawing) {
-      setPhase(canDraw(state) ? 'idle' : 'done');
+      setPhase(canDraw(state) || state.points >= COSTS.single ? 'idle' : 'done');
       elements.gachaResult.hidden = true;
+      elements.gachaMultiGrid.hidden = true;
+      elements.gachaBack.hidden = true;
       elements.gachaEquip.hidden = true;
       elements.gachaSkip.hidden = true;
-      elements.gachaDraw.hidden = false;
+      elements.gachaStage.dataset.multi = 'false';
+      for (const button of [elements.gachaDraw, elements.gachaSingle, elements.gachaMulti]) button.hidden = false;
       elements.gachaStage.style.setProperty('--rarity', '#e9edf8');
     }
     renderOdds();
@@ -431,11 +494,26 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
   for (const modal of [elements.gachaModal, elements.collectionModal]) {
     modal.addEventListener('click', event => { if (event.target === modal && !drawing) close(); });
   }
-  elements.gachaDraw.addEventListener('click', startDraw);
+  elements.gachaDraw.addEventListener('click', () => startDraw('free'));
+  elements.gachaSingle.addEventListener('click', () => startDraw('single'));
+  elements.gachaMulti.addEventListener('click', () => startDraw('multi'));
+  elements.gachaBack.addEventListener('click', event => { event.stopPropagation(); backToMulti(); });
+  elements.gachaMultiGrid.addEventListener('click', event => {
+    const card = event.target.closest('[data-index]');
+    if (!card || drawing) return;
+    event.stopPropagation();
+    const entry = lastMulti[Number(card.dataset.index)];
+    if (!entry) return;
+    elements.gachaMultiGrid.hidden = true;
+    elements.gachaStage.dataset.multi = 'false';
+    showResult(entry);
+    elements.gachaBack.hidden = false;
+    sound.play('gachaTick');
+  });
   elements.gachaSkip.addEventListener('click', skipDraw);
   elements.gachaStage.addEventListener('click', () => {
     if (drawing) skipDraw();
-    else if (canDraw(state) && elements.gachaStage.dataset.phase === 'idle') startDraw();
+    else if (canDraw(state) && elements.gachaStage.dataset.phase === 'idle') startDraw('free');
   });
   elements.gachaEquip.addEventListener('click', () => {
     const next = equip(state, elements.gachaEquip.dataset.skin);
@@ -514,8 +592,20 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
   // 자정을 넘기면 뽑기 알림 점을 다시 켠다
   setInterval(refreshButtons, 60000);
 
+  // 판이 끝났을 때 포인트 적립
+  function earnPoints(amount) {
+    const next = addPoints(state, amount);
+    if (next === state) return 0;
+    state = next;
+    save();
+    refreshButtons();
+    return amount;
+  }
+
   return {
     isOpen,
+    earnPoints,
+    points: () => state.points,
     openGacha,
     openCollection,
     refresh: refreshButtons,
