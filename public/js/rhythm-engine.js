@@ -1,9 +1,11 @@
 // 리듬 모드: 128 BPM 고정 4레인 낙하형 코드 타자.
-// 낱말(토큰)이 박자에 맞춰 판정선으로 떨어진다. 앞 글자들은 미리 쳐 두고, 마지막 글자를 판정선에 닿는 순간 누르면
-// 그 타이밍으로 PERFECT·GREAT·GOOD·BAD가 갈린다. 레인 = 토큰 종류(키워드 / 타입·내장 / 값·지시자 / 연산자).
+// 코드 낱말(토큰)을 한 글자씩 나눠 큰 원 노트로 박에 맞춰 떨어뜨린다. 원이 판정선에 닿는 순간 그 글자를 치면
+// 타이밍으로 PERFECT·GREAT·GOOD·BAD가 갈리고, 글자가 모두 판정되면 낱말 하나가 완성된다(화면 위에 표시).
+// 레인 = 그 글자를 치는 손가락 구역(왼손 바깥 · 왼손 안쪽 · 오른손 안쪽 · 오른손 바깥).
 // 시간은 오디오 시계(AudioContext.currentTime − 출력 지연)를 따라가서 들리는 박자와 판정선이 어긋나지 않는다.
 import { TargetGameEngine } from './target-game.js';
 import { getMultiplier, getTierProgress } from './engine.js';
+import { describeKey } from './keyboard.js';
 
 export const RHYTHM_RULES = Object.freeze({
   bpm: 128,
@@ -13,9 +15,11 @@ export const RHYTHM_RULES = Object.freeze({
   // 판정 창(초, 정박 기준 ±). 그 밖이지만 missAfter 안에 치면 BAD, 지나가면 MISS
   windows: Object.freeze({ perfect: 0.05, great: 0.1, good: 0.15 }),
   missAfter: 0.25,
-  points: Object.freeze({ perfect: 300, great: 200, good: 100, bad: 30 }),
+  // 글자 하나의 점수(× 콤보 배율). 낱말의 모든 글자를 GOOD 이상으로, 오타 없이 치면 글자당 wordBonus 추가
+  points: Object.freeze({ perfect: 100, great: 70, good: 40, bad: 10 }),
+  wordBonus: 30,
   // 체력 0~100: 0이 되면 스테이지 실패
-  health: Object.freeze({ start: 100, perfect: 2, great: 1.5, good: 0.5, bad: -4, miss: -10, wrong: -1 }),
+  health: Object.freeze({ start: 100, perfect: 1, great: 0.8, good: 0.3, bad: -3, miss: -8, wrong: -2 }),
   // 노트가 끝나고 이만큼 지나면 스테이지 클리어
   outroSeconds: 1.6,
   // 탭 전환·멈춤으로 시계가 크게 건너뛰면 한 프레임에 이만큼만 진행(그 사이는 멈춘 것으로 본다)
@@ -24,24 +28,29 @@ export const RHYTHM_RULES = Object.freeze({
 
 export const BEAT_SECONDS = 60 / RHYTHM_RULES.bpm;
 export const JUDGEMENTS = Object.freeze(['perfect', 'great', 'good', 'bad', 'miss']);
-// 점수 상한 검증용(서버): 노트 1개 최고점 × 최대 배율 ÷ 최소 토큰 길이
-export const RHYTHM_MAX_POINTS_PER_CHARACTER = RHYTHM_RULES.points.perfect * 2 / 2;
+// 점수 상한 검증용(서버): 글자 하나 최고점 = (PERFECT + 낱말 보너스) × 최대 배율 2
+export const RHYTHM_MAX_POINTS_PER_CHARACTER = (RHYTHM_RULES.points.perfect + RHYTHM_RULES.wordBonus) * 2;
 
-// 레인 = 토큰 종류 묶음
+// 레인 = 손가락 구역
 export const RHYTHM_LANES = Object.freeze([
-  Object.freeze({ label: '키워드', kinds: Object.freeze(['keyword']), color: '#c792ea' }),
-  Object.freeze({ label: '타입·내장', kinds: Object.freeze(['type', 'builtin']), color: '#82aaff' }),
-  Object.freeze({ label: '값·지시자', kinds: Object.freeze(['literal', 'decorator', 'directive']), color: '#f78c6c' }),
-  Object.freeze({ label: '연산자', kinds: Object.freeze(['operator']), color: '#ffcb6b' })
+  Object.freeze({ label: '왼손 바깥', fingers: Object.freeze(['LP', 'LR']), color: '#ff5c8a' }),
+  Object.freeze({ label: '왼손 안쪽', fingers: Object.freeze(['LM', 'LI', 'TH']), color: '#c3e88d' }),
+  Object.freeze({ label: '오른손 안쪽', fingers: Object.freeze(['RI', 'RM']), color: '#36e2ff' }),
+  Object.freeze({ label: '오른손 바깥', fingers: Object.freeze(['RR', 'RP']), color: '#ffb547' })
 ]);
-const laneOfKind = kind => Math.max(0, RHYTHM_LANES.findIndex(lane => lane.kinds.includes(kind)));
+export function laneOfCharacter(character) {
+  const finger = describeKey(character)?.finger;
+  const lane = RHYTHM_LANES.findIndex(entry => entry.fingers.includes(finger));
+  return lane === -1 ? RHYTHM_LANES.length - 1 : lane;
+}
 
-// 난이도별 노트 간격(박 단위, 순환), 떨어지는 시간(박), 최대 토큰 길이
+// 난이도별: 글자 사이 간격(박, 순환), 낱말 사이 쉼(박), 떨어지는 시간(박), 낱말 최대 길이.
+// Lv.1 분당 약 64타 · Lv.2 128타 · Lv.3 약 190타 · Lv.4 256타(쉼 제외)
 export const RHYTHM_CHARTS = Object.freeze({
-  1: Object.freeze({ pattern: Object.freeze([4]), fallBeats: 6, maxLength: 8 }),
-  2: Object.freeze({ pattern: Object.freeze([2]), fallBeats: 5, maxLength: 6 }),
-  3: Object.freeze({ pattern: Object.freeze([2, 2, 1]), fallBeats: 4, maxLength: 5 }),
-  4: Object.freeze({ pattern: Object.freeze([1, 1, 2]), fallBeats: 3.5, maxLength: 5 })
+  1: Object.freeze({ steps: Object.freeze([2]), wordGap: 2, fallBeats: 5, maxLength: 5 }),
+  2: Object.freeze({ steps: Object.freeze([1]), wordGap: 2, fallBeats: 4, maxLength: 6 }),
+  3: Object.freeze({ steps: Object.freeze([1, 0.5, 0.5]), wordGap: 2, fallBeats: 3.5, maxLength: 7 }),
+  4: Object.freeze({ steps: Object.freeze([0.5]), wordGap: 1.5, fallBeats: 3, maxLength: 8 })
 });
 
 // 화음 진행(마디마다, 4마디 순환): 레인별 타격음과 반주가 같은 화음을 쓴다. MIDI 음 번호
@@ -106,7 +115,7 @@ export class RhythmEngine extends TargetGameEngine {
   constructor({ getAudioContext = () => null, narrow = false, ...options }) {
     const level = RHYTHM_CHARTS[options.level] ? Number(options.level) : 2;
     const chart = RHYTHM_CHARTS[level];
-    super({ ...options, level, mode: 'rhythm', maxTokenLength: Math.min(chart.maxLength, narrow ? 7 : chart.maxLength) });
+    super({ ...options, level, mode: 'rhythm', maxTokenLength: chart.maxLength });
     this.chart = chart;
     this.lanes = RHYTHM_LANES.length;
     this.clock = new BeatClock(getAudioContext);
@@ -114,27 +123,49 @@ export class RhythmEngine extends TargetGameEngine {
     this.health = RHYTHM_RULES.health.start;
     this.counts = Object.fromEntries(JUDGEMENTS.map(name => [name, 0]));
     this.outcome = null;
-    this.notes = this.buildChart();
-    this.lastHitTime = this.notes.at(-1)?.hitTime ?? 0;
+    this.wordsCompleted = 0;
+    this.cleanWords = 0;
+    this.headIndex = 0;
+    const { words, notes } = this.buildChart();
+    this.words = words;
+    this.notes = notes;
+    this.lastHitTime = notes.at(-1)?.hitTime ?? 0;
     this.endTime = this.lastHitTime + RHYTHM_RULES.outroSeconds;
   }
 
-  // 악보: 리드인(2마디) 뒤부터 패턴 간격으로 노트를 깐다. 같은 토큰이 연달아 나오지 않게 한다. O(노트 수)
+  // 악보: 리드인(2마디) 뒤부터 낱말을 글자 단위 노트로 깐다. 같은 낱말이 연달아 나오지 않게 한다. O(노트 수)
   buildChart() {
+    const words = [];
     const notes = [];
-    const totalBeats = RHYTHM_RULES.bars * RHYTHM_RULES.beatsPerBar;
+    const lastBeat = RHYTHM_RULES.leadInBeats + RHYTHM_RULES.bars * RHYTHM_RULES.beatsPerBar;
     let beat = RHYTHM_RULES.leadInBeats;
     let step = 0;
     let previous = null;
-    while (beat < RHYTHM_RULES.leadInBeats + totalBeats) {
+    while (true) {
       let token = this.drawWeightedToken();
       for (let attempt = 0; attempt < 6 && token.text === previous; attempt++) token = this.drawWeightedToken();
+      const characters = [...token.text];
+      let span = 0;
+      for (let index = 1; index < characters.length; index++) span += this.chart.steps[(step + index - 1) % this.chart.steps.length];
+      if (beat + span > lastBeat) break;
       previous = token.text;
-      notes.push({ id: this.nextId++, token, lane: laneOfKind(token.kind), beat, hitTime: beat * BEAT_SECONDS, state: 'pending', judgement: null, delta: 0, resolvedAt: null });
-      beat += this.chart.pattern[step % this.chart.pattern.length];
-      step++;
+      const word = { id: this.nextId++, index: words.length, token, noteIds: [], mistakes: 0, done: false, clean: false };
+      characters.forEach((character, charIndex) => {
+        const note = {
+          id: this.nextId++, word, charIndex, character, lane: laneOfCharacter(character),
+          beat, hitTime: beat * BEAT_SECONDS, state: 'pending', judgement: null, delta: 0, resolvedAt: null
+        };
+        notes.push(note);
+        word.noteIds.push(note.id);
+        if (charIndex < characters.length - 1) {
+          beat += this.chart.steps[step % this.chart.steps.length];
+          step++;
+        }
+      });
+      words.push(word);
+      beat += this.chart.wordGap;
     }
-    return notes;
+    return { words, notes };
   }
 
   // ---------- 시간 ----------
@@ -159,13 +190,29 @@ export class RhythmEngine extends TargetGameEngine {
 
   // 놓친 노트 처리 + 끝 판정
   step() {
-    for (const note of this.notes) {
-      if (note.state !== 'pending') continue;
-      if (this.gameTime - note.hitTime <= RHYTHM_RULES.missAfter) break;
-      this.resolveMiss(note);
+    let head = this.headNote();
+    while (head && this.gameTime - head.hitTime > RHYTHM_RULES.missAfter) {
+      this.resolveMiss(head);
       if (this.status !== 'running') return;
+      head = this.headNote();
     }
     if (this.gameTime >= this.endTime) this.finish('cleared');
+  }
+
+  // 다음에 칠 노트(시각순 첫 미판정). O(1) 분할상환
+  headNote() {
+    while (this.headIndex < this.notes.length && this.notes[this.headIndex].state !== 'pending') this.headIndex++;
+    return this.notes[this.headIndex] ?? null;
+  }
+
+  // 지금 치는 낱말(다음 노트의 낱말). 키보드 힌트·입력창용
+  get currentWord() {
+    return this.headNote()?.word ?? null;
+  }
+
+  nextCharacter() {
+    const head = this.headNote();
+    return head && head.hitTime - this.fallSeconds <= this.gameTime ? head.character : null;
   }
 
   resolveMiss(note) {
@@ -173,17 +220,18 @@ export class RhythmEngine extends TargetGameEngine {
     note.judgement = 'miss';
     note.resolvedAt = this.gameTime;
     this.counts.miss++;
-    if (this.targetId === note.id) {
-      this.clearBuffer();
-      this.emit('target-lost', { reason: 'missed' });
-    }
     if (this.combo >= 5) this.emit('combo-lost', { combo: this.combo });
     this.combo = 0;
-    const entry = this.weakTokens.get(note.token.text) ?? { token: note.token, misses: 0 };
-    entry.misses++;
-    this.weakTokens.set(note.token.text, entry);
+    this.noteWeak(note.word);
     this.changeHealth(RHYTHM_RULES.health.miss);
     this.emit('miss', { note });
+    this.checkWord(note.word);
+  }
+
+  noteWeak(word) {
+    const entry = this.weakTokens.get(word.token.text) ?? { token: word.token, misses: 0 };
+    entry.misses++;
+    this.weakTokens.set(word.token.text, entry);
   }
 
   changeHealth(amount) {
@@ -191,10 +239,26 @@ export class RhythmEngine extends TargetGameEngine {
     if (this.health === 0) this.finish('failed');
   }
 
+  // 낱말의 모든 글자가 판정되면 완성. 모두 GOOD 이상이고 오타가 없으면 깨끗한 완성(보너스)
+  checkWord(word) {
+    if (word.done || this.status === 'finished') return;
+    const notes = word.noteIds.map(id => this.findEntity(id));
+    if (notes.some(note => note.state === 'pending')) return;
+    word.done = true;
+    word.clean = word.mistakes === 0 && notes.every(note => ['perfect', 'great', 'good'].includes(note.judgement));
+    this.wordsCompleted++;
+    let bonus = 0;
+    if (word.clean) {
+      this.cleanWords++;
+      bonus = Math.round(RHYTHM_RULES.wordBonus * notes.length * getMultiplier(this.combo));
+      this.score += bonus;
+    }
+    this.emit('word', { word, clean: word.clean, bonus, judgements: notes.map(note => note.judgement), lane: notes.at(-1).lane, beat: notes.at(-1).beat });
+  }
+
   // ---------- 목표 ----------
-  // 순서대로만 친다: 화면에 들어온 노트 중 가장 먼저 판정선에 닿는 것 하나
   targetables() {
-    const head = this.notes.find(note => note.state === 'pending');
+    const head = this.headNote();
     return head && head.hitTime - this.fallSeconds <= this.gameTime ? [head] : [];
   }
 
@@ -204,56 +268,75 @@ export class RhythmEngine extends TargetGameEngine {
 
   // 화면에 보이는 노트(떨어지는 중 + 방금 판정된 것)
   visibleNotes() {
-    return this.notes.filter(note => note.hitTime - this.fallSeconds <= this.gameTime
-      && (note.state === 'pending' || this.gameTime - note.resolvedAt < 0.4));
+    const visible = [];
+    for (let index = Math.max(0, this.headIndex - 12); index < this.notes.length; index++) {
+      const note = this.notes[index];
+      if (note.hitTime - this.fallSeconds > this.gameTime) break;
+      if (note.state === 'pending' || this.gameTime - note.resolvedAt < 0.4) visible.push(note);
+    }
+    return visible;
   }
 
   // ---------- 입력 ----------
-  // 첫 키는 시작 신호(오타로 세지 않는다). 리드인 동안 노트가 없으면 아무 일도 없다
+  // 첫 키는 시작 신호. 그 뒤로는 다음 노트가 판정 범위(±0.25초) 안에 있을 때만 판정한다.
+  // 범위 밖에서 누른 키는 무시(벌점 없음), 범위 안에서 다른 글자를 누르면 오타
   input(character, nowMs) {
+    if (typeof character !== 'string' || character.length !== 1) return { accepted: false, reason: 'invalid_character' };
+    if (this.status === 'finished') return { accepted: false, reason: 'finished' };
     if (this.status === 'ready') {
-      if (typeof character !== 'string' || character.length !== 1) return { accepted: false, reason: 'invalid_character' };
       this.start(nowMs);
       return { accepted: true, correct: true, started: true };
     }
-    if (this.status === 'running' && !this.target && !this.targetables().length) {
-      this.update(nowMs);
-      if (!this.targetables().length) return { accepted: false, reason: 'no_note' };
+    this.update(nowMs);
+    if (this.status !== 'running') return { accepted: false, reason: 'finished' };
+    const head = this.headNote();
+    if (!head || head.hitTime - this.gameTime > RHYTHM_RULES.missAfter) return { accepted: false, reason: 'too_early' };
+    if (character !== head.character) {
+      head.word.mistakes++;
+      this.wrongKeystrokes++;
+      const comboLost = this.combo;
+      this.combo = 0;
+      this.noteWeak(head.word);
+      const payload = { typed: character, expected: head.character, target: head.word, note: head, comboLost, position: head.charIndex };
+      this.emit('mistake', payload);
+      this.changeHealth(RHYTHM_RULES.health.wrong);
+      return { accepted: true, correct: false, ...payload };
     }
-    return super.input(character, nowMs);
+    return this.hit(head);
   }
 
-  registerMistake(typed, expected, target) {
-    const result = super.registerMistake(typed, expected, target);
-    this.changeHealth(RHYTHM_RULES.health.wrong);
-    return result;
-  }
-
-  // 마지막 글자를 친 순간 = 판정. 앞 글자에 오타가 있었으면 판정이 좋아도 콤보는 끊긴다
-  fire(note) {
+  hit(note) {
     const delta = this.gameTime - note.hitTime;
-    const judgement = delta < -RHYTHM_RULES.missAfter ? 'bad' : judgeTiming(delta);
-    const clean = !this.targetHadMistake && judgement !== 'bad';
-    if (clean) {
-      this.combo++;
-      this.cleanThrows++;
-      this.maxCombo = Math.max(this.maxCombo, this.combo);
-    } else {
+    const judgement = judgeTiming(delta);
+    this.correctKeystrokes++;
+    const second = Math.floor(this.gameTime);
+    this.correctPerSecond[second] = (this.correctPerSecond[second] ?? 0) + 1;
+    if (judgement === 'bad') {
       if (this.combo >= 5) this.emit('combo-lost', { combo: this.combo });
       this.combo = 0;
+    } else {
+      this.combo++;
+      this.maxCombo = Math.max(this.maxCombo, this.combo);
     }
     this.score += Math.round(RHYTHM_RULES.points[judgement] * getMultiplier(this.combo));
-    this.throws++;
     this.counts[judgement]++;
     note.state = 'hit';
     note.judgement = judgement;
     note.delta = delta;
     note.resolvedAt = this.gameTime;
-    this.clearBuffer();
     this.changeHealth(RHYTHM_RULES.health[judgement]);
-    const payload = { note, target: note, judgement, delta, clean, combo: this.combo, lane: note.lane, beat: note.beat, token: note.token, tier: getTierProgress(this.combo).index };
+    const payload = { note, judgement, delta, combo: this.combo, lane: note.lane, beat: note.beat, character: note.character, tier: getTierProgress(this.combo).index };
     this.emit('judge', payload);
-    return { accepted: true, correct: true, fired: true, ...payload };
+    this.checkWord(note.word);
+    return { accepted: true, correct: true, ...payload };
+  }
+
+  backspace() {
+    return { accepted: false, reason: 'not_used' };
+  }
+
+  clearInput() {
+    return { accepted: false, reason: 'not_used' };
   }
 
   finish(outcome = 'failed') {
@@ -263,7 +346,7 @@ export class RhythmEngine extends TargetGameEngine {
   }
 
   // ---------- 결과 ----------
-  // 판정 정확도: PERFECT 100%, GREAT 70%, GOOD 40%, BAD 10%, MISS 0%의 평균. 아직 안 나온 노트는 빼고 센다
+  // 판정 정확도: PERFECT 100%, GREAT 70%, GOOD 40%, BAD 10%, MISS 0%의 평균
   timingAccuracy() {
     const judged = JUDGEMENTS.reduce((sum, name) => sum + this.counts[name], 0);
     if (!judged) return 100;
@@ -288,6 +371,7 @@ export class RhythmEngine extends TargetGameEngine {
       progress: Math.min(1, this.gameTime / this.endTime),
       counts: { ...this.counts },
       timingAccuracy: this.timingAccuracy(),
+      wordsCompleted: this.wordsCompleted,
       bpm: RHYTHM_RULES.bpm
     };
   }
@@ -299,6 +383,9 @@ export class RhythmEngine extends TargetGameEngine {
       judgements: { ...this.counts },
       timingAccuracy: this.timingAccuracy(),
       totalNotes: this.notes.length,
+      totalWords: this.words.length,
+      completedTokens: this.wordsCompleted,
+      cleanTokens: this.cleanWords,
       bpm: RHYTHM_RULES.bpm
     };
   }

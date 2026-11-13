@@ -692,6 +692,12 @@ const SOUNDS = {
     if (judgement !== 'good') engine.tone(context, { frequency, startTime: time, peak: 0.022 * level, decay: 0.1, waveform: 'square', filter: lead });
     if (judgement === 'perfect') engine.tone(context, { frequency: frequency * 2, startTime: time + 0.01, peak: 0.018, decay: 0.18 });
   },
+  // 낱말을 깨끗이 완성: 그 화음 음에서 5도·옥타브로 빠르게 올라가는 '띠리링'
+  rhythmWord(engine, context, time, { frequency = 880 } = {}) {
+    [1, 1.5, 2].forEach((step, index) => {
+      engine.tone(context, { frequency: frequency * step, startTime: time + 0.04 + index * 0.06, peak: 0.035, decay: index === 2 ? 0.3 : 0.08, waveform: 'triangle' });
+    });
+  },
   // 놓침: 낮게 떨어지는 '뚝'
   rhythmMiss(engine, context, time) {
     engine.tone(context, { frequency: 180, sweepTo: 70, startTime: time, peak: 0.07, decay: 0.16, waveform: 'square', filter: { type: 'lowpass', frequency: 700 } });

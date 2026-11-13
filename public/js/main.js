@@ -45,7 +45,7 @@ const MODE_CONFIG = Object.freeze({
   },
   rhythm: {
     label: '리듬', arcade: true, title: 'beat-compiler.wav', resultTitle: 'STAGE CLEAR',
-    hint: `♩=${RHYTHM_RULES.bpm} · 낱말을 미리 쳐 두고 마지막 글자를 판정선에 맞춰 누르세요`, Renderer: RhythmRenderer,
+    hint: `♩=${RHYTHM_RULES.bpm} · 떨어지는 글자가 판정선에 닿을 때 그 글자를 치세요`, Renderer: RhythmRenderer,
     // 오디오 시계로 박자를 맞춘다(소리를 꺼 두면 성능 시계)
     createEngine: options => new RhythmEngine({ ...options, getAudioContext: () => sound.context })
   }
@@ -270,12 +270,16 @@ function handleArcadeEvent(type, payload) {
         ui.log('info', `combo ${payload.combo} → multiplier ×${payload.tier === 2 ? '2.0' : '1.5'}`);
       }
       run.lastTier = payload.tier;
-      if (payload.judgement === 'bad') ui.log('warn', `BAD '${payload.token.text}' — ${payload.delta < 0 ? '빠름' : '늦음'} ${Math.round(Math.abs(payload.delta) * 1000)}ms`);
+      if (payload.judgement === 'bad') ui.log('warn', `BAD '${visible(payload.character)}' — ${payload.delta < 0 ? '빠름' : '늦음'} ${Math.round(Math.abs(payload.delta) * 1000)}ms`);
       break;
     case 'miss':
       sound.play('rhythmMiss');
-      ui.log('err', `MISS '${payload.note.token.text}' — 판정선을 지나갔습니다`);
+      ui.log('err', `MISS '${visible(payload.note.character)}' in '${payload.note.word.token.text}' — 판정선을 지나갔습니다`);
       run.lastTier = 0;
+      break;
+    case 'word':
+      if (payload.clean) sound.play('rhythmWord', { frequency: hitFrequency(payload.beat, payload.lane) });
+      ui.log(payload.clean ? 'ok' : 'info', `${payload.word.token.text} ${payload.clean ? `완성 (+${payload.bonus})` : '완성 — 놓친 글자 있음'}`);
       break;
     case 'finish':
       rhythmMusic.reset();
@@ -377,7 +381,7 @@ async function refreshBoard() {
 function arcadeSubtitle(summary) {
   if (summary.mode === 'rhythm') {
     const j = summary.judgements;
-    return `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[summary.level].label} · ♩=${summary.bpm} · 랭크 ${summary.rank} · 판정 정확도 ${summary.timingAccuracy}% · PERFECT ${j.perfect} · GREAT ${j.great} · GOOD ${j.good} · BAD ${j.bad} · MISS ${j.miss} / ${summary.totalNotes}노트`;
+    return `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[summary.level].label} · ♩=${summary.bpm} · 랭크 ${summary.rank} · 판정 정확도 ${summary.timingAccuracy}% · 낱말 ${summary.completedTokens}/${summary.totalWords} (깨끗이 ${summary.cleanTokens}) · PERFECT ${j.perfect} · GREAT ${j.great} · GOOD ${j.good} · BAD ${j.bad} · MISS ${j.miss}`;
   }
   const base = `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[summary.level].label} · 생존 ${summary.survivedSeconds}s`;
   if (summary.mode === 'battery') {
@@ -603,7 +607,11 @@ function applyKeyboardVisibility() {
 function updateArcadeKeyboardHint() {
   if (!isArcade() || !settings.keyboardInGame) return;
   const engine = run.engine;
-  const target = engine?.target ?? (settings.mode === 'rhythm' && engine?.status === 'running' ? engine.targetables()[0] : null);
+  if (settings.mode === 'rhythm') {
+    keyboard.setNext(engine?.status === 'running' ? engine.nextCharacter() : null);
+    return;
+  }
+  const target = engine?.target;
   if (!target || engine.status === 'finished') {
     keyboard.setNext(null);
     return;
@@ -734,6 +742,10 @@ function renderInputBar() {
     return;
   }
   bar.hidden = false;
+  if (settings.mode === 'rhythm') {
+    renderRhythmInputBar(engine);
+    return;
+  }
   const target = engine.target;
   const typed = engine.typed.join('');
   const correctLength = target ? [...typed].findIndex((character, index) => character !== target.token.text[index]) : -1;
@@ -744,6 +756,21 @@ function renderInputBar() {
   ui.elements.inputRest.textContent = target ? target.token.text.slice(typed.length) : '';
   const notice = run.inputNotice && run.inputNotice.until > Date.now() ? run.inputNotice.message : '';
   ui.elements.inputTarget.textContent = notice || (target ? '' : engine.status === 'finished' ? 'game over' : '낱말의 첫 글자를 치세요');
+  ui.elements.inputTarget.classList.toggle('notice', Boolean(notice));
+  updateArcadeKeyboardHint();
+}
+
+// 리듬: 입력창에 지금 만드는 낱말(친 글자 / 남은 글자)
+function renderRhythmInputBar(engine) {
+  const word = engine.status === 'running' ? engine.currentWord : null;
+  const notes = word ? word.noteIds.map(id => engine.findEntity(id)) : [];
+  const done = notes.findIndex(note => note.state === 'pending');
+  const split = done === -1 ? notes.length : done;
+  ui.elements.inputTyped.textContent = notes.slice(0, split).map(note => note.character).join('');
+  ui.elements.inputWrong.textContent = '';
+  ui.elements.inputRest.textContent = notes.slice(split).map(note => note.character).join('');
+  const notice = run.inputNotice && run.inputNotice.until > Date.now() ? run.inputNotice.message : '';
+  ui.elements.inputTarget.textContent = notice || (word ? '' : engine.status === 'finished' ? 'game over' : '아무 키나 치면 시작');
   ui.elements.inputTarget.classList.toggle('notice', Boolean(notice));
   updateArcadeKeyboardHint();
 }
