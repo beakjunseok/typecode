@@ -273,6 +273,50 @@ button.icon.off { opacity: 0.4; }
 .overlay span { font-size: 13px; font-weight: 400; color: var(--fog); }
 .overlay[hidden] { display: none; }
 
+/* ---------- 리듬 곡 선택 ---------- */
+/* 캔버스 위를 덮는 트랙 목록. 왼쪽 열 숫자 = 고른 난이도의 레벨(난이도 색), 오른쪽 = 고른 곡 정보 */
+.song-select {
+  position: absolute; inset: 36px 0 44px 0; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  background: rgba(9, 12, 24, 0.97); color: var(--paper); font-family: var(--font-ui);
+}
+.song-select[hidden] { display: none; }
+.song-list { list-style: none; margin: 0; padding: 8px 0; overflow-y: auto; border-right: 1px solid var(--rule-soft); }
+.song-row {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) 32px; align-items: center; gap: 10px;
+  padding: 9px 14px 9px 12px; cursor: pointer; border-left: 3px solid transparent;
+}
+.song-row:hover { background: rgba(255, 255, 255, 0.03); }
+.song-row.selected { background: var(--raised); border-left-color: var(--amber); }
+.song-level { font: 400 24px/1 var(--font-display); text-align: right; }
+.song-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.song-title { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-row:not(.selected) .song-title { color: #c5cbe2; }
+.song-composer { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.song-rank { font: 400 15px/1 var(--font-display); color: var(--ghost); text-align: center; }
+.rank-S { color: #ffe066; } .rank-A { color: var(--mint); } .rank-B { color: #36e2ff; }
+.rank-C { color: var(--violet); } .rank-D { color: var(--fog); } .rank-F { color: var(--coral); }
+
+.song-detail { display: flex; flex-direction: column; gap: 14px; padding: 22px 24px; overflow-y: auto; }
+.song-detail-title { margin: 0; font: 400 24px/1.25 var(--font-display); color: var(--paper); }
+.song-detail-meta { margin: -8px 0 0; font-size: 13px; color: var(--fog); }
+.song-facts { display: flex; gap: 22px; margin: 0; }
+.song-facts dt { font-size: 11px; color: var(--dim); }
+.song-facts dd { margin: 2px 0 0; font: 400 18px/1 var(--font-display); }
+.difficulty-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.difficulty-chip {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0 7px;
+  background: transparent; border: 1px solid var(--rule); border-radius: 6px; color: var(--fog); cursor: pointer;
+}
+.difficulty-chip .chip-label { font: 700 10px/1 var(--font-ui); letter-spacing: 0.4px; }
+.difficulty-chip .chip-level { font: 400 20px/1 var(--font-display); color: var(--chip); }
+.difficulty-chip.selected { border-color: var(--chip); background: color-mix(in srgb, var(--chip) 14%, transparent); color: var(--paper); }
+.difficulty-chip:focus-visible, .song-row:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.song-record { display: flex; align-items: baseline; gap: 10px; margin: 0; font-size: 13px; color: var(--dim); }
+.song-record .song-rank { font-size: 28px; }
+.song-record-score { font: 400 18px/1 var(--font-display); color: var(--paper); }
+.song-start { margin: auto 0 0; font-size: 15px; font-weight: 700; color: var(--amber); }
+.song-keys { margin: -8px 0 0; font-size: 12px; color: var(--dim); }
+
 /* ---------- 콘솔 ---------- */
 .console {
   background: var(--ink-deep); border: 1px solid var(--rule-soft); border-radius: var(--radius); padding: 10px 14px;
@@ -775,6 +819,16 @@ body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
   .tabbar { height: 32px; padding-right: 10px; font-size: 11px; }
   .tabbar .file { padding: 0 12px; font-size: 11px; }
   .overlay, .pvp-lobby { inset: 32px 0 0 0; }
+  .song-select { inset: 32px 0 40px 0; grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .song-list { order: 2; border-right: 0; border-top: 1px solid var(--rule-soft); padding: 4px 0; }
+  .song-detail { order: 1; gap: 10px; padding: 14px 14px 12px; }
+  .song-detail-title { font-size: 19px; }
+  .song-detail-meta { margin-top: -6px; font-size: 12px; }
+  .song-facts { gap: 16px; } .song-facts dd { font-size: 15px; }
+  .song-record, .song-keys { display: none; }
+  .song-start { margin: 0; font-size: 13px; }
+  .song-row { padding: 7px 12px 7px 8px; grid-template-columns: 36px minmax(0, 1fr) 26px; }
+  .song-level { font-size: 20px; }
   .input-bar { height: 40px; font-size: 15px; }
   .current { font-size: 34px; min-height: 44px; }
   .queue { font-size: 14px; gap: 10px; }

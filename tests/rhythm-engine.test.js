@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RhythmEngine, RHYTHM_RULES, RHYTHM_CHARTS, BeatClock, judgeTiming, chordAtBeat, laneOfCharacter, matchesNote, RHYTHM_MAX_POINTS_PER_CHARACTER } from '../public/js/rhythm-engine.js';
+import { RhythmEngine, RHYTHM_RULES, BeatClock, judgeTiming, laneOfCharacter, matchesNote, RHYTHM_MAX_POINTS_PER_CHARACTER } from '../public/js/rhythm-engine.js';
+import { RHYTHM_SONGS, RHYTHM_DIFFICULTIES, DIFFICULTY_ORDER, getSong, noteToMidi, parseMelody } from '../public/js/rhythm-songs.js';
+import { stepSong, stepDifficulty, songLength } from '../public/js/song-select.js';
 import { getTokenPool } from '../public/js/tokens.js';
 
 const seeded = seed => {
@@ -23,34 +25,71 @@ function playNote(engine, note, offsetSeconds, state) {
   return engine.input(note.character, state.ms);
 }
 
-test('악보: 128 BPM, 낱말을 글자 노트로 나눠 반 박 격자에, 레인은 손가락 구역, 레벨이 낮을수록 느리다', () => {
-  assert.equal(RHYTHM_RULES.bpm, 128);
-  const perMinute = [];
-  for (const level of [1, 2, 3, 4]) {
-    const engine = create({ level });
-    const chart = RHYTHM_CHARTS[level];
-    assert.ok(engine.words.length > 10);
-    assert.equal(engine.notes[0].beat, RHYTHM_RULES.leadInBeats);
-    for (const note of engine.notes) {
-      assert.equal(note.character.length, 1);
-      assert.ok(Number.isInteger(note.beat * 2), '반 박 격자');
-      assert.ok(note.lane >= 0 && note.lane < 4);
-    }
-    for (const word of engine.words) {
-      assert.ok(word.token.text.length <= chart.maxLength);
-      assert.equal(word.noteIds.map(id => engine.findEntity(id).character).join(''), word.token.text);
-    }
-    for (let index = 1; index < engine.notes.length; index++) assert.ok(engine.notes[index].hitTime > engine.notes[index - 1].hitTime, '시각순, 겹치지 않음');
-    perMinute.push(engine.notes.length / (engine.endTime / 60));
+test('곡 목록: 선율·화음이 있고, 곡을 모르면 기본 곡, 음 이름 해석', () => {
+  assert.ok(RHYTHM_SONGS.length >= 7);
+  assert.equal(new Set(RHYTHM_SONGS.map(song => song.id)).size, RHYTHM_SONGS.length);
+  for (const song of RHYTHM_SONGS) {
+    assert.ok(song.melody.length > 20, song.id);
+    assert.ok(song.chords.length > 0, song.id);
+    assert.ok(song.totalBeats > 0 && song.bpm >= 90 && song.bpm <= 180, song.id);
+    for (let index = 1; index < song.melody.length; index++) assert.ok(song.melody[index].beat >= song.melody[index - 1].beat, `${song.id} 선율 시각순`);
   }
-  assert.ok(perMinute[0] < 70 && perMinute[1] < 110, `사람이 칠 수 있는 속도: ${perMinute.map(Math.round)}`);
-  assert.ok(perMinute.every((value, index) => index === 0 || value > perMinute[index - 1]));
+  assert.equal(getSong('없는곡').id, 'ode-to-joy');
+  assert.equal(noteToMidi('C4'), 60);
+  assert.equal(noteToMidi('A4'), 69);
+  assert.equal(parseMelody('E4 D4').events.length, 2);
+  assert.match(songLength(getSong('twinkle')), /^\d+:\d\d$/);
+});
+
+test('곡 선택: ↑↓는 끝에서 돌고, ←→ 난이도는 끝에서 멈춘다', () => {
+  const first = RHYTHM_SONGS[0].id;
+  const last = RHYTHM_SONGS.at(-1).id;
+  assert.equal(stepSong(first, -1), last);
+  assert.equal(stepSong(last, 1), first);
+  assert.equal(stepDifficulty('easy', -1), 'easy');
+  assert.equal(stepDifficulty('expert', 1), 'expert');
+  assert.equal(stepDifficulty('normal', 1), 'hard');
+});
+
+test('악보: 곡 선율 위에 글자를 얹고, 난이도가 높을수록 촘촘하며 EASY는 사람이 칠 수 있는 속도', () => {
+  for (const song of RHYTHM_SONGS) {
+    const perMinute = [];
+    const levels = [];
+    for (const difficulty of DIFFICULTY_ORDER) {
+      const engine = create({ songId: song.id, difficulty });
+      const chart = RHYTHM_DIFFICULTIES[difficulty];
+      assert.equal(engine.bpm, song.bpm);
+      assert.ok(engine.words.length >= 3, `${song.id}/${difficulty} 낱말 수`);
+      assert.ok(engine.notes[0].beat >= engine.leadInBeats, '카운트 뒤에 시작');
+      for (const note of engine.notes) {
+        assert.equal(note.character.length, 1);
+        assert.ok(note.lane >= 0 && note.lane < 4);
+        assert.ok(Number.isFinite(note.midi));
+      }
+      for (const word of engine.words) {
+        assert.ok(word.token.text.length <= chart.maxLength);
+        assert.equal(word.noteIds.map(id => engine.findEntity(id).character).join(''), word.token.text);
+      }
+      for (let index = 1; index < engine.notes.length; index++) {
+        const gap = engine.notes[index].hitTime - engine.notes[index - 1].hitTime;
+        assert.ok(gap >= chart.minGap - 1e-6, `${song.id}/${difficulty} 노트 간격 ${gap}`);
+      }
+      assert.ok(engine.autoNotes.length > 0, '글자 없는 선율 음은 자동 연주');
+      perMinute.push(engine.notes.length / ((engine.endTime - engine.leadInBeats * engine.beatSeconds) / 60));
+      levels.push(engine.levelNumber());
+    }
+    assert.ok(perMinute[0] < 80, `${song.id} EASY 속도 ${Math.round(perMinute[0])}`);
+    assert.ok(perMinute.every((value, index) => index === 0 || value >= perMinute[index - 1] - 1), `${song.id} 난이도 순 ${perMinute.map(Math.round)}`);
+    assert.ok(levels.every(level => level >= 1 && level <= 15));
+  }
   assert.equal(laneOfCharacter('a'), 0);
   assert.equal(laneOfCharacter('f'), 1);
   assert.equal(laneOfCharacter('j'), 2);
   assert.equal(laneOfCharacter(';'), 3);
-  assert.equal(chordAtBeat(4).name, 'F');
   assert.equal(RHYTHM_MAX_POINTS_PER_CHARACTER, 260);
+  const engine = create({ songId: 'ode-to-joy', difficulty: 'nope' });
+  assert.equal(engine.difficultyKey, 'normal', '모르는 난이도는 NORMAL');
+  assert.ok(engine.chordAtBeat(engine.leadInBeats), '첫 박 화음');
 });
 
 test('판정 창: ±50ms PERFECT, ±100 GREAT, ±150 GOOD, 그 밖 BAD', () => {
@@ -62,7 +101,7 @@ test('판정 창: ±50ms PERFECT, ±100 GREAT, ±150 GOOD, 그 밖 BAD', () => {
 });
 
 test('글자마다 타이밍 판정, 일찍 누른 키는 무시, 범위 안 다른 글자는 오타, 낱말 완성 이벤트', () => {
-  const engine = create({ level: 2 });
+  const engine = create({ songId: 'ode-to-joy', difficulty: 'normal' });
   const events = [];
   engine.onEvent = (type, payload) => events.push([type, payload]);
   const state = { ms: 1000 };
@@ -93,7 +132,7 @@ test('글자마다 타이밍 판정, 일찍 누른 키는 무시, 범위 안 다
 });
 
 test('지나간 노트는 MISS, HP가 0이면 실패, 모두 PERFECT면 클리어 S·깨끗한 낱말 보너스', () => {
-  const engine = create({ level: 4 });
+  const engine = create({ songId: 'can-can', difficulty: 'expert' });
   const state = { ms: 0 };
   engine.input('a', state.ms);
   let finished = null;
@@ -104,7 +143,7 @@ test('지나간 노트는 MISS, HP가 0이면 실패, 모두 PERFECT면 클리�
   assert.equal(finished.outcome, 'failed');
   assert.equal(finished.rank, 'F');
 
-  const perfectRun = create({ level: 2 });
+  const perfectRun = create({ songId: 'ode-to-joy', difficulty: 'normal' });
   const runState = { ms: 0 };
   perfectRun.input('a', runState.ms);
   let summary = null;
@@ -138,7 +177,7 @@ test('대문자 노트는 소문자로 쳐도 맞고, 소문자 노트에 대문
   assert.ok(!matchesNote('N', 'n'));
   assert.ok(!matchesNote('m', 'N'));
   assert.ok(!matchesNote('1', '!'), '기호는 그대로');
-  const engine = create({ level: 2 });
+  const engine = create({ songId: 'ode-to-joy', difficulty: 'normal' });
   const state = { ms: 0 };
   engine.input('x', state.ms);
   const note = engine.notes[0];
