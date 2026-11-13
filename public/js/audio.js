@@ -679,6 +679,24 @@ const SOUNDS = {
     engine.tone(context, { frequency: 60, sweepTo: 28, startTime: last, peak: 0.14 * END_LOUDNESS, decay: 0.9, attack: 0.004 });
     engine.noise(context, { startTime: last, peak: 0.05 * END_LOUDNESS, decay: 1, filterType: 'lowpass', frequency: 400, sweepTo: 80 });
   },
+  // ---------- 리듬 모드 ----------
+  // 판정음: 그 박 화음의 레인 음(frequency). PERFECT는 밝은 두 겹, GREAT 한 겹, GOOD 작게, BAD는 살짝 어긋난 짧은 음
+  rhythmHit(engine, context, time, { frequency = 880, judgement = 'great' } = {}) {
+    const lead = { type: 'lowpass', frequency: 4200 };
+    if (judgement === 'bad') {
+      engine.tone(context, { frequency: frequency * 0.97, startTime: time, peak: 0.035, decay: 0.07, waveform: 'square', filter: { type: 'lowpass', frequency: 1600 } });
+      return;
+    }
+    const level = judgement === 'perfect' ? 1 : judgement === 'great' ? 0.8 : 0.55;
+    engine.tone(context, { frequency, startTime: time, peak: 0.06 * level, decay: 0.16 + level * 0.1, waveform: 'triangle' });
+    if (judgement !== 'good') engine.tone(context, { frequency, startTime: time, peak: 0.022 * level, decay: 0.1, waveform: 'square', filter: lead });
+    if (judgement === 'perfect') engine.tone(context, { frequency: frequency * 2, startTime: time + 0.01, peak: 0.018, decay: 0.18 });
+  },
+  // 놓침: 낮게 떨어지는 '뚝'
+  rhythmMiss(engine, context, time) {
+    engine.tone(context, { frequency: 180, sweepTo: 70, startTime: time, peak: 0.07, decay: 0.16, waveform: 'square', filter: { type: 'lowpass', frequency: 700 } });
+  },
+
   // ---------- 키보드 뽑기 ----------
   // 캡슐이 흔들리며 힘을 모으는 소리: 필터가 열리는 잡음 '쉬이익' + 등급만큼 높이 올라가는 사이렌. rarity 0~4. length초
   gachaCharge(engine, context, time, { rarity = 0, length = 1.6 } = {}) {
