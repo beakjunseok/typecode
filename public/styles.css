@@ -945,3 +945,134 @@ body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) {
   .kb-float, .kb-float::before, .kb-stage::after { animation: none; }
 }
+
+/* ---------- 키캡 입체감(모든 스킨): 윗면 오목 하이라이트 + 옆벽 명암 ---------- */
+.key {
+  background:
+    radial-gradient(85% 55% at 50% 32%, rgba(255, 255, 255, 0.09), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--bg) 88%, #fff 12%) 0%, var(--bg) 55%, color-mix(in srgb, var(--bg) 85%, #000 15%) 100%);
+  box-shadow: inset 0 -4px 0 color-mix(in srgb, var(--bg) 60%, #000 40%), inset 2px 0 0 rgba(255, 255, 255, 0.05), inset -2px 0 0 rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 2px 0 rgba(0, 0, 0, 0.55), 0 3px 6px rgba(0, 0, 0, 0.25);
+}
+
+/* ---------- 카드 그림과 맞춘 스킨 무대 ----------
+   무대 배경은 그 스킨 그림의 바깥쪽(성운·빛)을 크게 확대해 깔고, 케이스·키캡·장식을 그림처럼 꾸민다.
+   키가 눌리고 LED가 도는 실제 키보드라 그림과 픽셀까지 같을 수는 없고, 재질·색·빛·장식을 맞춘다 */
+.kb-stage[data-skin='prism-overdrive']::before, .kb-stage[data-skin='gilded-artisan']::before,
+.kb-stage[data-skin='event-horizon']::before, .kb-stage[data-skin='typecode-overclock']::before {
+  background: var(--kb-art) var(--kb-art-pos, 12% 12%) / 260% auto no-repeat, #05060c;
+  filter: blur(1.5px) brightness(0.8) saturate(1.15); transform: none;
+}
+.kb-stage[data-skin='prism-overdrive'] { --kb-art-pos: 8% 6%; }
+.kb-stage[data-skin='gilded-artisan'] { --kb-art-pos: 6% 10%; }
+.kb-stage[data-skin='event-horizon'] { --kb-art-pos: 10% 85%; }
+.kb-stage[data-skin='typecode-overclock'] { --kb-art-pos: 6% 8%; }
+.kb-deco { position: absolute; inset: 0; pointer-events: none; z-index: -1; }
+
+/* 블랙 RGB: 검정 키캡, 무지개 백라이트, 복숭앗빛 케이스 테두리, 보라·청록 안개 */
+.kb-float[data-skin='base'] .keyboard { box-shadow: 0 0 0 1.5px #ffb27a, 0 0 18px rgba(255, 150, 90, 0.55), 0 26px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.14); }
+.kb-stage[data-skin='base']::before { background: radial-gradient(60% 50% at 40% 45%, rgba(140, 70, 255, 0.45), transparent 70%), radial-gradient(50% 45% at 65% 55%, rgba(40, 200, 220, 0.35), transparent 70%), #0b0d22; filter: blur(10px); }
+
+/* 널 포인터: 검정 키캡, 크림빛 글자, 얼음빛 하늘색 테두리 */
+.kb-float[data-skin='null-pointer'] .keyboard { box-shadow: 0 0 0 1.5px #9eefff, 0 0 22px rgba(127, 230, 255, 0.6), 0 26px 40px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.12); }
+.kb-stage[data-skin='null-pointer']::before { background: radial-gradient(55% 60% at 50% 50%, rgba(80, 160, 210, 0.28), transparent 75%), #0a0e18; filter: blur(8px); }
+
+/* 프리즘 오버드라이브: 진주빛 홀로그램 키캡·케이스, 굵은 무지개 네온 테두리, 흐르는 홀로그램 광택 */
+.kb-float[data-skin='prism-overdrive'] .keyboard {
+  border: 3px solid transparent;
+  background: linear-gradient(135deg, #fbfaff, #e9e6fb 40%, #f6f2ff 70%, #e3e9fb) padding-box,
+    conic-gradient(from 200deg, #ff5fa2, #ffd36e, #7dff9a, #5fe3ff, #a98bff, #ff5fa2) border-box;
+  box-shadow: 0 0 26px rgba(255, 255, 255, 0.35), 0 0 46px rgba(169, 139, 255, 0.45), 0 26px 40px rgba(0, 0, 0, 0.5);
+}
+.kb-float[data-skin='prism-overdrive'] .keyboard::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 1; mix-blend-mode: soft-light; opacity: 0.9;
+  background: linear-gradient(120deg, #ff9ad5, #9be7ff 25%, #c8ffb0 45%, #ffe6a0 60%, #d6b8ff 80%, #ff9ad5) 0 0 / 300% 100%;
+  animation: kb-holo 6s linear infinite;
+}
+.kb-float[data-skin='prism-overdrive'] .key { box-shadow: inset 0 -4px 0 #c9c3ea, inset 0 0 0 1px rgba(255, 255, 255, 0.8), 0 2px 0 rgba(90, 80, 150, 0.35), 0 4px 10px rgba(120, 100, 200, 0.25); }
+.kb-float[data-skin='prism-overdrive'] .kb-deco {
+  inset: -30px -40px; z-index: -1;
+  background: linear-gradient(62deg, transparent 47%, rgba(255, 120, 200, 0.5) 49%, transparent 51%) 10% 20% / 40% 60% no-repeat,
+    linear-gradient(118deg, transparent 47%, rgba(120, 220, 255, 0.55) 49%, transparent 51%) 85% 80% / 45% 60% no-repeat,
+    linear-gradient(35deg, transparent 47%, rgba(200, 255, 140, 0.45) 49%, transparent 51%) 90% 10% / 35% 50% no-repeat,
+    linear-gradient(150deg, transparent 47%, rgba(255, 220, 120, 0.45) 49%, transparent 51%) 5% 90% / 35% 50% no-repeat;
+  filter: blur(1px);
+}
+@keyframes kb-holo { to { background-position: 300% 0; } }
+
+/* 금빛 아티산: 덩굴무늬를 새긴 경면 금 케이스, 금 조각 기능키, 크림 키캡, 루비 */
+.kb-float[data-skin='gilded-artisan'] .keyboard {
+  border: 2px solid #fff1b0;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='46' viewBox='0 0 46 46'%3E%3Cg fill='none' stroke='%236b4a12' stroke-width='1.3' opacity='.55'%3E%3Cpath d='M0 23c8-14 22-14 23 0s15 14 23 0M23 0c-4 8 4 15 0 23s4 15 0 23'/%3E%3Ccircle cx='23' cy='23' r='3.5'/%3E%3Cpath d='M8 8c4 2 4 6 0 8M38 30c-4 2-4 6 0 8'/%3E%3C/g%3E%3C/svg%3E") 0 0 / 46px 46px,
+    linear-gradient(135deg, #fff3b8, #e2b93f 22%, #8a6514 50%, #f2d27a 72%, #b8862b);
+  box-shadow: 0 0 0 1px #6b4a12, 0 0 30px rgba(255, 200, 60, 0.6), 0 26px 40px rgba(0, 0, 0, 0.6), inset 0 2px 0 rgba(255, 255, 255, 0.55), inset 0 -3px 0 rgba(90, 60, 10, 0.6);
+}
+.kb-float[data-skin='gilded-artisan'] .key.mod, .kb-float[data-skin='gilded-artisan'] .key.accent {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 22 22'%3E%3Cpath d='M0 11c4-7 10-7 11 0s7 7 11 0' fill='none' stroke='%236b4a12' stroke-width='1' opacity='.45'/%3E%3C/svg%3E") 0 0 / 22px 22px,
+    linear-gradient(160deg, #ffefa8, #d4af37 45%, #9c7418);
+  box-shadow: inset 0 -4px 0 #7a5512, inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 2px 0 rgba(60, 40, 5, 0.6);
+}
+.kb-float[data-skin='gilded-artisan'] .key:not(.mod):not(.accent) { box-shadow: inset 0 -4px 0 #cdbb8f, inset 0 1px 0 #fff, 0 2px 0 rgba(90, 60, 10, 0.55), 0 0 0 1px rgba(160, 120, 30, 0.35); }
+.kb-float[data-skin='gilded-artisan'] .kb-deco::after {
+  content: ''; position: absolute; top: -19px; right: -12px; width: 34px; height: 34px; border-radius: 50%; z-index: 3;
+  background: radial-gradient(circle at 34% 30%, #ffffff 0 8%, #ff8fa3 14%, #e0173c 42%, #7a0018 78%);
+  border: 4px solid #f2d27a; box-shadow: 0 0 0 1.5px #6b4a12, 0 0 16px rgba(255, 40, 80, 0.8), 0 0 30px rgba(255, 200, 60, 0.6);
+}
+.kb-float[data-skin='gilded-artisan'] .kb-deco { z-index: 3; }
+.kb-stage[data-skin='gilded-artisan']::after { filter: sepia(1) saturate(5) hue-rotate(-12deg) brightness(1.2); }
+
+/* 이벤트 호라이즌: 은하가 담긴 케이스, 라일락 키캡, 하늘색·보라 테두리, 뒤에서 도는 블랙홀 */
+.kb-float[data-skin='event-horizon'] .keyboard {
+  border: 2px solid #b8a8ff;
+  background:
+    radial-gradient(1px 1px at 12% 30%, #fff, transparent), radial-gradient(1px 1px at 38% 70%, #fff, transparent), radial-gradient(1.5px 1.5px at 66% 22%, #fff, transparent),
+    radial-gradient(1px 1px at 84% 64%, #fff, transparent), radial-gradient(1px 1px at 52% 88%, #fff, transparent),
+    radial-gradient(60% 70% at 25% 40%, rgba(150, 70, 255, 0.6), transparent 70%), radial-gradient(55% 65% at 78% 60%, rgba(40, 150, 255, 0.5), transparent 70%),
+    radial-gradient(40% 50% at 55% 20%, rgba(255, 80, 180, 0.35), transparent 70%), #0b0820;
+  box-shadow: 0 0 0 1px #6fe3ff, 0 0 24px rgba(111, 227, 255, 0.65), 0 0 50px rgba(150, 90, 255, 0.45), 0 26px 40px rgba(0, 0, 0, 0.6);
+}
+.kb-float[data-skin='event-horizon'] .key { box-shadow: inset 0 -4px 0 #9c8bd6, inset 0 0 0 1px rgba(160, 240, 255, 0.55), 0 0 8px rgba(111, 227, 255, 0.45), 0 2px 0 rgba(20, 10, 50, 0.6); }
+.kb-float[data-skin='event-horizon'] .kb-deco { inset: -78px -6% auto auto; width: 52%; aspect-ratio: 1.7; }
+.kb-stage[data-skin='event-horizon'] { padding-top: 86px; }
+.gacha-preview.kb-stage[data-skin='event-horizon'], .collection-preview.kb-stage[data-skin='event-horizon'] { padding-top: 46px; }
+.kb-float[data-skin='event-horizon'] .kb-deco::before {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(ellipse 50% 46% at 50% 50%, transparent 52%, rgba(255, 210, 120, 0.95) 56%, #ff8a1f 62%, rgba(255, 70, 20, 0.6) 70%, transparent 78%);
+  transform: rotate(-12deg); filter: blur(1.2px); animation: kb-disk 9s linear infinite;
+}
+.kb-float[data-skin='event-horizon'] .kb-deco::after {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 34%; aspect-ratio: 1; transform: translate(-50%, -50%); border-radius: 50%;
+  background: #000; box-shadow: 0 0 0 2px rgba(255, 200, 120, 0.85), 0 0 26px 8px rgba(255, 120, 30, 0.6);
+}
+@keyframes kb-disk { 50% { filter: blur(1.2px) brightness(1.25); transform: rotate(-12deg) scale(1.04); } }
+
+/* TYPE//CODE 오버클럭: 헤어라인 금속 케이스, 청록·자홍 네온 테두리, 연기 낀 투명 키캡, 흩날리는 이진수 */
+.kb-float[data-skin='typecode-overclock'] .keyboard {
+  border: 2px solid transparent;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.045) 0 1px, transparent 1px 3px) padding-box,
+    linear-gradient(165deg, #4a505b, #23272f 45%, #353a44 75%, #1c1f25) padding-box,
+    linear-gradient(135deg, #36e2ff, #36e2ff 35%, #ff3df2 65%, #ff3df2) border-box;
+  box-shadow: -8px 8px 26px rgba(54, 226, 255, 0.5), 8px -8px 26px rgba(255, 61, 242, 0.45), 0 26px 40px rgba(0, 0, 0, 0.65);
+}
+.kb-float[data-skin='typecode-overclock'] .key {
+  background: linear-gradient(180deg, rgba(120, 132, 150, 0.55), rgba(38, 42, 54, 0.82)), radial-gradient(80% 60% at 50% 30%, rgba(255, 255, 255, 0.12), transparent 70%);
+  box-shadow: inset 0 0 0 1px rgba(54, 226, 255, 0.4), inset 0 -4px 0 rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 8px rgba(54, 226, 255, 0.25), 0 2px 0 rgba(0, 0, 0, 0.6);
+}
+.kb-float[data-skin='typecode-overclock'] .key.mod, .kb-float[data-skin='typecode-overclock'] .key.accent { box-shadow: inset 0 0 0 1px rgba(255, 61, 242, 0.5), inset 0 -4px 0 rgba(0, 0, 0, 0.5), 0 0 8px rgba(255, 61, 242, 0.3), 0 2px 0 rgba(0, 0, 0, 0.6); }
+.kb-float[data-skin='typecode-overclock'] .kb-deco::before, .kb-float[data-skin='typecode-overclock'] .kb-deco::after {
+  position: absolute; font: 700 12px/1.25 var(--font-code); white-space: pre; letter-spacing: 2px; text-shadow: 0 0 6px currentColor;
+  animation: kb-bits 2.4s steps(6) infinite;
+}
+.kb-float[data-skin='typecode-overclock'] .kb-deco::before { content: '0101 1\A 11 0110\A  01 1 011'; left: -34px; bottom: -26px; color: #5ff3ff; }
+.kb-float[data-skin='typecode-overclock'] .kb-deco::after { content: '1 0011 01\A 0110 1\A   10 01'; right: -30px; top: -28px; color: #ff6bf0; animation-delay: -1.2s; }
+@keyframes kb-bits { 0%, 100% { opacity: 0.9; transform: translate(0, 0); } 33% { opacity: 0.45; transform: translate(-3px, 2px); } 66% { opacity: 1; transform: translate(2px, -2px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .kb-float .keyboard::before, .kb-deco::before, .kb-deco::after { animation: none !important; }
+}
+
+/* 프리즘: 흰 키캡 위에서도 읽히도록 글자는 진한 라벤더, LED 색은 은은한 번짐으로만 */
+.kb-float[data-skin='prism-overdrive'] .key .base { color: #554a8c; text-shadow: 0 0 6px var(--led-text, transparent); }
+.kb-float[data-skin='prism-overdrive'] .key .shifted { color: #8a80b8; }

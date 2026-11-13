@@ -54,7 +54,7 @@ const ledPalette = colors => colors === 'rainbow' ? 'rainbow' : colors.map(hex =
 const ROWS = [
   ['base', '블랙 RGB', 'common', '처음 받는 기본 키보드. 검은 키캡 아래로 무지개가 흐른다', '#1e2133', '#d8e0ff', '#161927', '#9aa4c8', '#232846', '#ffffff', '#0e1120', 'shine', 'wave', 'simple', 'rainbow'],
 
-  ['null-pointer', '널 포인터', 'common', '흰 글자 검정 키. 가장 기본적인 흑백', '#171718', '#f7f2ea', '#232425', '#c9c4b8', '#393b3b', '#f7f2ea', '#0d0d0f', 'pbt', 'static', 'simple', ['#e8e6ff']],
+  ['null-pointer', '널 포인터', 'common', '검정 키에 크림빛 글자, 케이스 가장자리로 차가운 하늘색 빛', '#171718', '#e8d6a0', '#1d1e20', '#cbb98a', '#2a2b2d', '#e8d6a0', '#0d0d0f', 'pbt', 'static', 'simple', ['#7fe6ff']],
   ['white-paper', '화이트 페이퍼', 'common', '검정 글자 흰 키. 불을 끈 종이처럼 담백하게', '#f7f2ea', '#171718', '#e2ddd2', '#303030', '#c5c7ca', '#171718', '#dcdcd8', 'pbt', 'off', 'none', ['#ffffff']],
   ['graphite', '그래파이트', 'common', '연필심 같은 차콜 단색', '#393b3b', '#d8d2c3', '#2c2e2e', '#aca693', '#727474', '#f0ece2', '#1e1f20', 'pbt', 'static', 'none', ['#9aa4ad']],
   ['office-1985', '오피스 1985', 'common', '80년대 사무실 베이지 키보드', '#d8d2c3', '#393b3b', '#aca693', '#2f3133', '#aca693', '#2f3133', '#cfc8b6', 'pbt', 'off', 'simple', ['#ffd9a0']],
@@ -104,10 +104,10 @@ const ROWS = [
   ['abyss-glow', '심해 발광', 'epic', '깊은 바다 생물처럼 키들이 반짝이고 물결이 번진다', '#0d2340', '#5ff3ff', '#081a31', '#e5a100', '#e5a100', '#081a31', '#061326', 'crystal', 'starlight', 'ripple', ['#5ff3ff', '#3d8bff', '#b7fff6']],
   ['code-rain', '코드 레인', 'epic', '녹색 문자비가 쏟아지고 친 글자가 잔상으로 남는다', '#050805', '#00ff41', '#030503', '#00c033', '#0f3d1a', '#00ff41', '#000000', 'blank', 'digitalRain', 'afterglow', ['#00ff41']],
 
-  ['prism-overdrive', '프리즘 오버드라이브', 'legendary', '풀 스펙트럼 바람개비. 콤보가 오를수록 빨리 돌고, 누르면 무지개 물결', '#0b0b10', '#ffffff', '#08080c', '#e6e6ff', '#1a1a24', '#ffffff', '#050507', 'pudding', 'pinwheel', 'splash', 'rainbow', { underglow: true, energy: true }],
-  ['gilded-artisan', '금빛 아티산', 'legendary', '녹아내리는 금. 황동 경면 케이스 위로 금빛 불꽃이 일렁이고 금가루가 튄다', '#f3e7c9', '#6b4a12', '#e4d3a6', '#6b4a12', '#d4af37', '#3a2608', '#b8862b', 'metal', 'fire', 'sparkle', ['#fff1b8', '#ffd24a', '#ff9f1c', '#c4610a'], { underglow: true }],
-  ['event-horizon', '이벤트 호라이즌', 'legendary', '블랙홀. 강착원반이 소용돌이치고 누른 곳의 빛을 삼킨다', '#050507', '#f5f5ff', '#030304', '#ffd36e', '#ff7a18', '#050507', '#000000', 'crystal', 'spiral', 'blackhole', ['#ff7a18', '#ffd36e', '#ff3d6e', '#7a2cff'], { underglow: true }],
-  ['typecode-overclock', 'TYPE//CODE 오버클럭', 'legendary', '이 게임의 시그니처. 플라즈마가 흐르고 자주 치는 키가 뜨겁게 달아오른다. 콤보에 비례해 빨라진다', '#0a0f14', '#00f0ff', '#070b0f', '#ff2bd6', '#39ff88', '#05080b', '#05080b', 'shine', 'plasma', 'heatmap', ['#00f0ff', '#ff2bd6', '#39ff88'], { underglow: true, energy: true }]
+  ['prism-overdrive', '프리즘 오버드라이브', 'legendary', '진주빛 홀로그램 키보드. 무지개 테두리 아래로 풀 스펙트럼 바람개비가 돈다. 콤보가 오를수록 빨리 돌고, 누르면 무지개 물결', '#eceefa', '#6e64a0', '#dcdcf2', '#6e64a0', '#f4ecff', '#6e64a0', '#f1effa', 'shine', 'pinwheel', 'splash', 'rainbow', { underglow: true, energy: true }],
+  ['gilded-artisan', '금빛 아티산', 'legendary', '녹아내리는 금. 덩굴무늬를 새긴 금 케이스에 루비가 박혀 있고, 금빛 불꽃이 일렁이며 금가루가 튄다', '#f3e7c9', '#8a6514', '#d4af37', '#5a3d0c', '#d4af37', '#3a2608', '#b8862b', 'metal', 'fire', 'sparkle', ['#fff1b8', '#ffd24a', '#ff9f1c', '#c4610a'], { underglow: true }],
+  ['event-horizon', '이벤트 호라이즌', 'legendary', '은하를 담은 케이스와 라일락 키캡. 뒤에서 블랙홀의 강착원반이 소용돌이치고, 누른 곳의 빛을 삼킨다', '#cdbff2', '#3a2d63', '#b9a9ea', '#3a2d63', '#f0b9d8', '#3a2d63', '#0b0820', 'pudding', 'spiral', 'blackhole', ['#ff7a18', '#ffd36e', '#ff3d6e', '#7a2cff'], { underglow: true }],
+  ['typecode-overclock', 'TYPE//CODE 오버클럭', 'legendary', '이 게임의 시그니처. 헤어라인 금속 케이스에 청록·자홍 네온, 연기 낀 투명 키캡 위로 이진수가 흩날린다. 자주 치는 키가 뜨겁게 달아오르고 콤보에 비례해 빨라진다', '#2a2f3a', '#7ff6ff', '#232833', '#ff6be6', '#2a2f3a', '#ff6be6', '#2b2f37', 'shine', 'plasma', 'heatmap', ['#00f0ff', '#ff2bd6', '#39ff88'], { underglow: true, energy: true }]
 ];
 
 export const SKINS = Object.freeze(ROWS.map(([id, name, rarity, description, alphaBg, alphaFg, modBg, modFg, accentBg, accentFg, caseColor, material, pattern, reactive, colors, extra = {}]) => Object.freeze({
