@@ -23,6 +23,8 @@ const STYLES = Object.freeze({
   galop: { kick: ({ half }) => half === 0, snare: ({ beat, half }) => half === 0 && beat === 1, hat: () => false, bass: ({ half }) => half === 0, chord: ({ half }) => half === 1, chordLength: 0.35, kickLevel: 0.9 },
   // 6/8 자장가: 셋째 8분마다 베이스, 나머지 8분에 여린 화음, 드럼 없음
   lullaby: { kick: () => false, snare: () => false, hat: () => false, bass: ({ beat, half }) => half === 0 && beat % 3 === 0, chord: ({ beat, half }) => half === 0 && beat % 3 !== 0, chordLength: 0.5 },
+  // 느린 곡: 2박마다 베이스와 길게 끄는 화음, 드럼 없음
+  pad: { kick: () => false, snare: () => false, hat: () => false, bass: ({ beat, half }) => half === 0 && beat % 2 === 0, chord: ({ beat, half }) => half === 0 && beat % 2 === 0, chordLength: 1.8 },
   // MIDI 악보 곡: 반주는 악보의 음(accompaniment)을 그대로 연주하고 드럼은 없다 / 래그·행진곡은 여린 킥과 하이햇만 더한다
   score: { kick: () => false, snare: () => false, hat: () => false, bass: () => false, chord: () => false },
   'score-beat': { kick: ({ beat, half }) => half === 0 && beat === 0, snare: () => false, hat: ({ half }) => half === 1, bass: () => false, chord: () => false, kickLevel: 0.5, hatLevel: 0.5 }

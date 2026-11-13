@@ -139,6 +139,19 @@ const BLUE_DANUBE = {
     'D', 'D', 'D', 'D', 'D', 'D', 'D', 'G', 'G', 'G', 'E', 'D', 'D', 'A', 'D', 'D']
 };
 
+// 신세계 교향곡 2악장 라르고(드보르자크, 1893) 잉글리시 호른 주제. C로 적고 Db으로 올려 연주
+const LARGO = {
+  melody: `E5:1.5 G5:0.5 G5:2 | E5:1.5 D5:0.5 C5:2 | D5 E5 G5 E5 | D5:4 |
+    E5:1.5 G5:0.5 G5:2 | E5:1.5 D5:0.5 C5:2 | D5 E5 D5 C5 | C5:4`,
+  chords: ['C', 'C', 'G', 'G', 'C', 'F C', 'G', 'C']
+};
+
+// 녹턴 Op.9-2(쇼팽, 1832) 첫 주제. 12/8: 8분음표 = 1박
+const NOCTURNE = {
+  melody: `G5:4 F5 G5 F5:3 Eb5:2 Bb4 | G5:2 C5 C6:2 G5 Bb5:3 Ab5:2 G5 | F5:3 G5 D5:2 Eb5:3 C5:3 | D5:3 Eb5:6 r:2 Bb4`,
+  chords: ['Eb', 'Ab Eb', 'Bb Eb', 'Bb Eb']
+};
+
 const NACHTMUSIK = {
   melody: `G4 r:0.5 D4:0.5 G4 r:0.5 D4:0.5 | G4:0.5 D4:0.5 G4:0.5 B4:0.5 D5:2 | C5 r:0.5 A4:0.5 C5 r:0.5 A4:0.5 | C5:0.5 A4:0.5 F#4:0.5 A4:0.5 D4:2 |
     G4 r:0.5 D4:0.5 G4 r:0.5 D4:0.5 | G4:0.5 D4:0.5 G4:0.5 B4:0.5 D5:2 | C5 r:0.5 A4:0.5 C5 r:0.5 A4:0.5 | C5:0.5 A4:0.5 F#4:0.5 A4:0.5 G4:0.5 B4:0.5 D5:0.5 G5:0.5`,
@@ -197,6 +210,8 @@ export const RHYTHM_SONGS = Object.freeze([
   midiSong('bach-chorale'),
   buildSong({ id: 'jingle-bells', title: '징글벨', composer: '피어폰트 · 1857', died: 1893, bpm: 132, beatsPerBar: 4, style: 'pop', source: TRANSCRIBED, sections: repeat(JINGLE_BELLS, 2, [0, 2]) }),
   midiSong('canon'),
+  buildSong({ id: 'new-world-largo', title: '신세계 교향곡 라르고', composer: '드보르자크 · 교향곡 9번 2악장', died: 1904, bpm: 60, beatsPerBar: 4, style: 'pad', source: TRANSCRIBED, sections: repeat(LARGO, 4, [1, 1, 1, 1]) }),
+  buildSong({ id: 'nocturne', title: '녹턴 Op.9-2', composer: '쇼팽 · 1832', died: 1849, bpm: 132, beatsPerBar: 12, style: 'lullaby', source: TRANSCRIBED, sections: repeat(NOCTURNE, 6, [0, 0, 0, 0, 5, 0]) }),
   midiSong('clair-de-lune'),
   midiSong('pathetique'),
   midiSong('fur-elise'),
