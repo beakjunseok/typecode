@@ -22,6 +22,8 @@ function modifierTags(options) {
   if (options.speed !== 1) tags.push(`x${options.speed}`);
   return tags.join(' ');
 }
+// 무대 그림은 한 번만 불러 모든 판에서 같이 쓴다(브라우저가 아니면 없음)
+const STAGE_IMAGE = typeof Image === 'undefined' ? null : Object.assign(new Image(), { src: '/art/rhythm-stage.webp', decoding: 'async' });
 const visibleCharacter = character => character === ' ' ? '␣' : character;
 
 export class RhythmRenderer {
@@ -32,6 +34,19 @@ export class RhythmRenderer {
     this.popup = null;
     this.wordFlash = null;
     this.lastGameTime = 0;
+  }
+
+  // 배경 무대 그림(AI 생성, public/art/rhythm-stage.webp): 화면을 덮게 늘려 어둡게 깔고, 박자마다 살짝 밝아진다
+  drawStage(context, width, height, pulse) {
+    const image = STAGE_IMAGE;
+    if (!image?.complete || !image.naturalWidth) return;
+    const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+    const drawWidth = image.naturalWidth * scale;
+    const drawHeight = image.naturalHeight * scale;
+    context.save();
+    context.globalAlpha = 0.55 + pulse * 0.15;
+    context.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+    context.restore();
   }
 
   get context() {
@@ -107,6 +122,7 @@ export class RhythmRenderer {
 
     context.fillStyle = '#05070c';
     context.fillRect(0, 0, width, height);
+    this.drawStage(context, width, height, pulse);
 
     // 레인 바탕 + 맞힌 레인 번쩍임
     RHYTHM_LANES.forEach((lane, index) => {
