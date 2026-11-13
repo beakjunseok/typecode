@@ -768,7 +768,6 @@ body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
 .skin-art img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 12px; border: 2px solid var(--rarity, #8a98aa); box-shadow: 0 0 24px color-mix(in srgb, var(--rarity, #8a98aa) 45%, transparent); }
 .skin-art figcaption { position: absolute; right: 6px; bottom: 6px; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; color: #e9edf8; background: rgba(0, 0, 0, 0.55); }
 .skin-art.locked img { filter: brightness(0.22) saturate(0.3); }
-.skin-art.locked figcaption::after { content: ' · 미보유'; }
 .gacha-art { width: min(180px, 46%); animation: art-reveal 0.6s ease-out both; }
 @keyframes art-reveal { from { opacity: 0; transform: scale(0.85) rotate(-4deg); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .gacha-art { animation: none; } }
@@ -1076,3 +1075,34 @@ body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
 /* 프리즘: 흰 키캡 위에서도 읽히도록 글자는 진한 라벤더, LED 색은 은은한 번짐으로만 */
 .kb-float[data-skin='prism-overdrive'] .key .base { color: #554a8c; text-shadow: 0 0 6px var(--led-text, transparent); }
 .kb-float[data-skin='prism-overdrive'] .key .shifted { color: #8a80b8; }
+
+/* ---------- 모드 그림(AI 생성, public/art) ----------
+   시작 전 안내(오버레이)에 그 모드의 카드 그림을 깐다 */
+body[data-mode='practice'] #focusOverlay { --mode-art: url('/art/mode-practice.webp'); }
+body[data-mode='throw'] #arcadeOverlay { --mode-art: url('/art/mode-throw.webp'); }
+body[data-mode='battery'] #arcadeOverlay { --mode-art: url('/art/mode-battery.webp'); }
+#focusOverlay, #arcadeOverlay {
+  background: linear-gradient(90deg, rgba(12, 15, 30, 0.96) 0 46%, rgba(12, 15, 30, 0.55) 70%, rgba(12, 15, 30, 0.2)),
+    var(--mode-art, none) right 6% center / auto 94% no-repeat, rgba(12, 15, 30, 0.9);
+  align-items: flex-start; padding-left: 8%; text-align: left;
+}
+@media (max-width: 640px) {
+  #focusOverlay, #arcadeOverlay {
+    background: linear-gradient(rgba(12, 15, 30, 0.78), rgba(12, 15, 30, 0.88)), var(--mode-art, none) center / cover no-repeat, rgba(12, 15, 30, 0.9);
+    align-items: center; padding-left: 0; text-align: center;
+  }
+}
+/* 리듬 곡 선택: 리듬 카드 그림을 오른쪽 위에 은은하게 */
+.song-select {
+  background: linear-gradient(90deg, rgba(9, 12, 24, 0.97) 0 52%, rgba(9, 12, 24, 0.9) 75%, rgba(9, 12, 24, 0.82)),
+    url('/art/mode-rhythm.webp') right center / auto 100% no-repeat, rgba(9, 12, 24, 0.97);
+}
+/* 뽑기: 캡슐이 터질 때 열린 키캡에서 무지개가 쏟아지는 그림이 번쩍 떠오른다 */
+.gacha-burst-art {
+  position: absolute; left: 50%; top: 50%; width: 260px; height: 260px; margin: -140px 0 0 -130px; z-index: 0; pointer-events: none;
+  border-radius: 50%; opacity: 0; transform: scale(0.6); transition: opacity 0.35s, transform 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+  -webkit-mask-image: radial-gradient(circle, #000 52%, transparent 72%); mask-image: radial-gradient(circle, #000 52%, transparent 72%);
+}
+.gacha-stage[data-phase='burst'] .gacha-burst-art { opacity: 1; transform: scale(1.15); }
+.gacha-stage[data-phase='result'] .gacha-burst-art { opacity: 0.18; transform: scale(1.5); }
+@media (prefers-reduced-motion: reduce) { .gacha-burst-art { transition: opacity 0.2s; } }
