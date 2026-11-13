@@ -20,8 +20,18 @@ const STYLES = Object.freeze({
   // 행진·질주: 킥 매 박, 스네어 2·4, 베이스 8분 스타카토
   drive: { kick: ({ half }) => half === 0, snare: ({ beat, half }) => half === 0 && beat % 2 === 1, hat: ({ half }) => half === 1, bass: () => true, chord: ({ beat, half }) => beat % 2 === 1 && half === 1, chordLength: 0.3, kickLevel: 1 },
   // 갤럽(2/4): 쿵(베이스)-짝(화음) 반복, 킥 매 박, 스네어 둘째 박
-  galop: { kick: ({ half }) => half === 0, snare: ({ beat, half }) => half === 0 && beat === 1, hat: () => false, bass: ({ half }) => half === 0, chord: ({ half }) => half === 1, chordLength: 0.35, kickLevel: 0.9 }
+  galop: { kick: ({ half }) => half === 0, snare: ({ beat, half }) => half === 0 && beat === 1, hat: () => false, bass: ({ half }) => half === 0, chord: ({ half }) => half === 1, chordLength: 0.35, kickLevel: 0.9 },
+  // 6/8 자장가: 셋째 8분마다 베이스, 나머지 8분에 여린 화음, 드럼 없음
+  lullaby: { kick: () => false, snare: () => false, hat: () => false, bass: ({ beat, half }) => half === 0 && beat % 3 === 0, chord: ({ beat, half }) => half === 0 && beat % 3 !== 0, chordLength: 0.5 },
+  // MIDI 악보 곡: 반주는 악보의 음(accompaniment)을 그대로 연주하고 드럼은 없다 / 래그·행진곡은 여린 킥과 하이햇만 더한다
+  score: { kick: () => false, snare: () => false, hat: () => false, bass: () => false, chord: () => false },
+  'score-beat': { kick: ({ beat, half }) => half === 0 && beat === 0, snare: () => false, hat: ({ half }) => half === 1, bass: () => false, chord: () => false, kickLevel: 0.5, hatLevel: 0.5 }
 });
+
+// 악보 반주 음: 부드러운 삼각파(피아노 비슷하게 빨리 올라와 서서히 줄어든다)
+function scoreNote(sound, context, { midi, time, seconds, level = 1, destination }) {
+  sound.tone(context, { frequency: midiToFrequency(midi), startTime: time, peak: 0.02 * level, attack: 0.004, decay: Math.min(1.4, Math.max(0.1, seconds * 0.95)), waveform: 'triangle', filter: { type: 'lowpass', frequency: 2400 }, destination });
+}
 
 export class RhythmMusic {
   constructor(sound) {
@@ -32,6 +42,7 @@ export class RhythmMusic {
   reset() {
     this.nextHalf = 0;
     this.nextAuto = 0;
+    this.nextScore = 0;
   }
 
   // 매 프레임 호출. O(이번 창에 들어온 소리 수)
@@ -57,6 +68,21 @@ export class RhythmMusic {
       const time = offset + note.time;
       if (time >= context.currentTime - 0.005) this.safely(() => this.melody(context, note.midi, time, note.dur, 0.6));
       this.nextAuto++;
+    }
+    this.pumpScore(engine, context, offset, horizon);
+  }
+
+  // MIDI 곡의 반주 음(곡 박 → 게임 시간 = (박 + 리드인) × 박 길이). O(이번 창의 음 수)
+  pumpScore(engine, context, offset, horizon) {
+    const score = engine.song.accompaniment;
+    if (!score?.length) return;
+    const timeOf = note => (note.beat + engine.leadInBeats) * engine.beatSeconds;
+    while (this.nextScore < score.length && timeOf(score[this.nextScore]) < engine.gameTime - 0.01) this.nextScore++;
+    while (this.nextScore < score.length && timeOf(score[this.nextScore]) < horizon) {
+      const note = score[this.nextScore];
+      const time = offset + timeOf(note);
+      if (time >= context.currentTime - 0.005) this.safely(() => scoreNote(this.sound, context, { midi: note.midi, time, seconds: note.dur * engine.beatSeconds }));
+      this.nextScore++;
     }
   }
 
@@ -134,6 +160,11 @@ export function createPreview(sound) {
           if (at > seconds) break;
           const length = Math.min(0.8, Math.max(0.12, note.dur * beatSeconds * 0.9));
           sound.tone(context, { frequency: midiToFrequency(note.midi), startTime: start + at, peak: 0.05, attack: 0.006, decay: length, waveform: 'triangle', destination: output });
+        }
+        for (const note of song.accompaniment ?? []) {
+          const at = note.beat * beatSeconds;
+          if (at > seconds) break;
+          scoreNote(sound, context, { midi: note.midi, time: start + at, seconds: note.dur * beatSeconds, level: 0.8, destination: output });
         }
         output.gain.setValueAtTime(1, start + seconds - 0.4);
         output.gain.linearRampToValueAtTime(0, start + seconds);
