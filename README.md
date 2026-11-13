@@ -79,6 +79,14 @@
 - 판정: ±50ms PERFECT · ±100ms GREAT · ±150ms GOOD · 그 밖 BAD · 0.25초 지나면 MISS. 일찍 누른 키는 무시, 범위 안 다른 글자는 오타. 대문자 노트는 소문자로 쳐도 맞다(리듬 모드만).
 - HP 100에서 MISS −8 · BAD −3 · 오타 −2, 0이면 실패. 곡 끝까지 버티면 클리어, 판정 정확도로 S~D 랭크.
 - 시계: 게임 시간은 `AudioContext.currentTime − outputLatency`의 증가분을 따른다(오디오가 안 돌면 성능 시계). 반주는 프레임마다 0.15초 앞을 `audioOffset + 게임 시각`에 예약한다.
+- **다른 리듬 게임에서 가져온 시스템**
+  - 속도(x0.5~x3): 노트 낙하 속도만 바꾸고 판정 시각은 그대로(Deemo·osu!mania의 스크롤 속도).
+  - 오프셋(±200ms, 5ms 단위): 기기 지연 보정. 판이 끝나면 평균 타이밍으로 추천값을 계산해 곡 선택 화면에 「지난 판 기준 ○ms로」 버튼을 띄운다.
+  - 모드(osu! 게임 모디파이어): 노페일(HP 0이어도 끝까지 · 점수 ×0.5), 서든데스(MISS·BAD·오타 하나면 실패), 퍼펙트(PERFECT 아니면 실패), 히든·페이드인(판정선 근처에서 사라짐/나타남), 미러(레인 좌우 반전, 화면만), 자동 연주(기록·포인트 없음).
+  - 피버(DJMAX RESPECT 자동 피버): GOOD 이상으로 게이지가 차고, 가득 찰 때마다 피버 레벨 +1(최대 5). 피버 중 점수 ×(1 + 0.1×레벨), BAD·MISS·오타에 끝난다. 서버 점수 상한도 이 배율을 반영(글자당 390점).
+  - 클리어 마크: FULL COMBO(MISS·BAD·오타 없이 클리어) / ALL PERFECT(전부 PERFECT). 곡 목록과 곡 정보에 난이도별로 표시(CHUNITHM 폴더 배지).
+  - 결과에 FAST/LATE 개수와 평균 타이밍(CHUNITHM 결과 화면).
+- **AI 생성 곡**: FreeMusic 커넥터로 만든 음원은 `public/audio/`에 두고 `python3 scripts/analyze-audio.py`로 박·온셋을 분석해 `rhythm-songs-audio.js`를 만든다. 반주 대신 음원을 그대로 틀고, 곡 목록·곡 정보에 「AI」 표시를 단다.
 - `rhythm-songs.js`(곡·난이도) · `rhythm-engine.js`(악보·시계·판정) · `rhythm-music.js`(반주·미리듣기) · `rhythm-view.js`(캔버스) · `song-select.js`(곡 선택 화면)
 
 ## 화면 키보드

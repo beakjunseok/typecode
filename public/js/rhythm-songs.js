@@ -2,10 +2,13 @@
 // 1) 이 파일의 문자열 악보: 저작권이 끝난 곡의 주제 선율을 이 프로젝트에서 직접 음표로 옮긴 것. 반주는 스타일별로 합성한다.
 // 2) rhythm-songs-midi.js: Mutopia Project의 MIDI(라이선스를 곡마다 확인, source·license 필드)를 scripts/import-midi.mjs로
 //    선율(맨 윗성부)과 반주(나머지 음)로 나눈 것. 반주는 악보의 음을 그대로 부드러운 소리로 연주한다.
+// 3) rhythm-songs-audio.js: AI로 만든 음원(FreeMusic). scripts/analyze-audio.py가 박·온셋을 분석한 자리에 글자를 얹고,
+//    반주 대신 음원 파일을 그대로 튼다. ai: true로 표시해 곡 목록에 'AI 생성'을 단다.
 // 선율 표기: "음이름옥타브:길이(박)" 공백 구분, 쉼표는 "r:길이", 길이 생략 시 1박. 마디 구분 "|"는 읽기용(무시).
 // 화음 표기: 마디마다 하나, 한 마디에 둘 이상이면 공백으로 나눠 마디를 균등 분할. 예) 'C', 'F C', 'Am'
 
 import { MIDI_SONG_DATA } from './rhythm-songs-midi.js';
+import { AUDIO_SONG_DATA } from './rhythm-songs-audio.js';
 
 const NOTE_OFFSETS = Object.freeze({ C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 });
 
@@ -190,6 +193,14 @@ function buildMidiSong(data) {
   });
   return Object.freeze({ ...meta, melody: decodeNotes(melody, steps), accompaniment: decodeNotes(accompaniment, steps), chords: Object.freeze(chordEntries), totalBeats: beats });
 }
+// AI 음원 곡: 분석한 온셋이 선율, 화음·반주 없음. audio = { url, firstBeat(첫 박의 음원 시각, 초), previewAt }
+function buildAudioSong(data) {
+  const { melody, steps, beats, firstBeat, url, previewAt, audioSeconds, ...meta } = data;
+  return Object.freeze({
+    ...meta, ai: true, style: 'audio', melody: decodeNotes(melody, steps), accompaniment: Object.freeze([]), chords: Object.freeze([]), totalBeats: beats,
+    audio: Object.freeze({ url, firstBeat, previewAt, seconds: audioSeconds })
+  });
+}
 const MIDI_SONGS = new Map(MIDI_SONG_DATA.map(data => [data.id, buildMidiSong(data)]));
 const midiSong = id => {
   const song = MIDI_SONGS.get(id);
@@ -232,7 +243,8 @@ export const RHYTHM_SONGS = Object.freeze([
   midiSong('barbella-sonata'),
   midiSong('giuliani-allegro'),
   midiSong('toccata-fugue'),
-  buildSong({ id: 'bumblebee', title: '왕벌의 비행', composer: '림스키코르사코프 · 살탄 황제 이야기', died: 1908, bpm: 116, beatsPerBar: 2, style: 'drive', source: TRANSCRIBED, sections: repeat(BUMBLEBEE, 4, [0, 0, 2, 0]) })
+  buildSong({ id: 'bumblebee', title: '왕벌의 비행', composer: '림스키코르사코프 · 살탄 황제 이야기', died: 1908, bpm: 116, beatsPerBar: 2, style: 'drive', source: TRANSCRIBED, sections: repeat(BUMBLEBEE, 4, [0, 0, 2, 0]) }),
+  ...AUDIO_SONG_DATA.map(buildAudioSong)
 ]);
 
 export const SONG_BY_ID = new Map(RHYTHM_SONGS.map(song => [song.id, song]));

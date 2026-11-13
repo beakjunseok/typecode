@@ -21,13 +21,40 @@ export const RHYTHM_RULES = Object.freeze({
   health: Object.freeze({ start: 100, perfect: 1, great: 0.8, good: 0.3, bad: -3, miss: -8, wrong: -2 }),
   // 노트가 끝나고 이만큼 지나면 스테이지 클리어
   outroSeconds: 1.6,
+  // 피버(DJMAX식 자동 피버): GOOD 이상으로 게이지가 차고, 가득 차면 피버 레벨이 1 오른다(최대 5).
+  // 피버 중 점수 × (1 + 0.1 × 레벨). BAD·MISS·오타가 나면 피버가 끝나고 레벨이 0으로
+  fever: Object.freeze({ gain: Object.freeze({ perfect: 5, great: 3.5, good: 1.5 }), maxLevel: 5, bonusPerLevel: 0.1 }),
   // 탭 전환·멈춤으로 시계가 크게 건너뛰면 한 프레임에 이만큼만 진행(그 사이는 멈춘 것으로 본다)
   maxFrameSeconds: 0.25
 });
 
 export const JUDGEMENTS = Object.freeze(['perfect', 'great', 'good', 'bad', 'miss']);
 // 점수 상한 검증용(서버): 글자 하나 최고점 = (PERFECT + 낱말 보너스) × 최대 배율 2
-export const RHYTHM_MAX_POINTS_PER_CHARACTER = (RHYTHM_RULES.points.perfect + RHYTHM_RULES.wordBonus) * 2;
+// 점수 상한 검증용(서버): 글자 하나 최고점 = (PERFECT + 낱말 보너스) × 최대 콤보 배율 2 × 최대 피버 배율
+export const RHYTHM_MAX_POINTS_PER_CHARACTER = Math.ceil((RHYTHM_RULES.points.perfect + RHYTHM_RULES.wordBonus) * 2 * (1 + RHYTHM_RULES.fever.maxLevel * RHYTHM_RULES.fever.bonusPerLevel));
+
+// 게임 옵션(osu! 모드·DJMAX 옵션 참고). speed: 낙하 속도 배율, offsetMs: 입력 보정(+면 늦게 쳐도 맞게)
+// noFail: 체력 0이어도 계속(점수 ×0.5) · suddenDeath: MISS·BAD·오타 하나면 실패 · perfectOnly: PERFECT가 아니면 실패
+// hidden: 판정선 가까이에서 노트가 사라짐 · fadeIn: 판정선 가까이에서 나타남 · mirror: 레인 좌우 반전(화면만)
+// autoPlay: 자동 연주(기록·포인트 없음)
+export const RHYTHM_OPTION_DEFAULTS = Object.freeze({ speed: 1, offsetMs: 0, noFail: false, suddenDeath: false, perfectOnly: false, hidden: false, fadeIn: false, mirror: false, autoPlay: false });
+export const RHYTHM_SPEEDS = Object.freeze([0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]);
+export const NO_FAIL_SCORE_FACTOR = 0.5;
+
+// 저장된 값이 깨져 있어도 안전한 옵션으로. 서로 맞지 않는 조합(노페일+서든데스 등)은 뒤쪽을 끈다
+export function normalizeRhythmOptions(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const options = { ...RHYTHM_OPTION_DEFAULTS };
+  for (const key of ['noFail', 'suddenDeath', 'perfectOnly', 'hidden', 'fadeIn', 'mirror', 'autoPlay']) options[key] = source[key] === true;
+  options.speed = RHYTHM_SPEEDS.includes(source.speed) ? source.speed : 1;
+  options.offsetMs = Number.isFinite(source.offsetMs) ? Math.max(-200, Math.min(200, Math.round(source.offsetMs / 5) * 5)) : 0;
+  if (options.noFail) {
+    options.suddenDeath = false;
+    options.perfectOnly = false;
+  }
+  if (options.hidden && options.fadeIn) options.fadeIn = false;
+  return Object.freeze(options);
+}
 
 // 레인 = 손가락 구역
 export const RHYTHM_LANES = Object.freeze([
@@ -94,7 +121,7 @@ export class BeatClock {
 }
 
 export class RhythmEngine extends TargetGameEngine {
-  constructor({ getAudioContext = () => null, songId, difficulty = 'normal', narrow = false, ...options }) {
+  constructor({ getAudioContext = () => null, songId, difficulty = 'normal', narrow = false, rhythmOptions = null, ...options }) {
     const song = getSong(songId);
     const difficultyKey = RHYTHM_DIFFICULTIES[difficulty] ? difficulty : 'normal';
     const chart = RHYTHM_DIFFICULTIES[difficultyKey];
@@ -108,7 +135,11 @@ export class RhythmEngine extends TargetGameEngine {
     this.leadInBeats = song.beatsPerBar * Math.ceil(8 / song.beatsPerBar);
     this.lanes = RHYTHM_LANES.length;
     this.clock = new BeatClock(getAudioContext);
-    this.fallSeconds = chart.fallSeconds;
+    this.options = normalizeRhythmOptions(rhythmOptions);
+    this.offset = this.options.offsetMs / 1000;
+    this.fallSeconds = chart.fallSeconds / this.options.speed;
+    this.fever = { gauge: 0, level: 0 };
+    this.fastLate = { fast: 0, late: 0, deltaSum: 0, hits: 0 };
     this.health = RHYTHM_RULES.health.start;
     this.counts = Object.fromEntries(JUDGEMENTS.map(name => [name, 0]));
     this.outcome = null;
@@ -215,7 +246,14 @@ export class RhythmEngine extends TargetGameEngine {
   // 놓친 노트 처리 + 끝 판정
   step() {
     let head = this.headNote();
-    while (head && this.gameTime - head.hitTime > RHYTHM_RULES.missAfter) {
+    if (this.options.autoPlay) {
+      while (head && this.gameTime >= head.hitTime) {
+        this.hit(head, 0);
+        if (this.status !== 'running') return;
+        head = this.headNote();
+      }
+    }
+    while (head && this.gameTime - this.offset - head.hitTime > RHYTHM_RULES.missAfter) {
       this.resolveMiss(head);
       if (this.status !== 'running') return;
       head = this.headNote();
@@ -246,9 +284,12 @@ export class RhythmEngine extends TargetGameEngine {
     this.counts.miss++;
     if (this.combo >= 5) this.emit('combo-lost', { combo: this.combo });
     this.combo = 0;
+    this.breakFever();
     this.noteWeak(note.word);
     this.changeHealth(RHYTHM_RULES.health.miss);
     this.emit('miss', { note });
+    this.checkStrict('miss');
+    if (this.status !== 'running') return;
     this.checkWord(note.word);
   }
 
@@ -260,7 +301,44 @@ export class RhythmEngine extends TargetGameEngine {
 
   changeHealth(amount) {
     this.health = Math.max(0, Math.min(100, this.health + amount));
-    if (this.health === 0) this.finish('failed');
+    if (this.health === 0 && !this.options.noFail) this.finish('failed');
+  }
+
+  // 서든데스·퍼펙트 온리: 조건을 어기면 바로 실패
+  checkStrict(judgement) {
+    if (this.options.suddenDeath && (judgement === 'miss' || judgement === 'bad' || judgement === 'wrong')) this.finish('failed');
+    else if (this.options.perfectOnly && judgement !== 'perfect') this.finish('failed');
+  }
+
+  // ---------- 피버 ----------
+  feverMultiplier() {
+    return 1 + this.fever.level * RHYTHM_RULES.fever.bonusPerLevel;
+  }
+
+  chargeFever(judgement) {
+    const gain = RHYTHM_RULES.fever.gain[judgement] ?? 0;
+    if (!gain) return;
+    this.fever.gauge += gain;
+    if (this.fever.gauge >= 100) {
+      this.fever.gauge -= 100;
+      if (this.fever.level < RHYTHM_RULES.fever.maxLevel) {
+        this.fever.level++;
+        this.emit('fever', { level: this.fever.level });
+      } else {
+        this.fever.gauge = 100;
+      }
+    }
+  }
+
+  breakFever() {
+    if (this.fever.level > 0) this.emit('fever-end', { level: this.fever.level });
+    this.fever.level = 0;
+    this.fever.gauge = Math.min(this.fever.gauge, 50);
+  }
+
+  // 점수 배율(콤보 × 피버 × 노페일)
+  scoreFactor() {
+    return getMultiplier(this.combo) * this.feverMultiplier() * (this.options.noFail ? NO_FAIL_SCORE_FACTOR : 1);
   }
 
   // 낱말의 모든 글자가 판정되면 완성. 모두 GOOD 이상이고 오타가 없으면 깨끗한 완성(보너스)
@@ -274,7 +352,7 @@ export class RhythmEngine extends TargetGameEngine {
     let bonus = 0;
     if (word.clean) {
       this.cleanWords++;
-      bonus = Math.round(RHYTHM_RULES.wordBonus * notes.length * getMultiplier(this.combo));
+      bonus = Math.round(RHYTHM_RULES.wordBonus * notes.length * this.scoreFactor());
       this.score += bonus;
     }
     this.emit('word', { word, clean: word.clean, bonus, judgements: notes.map(note => note.judgement), lane: notes.at(-1).lane, beat: notes.at(-1).beat });
@@ -314,35 +392,43 @@ export class RhythmEngine extends TargetGameEngine {
     this.update(nowMs);
     if (this.status !== 'running') return { accepted: false, reason: 'finished' };
     const head = this.headNote();
-    if (!head || head.hitTime - this.gameTime > RHYTHM_RULES.missAfter) return { accepted: false, reason: 'too_early' };
+    if (this.options.autoPlay) return { accepted: false, reason: 'auto_play' };
+    if (!head || head.hitTime - (this.gameTime - this.offset) > RHYTHM_RULES.missAfter) return { accepted: false, reason: 'too_early' };
     if (!matchesNote(character, head.character)) {
       head.word.mistakes++;
       this.wrongKeystrokes++;
       const comboLost = this.combo;
       this.combo = 0;
+      this.breakFever();
       this.noteWeak(head.word);
       const payload = { typed: character, expected: head.character, target: head.word, note: head, comboLost, position: head.charIndex };
       this.emit('mistake', payload);
       this.changeHealth(RHYTHM_RULES.health.wrong);
+      this.checkStrict('wrong');
       return { accepted: true, correct: false, ...payload };
     }
     return this.hit(head);
   }
 
-  hit(note) {
-    const delta = this.gameTime - note.hitTime;
+  hit(note, fixedDelta = null) {
+    const delta = fixedDelta ?? this.gameTime - this.offset - note.hitTime;
     const judgement = judgeTiming(delta);
+    this.fastLate.hits++;
+    this.fastLate.deltaSum += delta;
+    if (judgement !== 'perfect') this.fastLate[delta < 0 ? 'fast' : 'late']++;
     this.correctKeystrokes++;
     const second = Math.floor(this.gameTime);
     this.correctPerSecond[second] = (this.correctPerSecond[second] ?? 0) + 1;
     if (judgement === 'bad') {
       if (this.combo >= 5) this.emit('combo-lost', { combo: this.combo });
       this.combo = 0;
+      this.breakFever();
     } else {
       this.combo++;
       this.maxCombo = Math.max(this.maxCombo, this.combo);
+      this.chargeFever(judgement);
     }
-    this.score += Math.round(RHYTHM_RULES.points[judgement] * getMultiplier(this.combo));
+    this.score += Math.round(RHYTHM_RULES.points[judgement] * this.scoreFactor());
     this.counts[judgement]++;
     note.state = 'hit';
     note.judgement = judgement;
@@ -351,6 +437,8 @@ export class RhythmEngine extends TargetGameEngine {
     this.changeHealth(RHYTHM_RULES.health[judgement]);
     const payload = { note, judgement, delta, combo: this.combo, lane: note.lane, beat: note.beat, character: note.character, tier: getTierProgress(this.combo).index };
     this.emit('judge', payload);
+    this.checkStrict(judgement);
+    if (this.status !== 'running') return { accepted: true, correct: true, ...payload };
     this.checkWord(note.word);
     return { accepted: true, correct: true, ...payload };
   }
@@ -378,6 +466,18 @@ export class RhythmEngine extends TargetGameEngine {
     return Math.round(weighted / judged * 1000) / 10;
   }
 
+  // 풀 콤보: 클리어 + MISS·BAD·오타 없음 / 올 퍼펙트: 풀 콤보 + 전부 PERFECT
+  clearMark() {
+    if (this.outcome !== 'cleared' || this.options.autoPlay) return null;
+    if (this.counts.miss || this.counts.bad || this.wrongKeystrokes) return null;
+    return this.counts.great || this.counts.good ? 'FC' : 'AP';
+  }
+
+  // 평균 타이밍(ms, +면 늦게 침). 오프셋 보정 추천값 = 지금 오프셋 + 평균
+  averageDeltaMs() {
+    return this.fastLate.hits ? Math.round(this.fastLate.deltaSum / this.fastLate.hits * 1000) : 0;
+  }
+
   rank() {
     if (this.outcome === 'failed') return 'F';
     const accuracy = this.timingAccuracy();
@@ -396,7 +496,8 @@ export class RhythmEngine extends TargetGameEngine {
       counts: { ...this.counts },
       timingAccuracy: this.timingAccuracy(),
       wordsCompleted: this.wordsCompleted,
-      bpm: this.bpm
+      bpm: this.bpm,
+      fever: { ...this.fever }
     };
   }
 
@@ -413,7 +514,15 @@ export class RhythmEngine extends TargetGameEngine {
       bpm: this.bpm,
       songId: this.song.id,
       songTitle: this.song.title,
-      difficulty: this.difficultyKey
+      difficulty: this.difficultyKey,
+      clearMark: this.clearMark(),
+      fast: this.fastLate.fast,
+      late: this.fastLate.late,
+      averageDeltaMs: this.averageDeltaMs(),
+      offsetMs: this.options.offsetMs,
+      modifiers: Object.entries(this.options).filter(([key, value]) => value === true).map(([key]) => key),
+      speed: this.options.speed,
+      autoPlay: this.options.autoPlay
     };
   }
 }

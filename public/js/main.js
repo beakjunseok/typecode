@@ -10,11 +10,11 @@ import { createPvpLobby } from './pvp-lobby.js';
 import { DIFFICULTY_LEVELS } from './target-game.js';
 import { ThrowRenderer } from './throw-view.js';
 import { BatteryRenderer } from './battery-view.js';
-import { RhythmEngine } from './rhythm-engine.js';
+import { RhythmEngine, normalizeRhythmOptions } from './rhythm-engine.js';
 import { RhythmRenderer } from './rhythm-view.js';
 import { RhythmMusic, midiToFrequency, createPreview } from './rhythm-music.js';
 import { RHYTHM_DIFFICULTIES, SONG_BY_ID, DEFAULT_SONG_ID, getSong } from './rhythm-songs.js';
-import { renderSongSelect, stepSong, stepDifficulty } from './song-select.js';
+import { renderSongSelect, stepSong, stepDifficulty, stepSpeed } from './song-select.js';
 import { createInputDiffer, INPUT_SENTINEL } from './input.js';
 import { SoundEngine } from './audio.js';
 import { BgmEngine } from './bgm.js';
@@ -78,7 +78,10 @@ const settings = {
   keyboardInGame: preferences.get('keyboardGame', false) === true,
   // 리듬 모드: 고른 곡과 난이도
   rhythmSong: SONG_BY_ID.has(preferences.get('rhythmSong', DEFAULT_SONG_ID)) ? preferences.get('rhythmSong', DEFAULT_SONG_ID) : DEFAULT_SONG_ID,
-  rhythmDifficulty: RHYTHM_DIFFICULTIES[preferences.get('rhythmDifficulty', 'normal')] ? preferences.get('rhythmDifficulty', 'normal') : 'normal'
+  rhythmDifficulty: RHYTHM_DIFFICULTIES[preferences.get('rhythmDifficulty', 'normal')] ? preferences.get('rhythmDifficulty', 'normal') : 'normal',
+  // 리듬 옵션(속도·오프셋·모드). 지난 판 평균 타이밍(ms)은 오프셋 추천에 쓴다
+  rhythmOptions: normalizeRhythmOptions(preferences.get('rhythmOptions', null)),
+  rhythmLastDeltaMs: Number.isFinite(preferences.get('rhythmLastDelta', null)) ? preferences.get('rhythmLastDelta', null) : null
 };
 const run = { engine: null, generation: 0, sessionPromise: null, submitted: false, tickId: null, frameId: null, highlightId: null, lastTier: 0, powerActive: false, lastImeWarning: 0 };
 const now = () => performance.now();
@@ -386,10 +389,13 @@ async function refreshBoard() {
 }
 
 // ---------- 결과 ----------
+const RHYTHM_MODIFIER_NAMES = Object.freeze({ noFail: '노페일', suddenDeath: '서든데스', perfectOnly: '퍼펙트', hidden: '히든', fadeIn: '페이드인', mirror: '미러', autoPlay: '자동 연주' });
 function arcadeSubtitle(summary) {
   if (summary.mode === 'rhythm') {
     const j = summary.judgements;
-    return `${summary.songTitle} · ${RHYTHM_DIFFICULTIES[summary.difficulty]?.label ?? ''} · ${LANGUAGES[settings.languageKey].label} · 랭크 ${summary.rank} · 판정 정확도 ${summary.timingAccuracy}% · 낱말 ${summary.completedTokens}/${summary.totalWords} (깨끗이 ${summary.cleanTokens}) · PERFECT ${j.perfect} · GREAT ${j.great} · GOOD ${j.good} · BAD ${j.bad} · MISS ${j.miss}`;
+    const timing = summary.averageDeltaMs === 0 ? '타이밍 딱 맞음' : `평균 ${Math.abs(summary.averageDeltaMs)}ms ${summary.averageDeltaMs > 0 ? '늦게' : '일찍'}`;
+    const modifiers = summary.modifiers?.length ? ` · 옵션 ${summary.modifiers.map(key => RHYTHM_MODIFIER_NAMES[key] ?? key).join('·')}` : '';
+    return `${summary.songTitle} · ${RHYTHM_DIFFICULTIES[summary.difficulty]?.label ?? ''} · ${LANGUAGES[settings.languageKey].label} · 랭크 ${summary.rank} · 판정 정확도 ${summary.timingAccuracy}% · 낱말 ${summary.completedTokens}/${summary.totalWords} (깨끗이 ${summary.cleanTokens}) · PERFECT ${j.perfect} · GREAT ${j.great} · GOOD ${j.good} · BAD ${j.bad} · MISS ${j.miss} · FAST ${summary.fast} · LATE ${summary.late} (${timing})${summary.speed !== 1 ? ` · 속도 x${summary.speed}` : ''}${modifiers}`;
   }
   const base = `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[summary.level].label} · 생존 ${summary.survivedSeconds}s`;
   if (summary.mode === 'battery') {
@@ -417,7 +423,11 @@ function pvpSubtitle(summary) {
 function resultHeading(summary) {
   if (summary.mode === 'battery-pvp') return { title: PVP_RESULT_TITLES[summary.outcome] ?? 'PvP', subtitle: pvpSubtitle(summary), saveable: false };
   if (summary.mode === 'timeattack') return { title: 'TIME UP', subtitle: timeAttackSubtitle(summary) };
-  if (summary.mode === 'rhythm') return { title: summary.outcome === 'cleared' ? `STAGE CLEAR · ${summary.rank}` : 'STAGE FAILED', subtitle: arcadeSubtitle(summary) };
+  if (summary.mode === 'rhythm') {
+    const mark = summary.clearMark === 'AP' ? ' · ALL PERFECT' : summary.clearMark === 'FC' ? ' · FULL COMBO' : '';
+    const title = summary.autoPlay ? 'AUTO PLAY' : summary.outcome === 'cleared' ? `STAGE CLEAR · ${summary.rank}${mark}` : 'STAGE FAILED';
+    return { title, subtitle: arcadeSubtitle(summary), ...(summary.autoPlay ? { saveable: false, unsavedNote: '자동 연주는 랭킹·최고 기록에 남지 않아요.' } : {}) };
+  }
   if (isArcade()) return { title: modeConfig().resultTitle, subtitle: arcadeSubtitle(summary) };
   return {};
 }
@@ -445,8 +455,12 @@ function handleFinish(summary) {
     pvp.lastOutcome = summary.outcome;
   }
   stopTicking();
-  const newBest = !isPvp() && recordPersonalBest(summary);
-  if (summary.mode === 'rhythm') recordRhythmBest(summary);
+  const autoPlay = summary.autoPlay === true;
+  const newBest = !isPvp() && !autoPlay && recordPersonalBest(summary);
+  if (summary.mode === 'rhythm') {
+    recordRhythmBest(summary);
+    rememberRhythmTiming(summary);
+  }
   sound.play(endSound(summary, newBest));
   bgm.duck(true);
   ui.elements.hiddenInput.blur();
@@ -456,13 +470,14 @@ function handleFinish(summary) {
   ui.log('sys', `run finished · score ${summary.score} · ${summary.charactersPerMinute}타 (${summary.wordsPerMinute} WPM) · ${summary.accuracy}%`);
   const heading = resultHeading(summary);
   // 판마다 키보드 뽑기 포인트 적립(결과창에 표시)
-  const earned = collection.earnPoints(pointsForGame(summary));
+  const earned = autoPlay ? 0 : collection.earnPoints(pointsForGame(summary));
   const pointsLine = document.getElementById('resultPoints');
   if (pointsLine) {
     pointsLine.hidden = false;
     pointsLine.innerHTML = earned
       ? `🎁 뽑기 포인트 <b>+${earned}P</b> · 보유 ${collection.points()}P`
-      : `🎁 이번 판은 포인트가 없어요(맞게 친 글자 ${EARNING.minimumCharacters}개 이상부터) · 보유 ${collection.points()}P`;
+      : autoPlay ? `🎁 자동 연주는 포인트가 없어요 · 보유 ${collection.points()}P`
+        : `🎁 이번 판은 포인트가 없어요(맞게 친 글자 ${EARNING.minimumCharacters}개 이상부터) · 보유 ${collection.points()}P`;
   }
   ui.showResult(summary, {
     languageKey: settings.languageKey,
@@ -551,7 +566,7 @@ function createEngine() {
   }
   if (isPvp() && pvpConnected()) return createPvpEngine();
   const config = modeConfig();
-  const rhythmOptions = settings.mode === 'rhythm' ? { songId: settings.rhythmSong, difficulty: settings.rhythmDifficulty } : {};
+  const rhythmOptions = settings.mode === 'rhythm' ? { songId: settings.rhythmSong, difficulty: settings.rhythmDifficulty, rhythmOptions: settings.rhythmOptions } : {};
   return config.createEngine({
     ...rhythmOptions,
     tokenPool: getTokenPool(settings.languageKey), level: settings.level, onEvent: handleArcadeEvent,
@@ -623,12 +638,39 @@ function rhythmBest(songId, difficulty) {
   const all = preferences.get('rhythmBest', {});
   return all && typeof all === 'object' ? all[`${songId}:${difficulty}`] ?? null : null;
 }
+// 클리어 마크는 점수와 따로 더 좋은 것을 남긴다(AP > FC). 자동 연주는 기록하지 않는다
+const MARK_ORDER = Object.freeze({ AP: 2, FC: 1 });
 function recordRhythmBest(summary) {
+  if (summary.autoPlay) return;
   const all = { ...(preferences.get('rhythmBest', {}) || {}) };
   const key = `${summary.songId}:${summary.difficulty}`;
-  if (all[key] && all[key].score >= summary.score) return;
-  all[key] = { score: summary.score, rank: summary.rank };
+  const previous = all[key] ?? null;
+  const mark = (MARK_ORDER[summary.clearMark] ?? 0) >= (MARK_ORDER[previous?.mark] ?? 0) ? summary.clearMark ?? previous?.mark ?? null : previous.mark;
+  const better = !previous || summary.score > previous.score;
+  all[key] = { score: better ? summary.score : previous.score, rank: better ? summary.rank : previous.rank, ...(mark ? { mark } : {}) };
   preferences.set('rhythmBest', all);
+}
+
+// 결과의 평균 타이밍을 남겨 다음 곡 선택에서 오프셋 추천에 쓴다(노트 20개 이상 친 판만)
+function rememberRhythmTiming(summary) {
+  const hits = summary.judgements.perfect + summary.judgements.great + summary.judgements.good + summary.judgements.bad;
+  if (summary.autoPlay || hits < 20) return;
+  const suggested = Math.max(-200, Math.min(200, Math.round((summary.offsetMs + summary.averageDeltaMs) / 5) * 5));
+  settings.rhythmLastDeltaMs = suggested;
+  preferences.set('rhythmLastDelta', suggested);
+}
+
+// 옵션 바꾸기: 저장하고 악보를 새로 만든다(속도·모드가 엔진에 들어가므로)
+function changeRhythmOptions(patch) {
+  if (run.engine?.status !== 'ready') return;
+  const next = normalizeRhythmOptions({ ...settings.rhythmOptions, ...patch });
+  // 켠 쪽이 이기게: 노페일을 켜면 서든데스·퍼펙트가, 서든데스·퍼펙트를 켜면 노페일이 꺼진다
+  const adjusted = (patch.suddenDeath || patch.perfectOnly) ? normalizeRhythmOptions({ ...next, noFail: false, suddenDeath: patch.suddenDeath ?? next.suddenDeath, perfectOnly: patch.perfectOnly ?? next.perfectOnly })
+    : patch.fadeIn ? normalizeRhythmOptions({ ...next, hidden: false, fadeIn: true }) : next;
+  settings.rhythmOptions = adjusted;
+  preferences.set('rhythmOptions', { ...adjusted });
+  resetGame();
+  sound.play('uiClick');
 }
 
 // 리듬 모드에서 아직 시작 전이면 곡 선택 화면을 보인다(시작하면 숨김)
@@ -640,7 +682,9 @@ function updateSongSelect() {
     difficulty: settings.rhythmDifficulty,
     focused: document.activeElement === ui.elements.hiddenInput,
     levelOf: rhythmLevel,
-    bestOf: rhythmBest
+    bestOf: rhythmBest,
+    options: settings.rhythmOptions,
+    suggestedOffsetMs: settings.rhythmLastDeltaMs
   });
   if (!visible) songPreview.stop();
 }
@@ -676,6 +720,17 @@ function handleSongSelectKey(event) {
 
 function bindSongSelect() {
   ui.elements.songSelect.addEventListener('click', event => {
+    const option = event.target.closest('[data-option]');
+    if (option) {
+      const delta = Number(option.dataset.delta) || 0;
+      const kind = option.dataset.option;
+      if (kind === 'speed') changeRhythmOptions({ speed: stepSpeed(settings.rhythmOptions.speed, delta) });
+      else if (kind === 'offset') changeRhythmOptions({ offsetMs: settings.rhythmOptions.offsetMs + delta * 5 });
+      else if (kind === 'offset-suggest' && Number.isFinite(settings.rhythmLastDeltaMs)) changeRhythmOptions({ offsetMs: settings.rhythmLastDeltaMs });
+      else if (kind === 'toggle' && option.dataset.key) changeRhythmOptions({ [option.dataset.key]: !settings.rhythmOptions[option.dataset.key] });
+      focusTypingArea();
+      return;
+    }
     const row = event.target.closest('[data-song]');
     const chip = event.target.closest('[data-difficulty]');
     if (row) chooseRhythm({ songId: row.dataset.song });

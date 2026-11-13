@@ -4,6 +4,26 @@
 // 판정선에 노트가 닿는 순간과 박이 들리는 순간이 같다. 탭이 숨으면 예약이 멈추고, 돌아오면 지난 소리는 건너뛴다.
 
 const LOOKAHEAD_SECONDS = 0.15;
+
+// AI 음원 곡의 오디오 버퍼(주소별 한 번만 받아 디코딩). 실패하면 null로 남고 게임은 음원 없이 진행된다
+const audioBuffers = new Map();
+export function loadSongAudio(context, url) {
+  if (!context || !url) return Promise.resolve(null);
+  if (!audioBuffers.has(url)) {
+    const entry = { buffer: null, promise: null };
+    entry.promise = fetch(url)
+      .then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.arrayBuffer();
+      })
+      .then(data => context.decodeAudioData(data))
+      .then(buffer => (entry.buffer = buffer))
+      .catch(() => null);
+    audioBuffers.set(url, entry);
+  }
+  return audioBuffers.get(url).promise;
+}
+const readyBuffer = url => audioBuffers.get(url)?.buffer ?? null;
 export const midiToFrequency = note => 440 * 2 ** ((note - 69) / 12);
 
 // 스타일별 반주: 박 안 위치마다 무엇을 칠지
@@ -20,6 +40,8 @@ const STYLES = Object.freeze({
   // 행진·질주: 킥 매 박, 스네어 2·4, 베이스 8분 스타카토
   drive: { kick: ({ half }) => half === 0, snare: ({ beat, half }) => half === 0 && beat % 2 === 1, hat: ({ half }) => half === 1, bass: () => true, chord: ({ beat, half }) => beat % 2 === 1 && half === 1, chordLength: 0.3, kickLevel: 1 },
   // 갤럽(2/4): 쿵(베이스)-짝(화음) 반복, 킥 매 박, 스네어 둘째 박
+  // AI 음원 곡: 음원이 반주라 합성 반주는 없다(카운트만)
+  audio: { kick: () => false, snare: () => false, hat: () => false, bass: () => false, chord: () => false },
   galop: { kick: ({ half }) => half === 0, snare: ({ beat, half }) => half === 0 && beat === 1, hat: () => false, bass: ({ half }) => half === 0, chord: ({ half }) => half === 1, chordLength: 0.35, kickLevel: 0.9 },
   // 6/8 자장가: 셋째 8분마다 베이스, 나머지 8분에 여린 화음, 드럼 없음
   lullaby: { kick: () => false, snare: () => false, hat: () => false, bass: ({ beat, half }) => half === 0 && beat % 3 === 0, chord: ({ beat, half }) => half === 0 && beat % 3 !== 0, chordLength: 0.5 },
@@ -45,6 +67,42 @@ export class RhythmMusic {
     this.nextHalf = 0;
     this.nextAuto = 0;
     this.nextScore = 0;
+    this.stopAudio();
+  }
+
+  stopAudio() {
+    if (!this.audioNode) return;
+    try {
+      this.audioNode.source.stop();
+      this.audioNode.gain.disconnect();
+    } catch (error) {
+      /* 이미 멈춤 */
+    }
+    this.audioNode = null;
+  }
+
+  // 음원 곡: 곡 첫 박(음원 firstBeat초)이 게임 시간 리드인 끝에 오도록 한 번 예약한다.
+  // 시작 시각이 이미 지났으면(버퍼가 늦게 준비됨) 그만큼 음원 안쪽에서 시작
+  pumpAudio(engine, context, offset) {
+    const audio = engine.song.audio;
+    if (!audio || this.audioNode) return;
+    const buffer = readyBuffer(audio.url);
+    if (!buffer) {
+      loadSongAudio(context, audio.url);
+      return;
+    }
+    const startGameTime = engine.leadInBeats * engine.beatSeconds - audio.firstBeat;
+    const when = offset + startGameTime;
+    const late = Math.max(0, context.currentTime + 0.02 - when);
+    if (late >= buffer.duration) return;
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    const gain = context.createGain();
+    gain.gain.value = 0.9;
+    source.connect(gain);
+    gain.connect(this.sound.master);
+    source.start(when + late, late);
+    this.audioNode = { source, gain };
   }
 
   // 매 프레임 호출. O(이번 창에 들어온 소리 수)
@@ -61,6 +119,10 @@ export class RhythmMusic {
       const time = offset + this.nextHalf * half;
       if (time >= context.currentTime - 0.005) this.safely(() => this.scheduleHalf(context, engine, this.nextHalf, time, intensity));
       this.nextHalf++;
+    }
+    if (engine.song.audio) {
+      this.safely(() => this.pumpAudio(engine, context, offset));
+      return;
     }
     // 글자를 얹지 않은 선율 음
     const notes = engine.autoNotes;
@@ -151,6 +213,10 @@ export function createPreview(sound) {
       this.stop();
       const context = sound.ensureContext?.();
       if (!context || !sound.enabled) return;
+      if (song.audio) {
+        this.playAudio(context, song, 8);
+        return;
+      }
       try {
         output = context.createGain();
         output.gain.value = 1;
@@ -174,7 +240,31 @@ export function createPreview(sound) {
         output = null;
       }
     },
+    // 음원 곡 미리듣기: previewAt초부터 seconds초, 앞뒤를 부드럽게
+    playAudio(context, song, seconds) {
+      const token = {};
+      this.current = token;
+      loadSongAudio(context, song.audio.url).then(buffer => {
+        if (!buffer || this.current !== token) return;
+        try {
+          output = context.createGain();
+          output.connect(sound.master);
+          const start = context.currentTime + 0.03;
+          output.gain.setValueAtTime(0, start);
+          output.gain.linearRampToValueAtTime(0.85, start + 0.3);
+          output.gain.setValueAtTime(0.85, start + seconds - 0.8);
+          output.gain.linearRampToValueAtTime(0, start + seconds);
+          const source = context.createBufferSource();
+          source.buffer = buffer;
+          source.connect(output);
+          source.start(start, Math.min(song.audio.previewAt ?? 0, Math.max(0, buffer.duration - seconds)), seconds);
+        } catch (error) {
+          output = null;
+        }
+      });
+    },
     stop() {
+      this.current = null;
       if (!output) return;
       try {
         const context = output.context;
