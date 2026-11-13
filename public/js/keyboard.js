@@ -116,7 +116,11 @@ export function createKeyboard(container, { compact = false, interactive = false
   // 떠 있는 키보드 무대: 스킨 카드 그림처럼 떠서 둥실거리고, 뒤로 LED 색 오라가 번진다(.kb-float)
   const floating = document.createElement('div');
   floating.className = 'kb-float';
-  floating.appendChild(board);
+  // 그림과 맞춘 장식(루비·블랙홀·이진수 파편 등). 스킨별 CSS가 모양을 정한다
+  const decoration = document.createElement('div');
+  decoration.className = 'kb-deco';
+  decoration.setAttribute('aria-hidden', 'true');
+  floating.append(decoration, board);
   container.classList.add('kb-stage');
   container.replaceChildren(...(compact ? [floating] : [floating, fingerHint]));
 
@@ -177,10 +181,12 @@ export function createKeyboard(container, { compact = false, interactive = false
         : `hsl(${palette[0][0]} ${palette[0][1]}% ${palette[0][2]}%)`;
     floating.style.setProperty('--kb-aura', skin.led.pattern === 'off' ? 'rgba(255, 255, 255, 0.25)' : aura);
     floating.dataset.rarity = skin.rarity;
+    floating.dataset.skin = skin.id;
     const art = skinArt(skin.id);
     if (art) container.style.setProperty('--kb-art', `url('${art}')`);
     else container.style.removeProperty('--kb-art');
     container.dataset.rarity = skin.rarity;
+    container.dataset.skin = skin.id;
   }
 
   // 스킨(아이디 또는 스킨 객체)을 입힌다. override = { pattern, reactive } 로 LED만 바꿀 수 있다
@@ -198,6 +204,7 @@ export function createKeyboard(container, { compact = false, interactive = false
     style.setProperty('--case-bg', palette.case);
     board.dataset.material = skin.material;
     board.dataset.rarity = skin.rarity;
+    board.dataset.skin = skin.id;
     applyStage(skin);
     board.classList.toggle('underglow', skin.underglow);
     ledGlow = material.glow;
