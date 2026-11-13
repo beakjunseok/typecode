@@ -14,6 +14,14 @@ const JUDGEMENT_STYLE = Object.freeze({
   bad: { label: 'BAD', color: '#c792ea' },
   miss: { label: 'MISS', color: '#ff4d6d' }
 });
+const FEVER_COLORS = Object.freeze(['#5a6b85', '#36e2ff', '#39ff88', '#ffe066', '#ffb547', '#ff4d6d']);
+const MODIFIER_LABELS = Object.freeze({ autoPlay: 'AUTO', noFail: 'NF', suddenDeath: 'SD', perfectOnly: 'PF', hidden: 'HD', fadeIn: 'FI', mirror: 'MR' });
+function modifierTags(options) {
+  if (!options) return '';
+  const tags = Object.entries(MODIFIER_LABELS).filter(([key]) => options[key]).map(([, label]) => label);
+  if (options.speed !== 1) tags.push(`x${options.speed}`);
+  return tags.join(' ');
+}
 const visibleCharacter = character => character === ' ' ? '␣' : character;
 
 export class RhythmRenderer {
@@ -39,8 +47,19 @@ export class RhythmRenderer {
     return { width, height, laneWidth, left, judgeY, topY: HUD_HEIGHT + WORD_AREA, radius };
   }
 
+  // 미러 옵션이면 화면에서만 레인을 좌우로 뒤집는다(판정은 그대로)
   laneCenter(lane, layout) {
-    return layout.left + layout.laneWidth * (lane + 0.5);
+    const visual = this.mirror ? RHYTHM_LANES.length - 1 - lane : lane;
+    return layout.left + layout.laneWidth * (visual + 0.5);
+  }
+
+  // 히든·페이드인: 노트가 레인의 어디쯤(1 = 맨 위, 0 = 판정선)에 있느냐로 투명도를 정한다
+  noteAlpha(y, layout, options) {
+    const progress = (layout.judgeY - y) / Math.max(1, layout.judgeY - layout.topY);
+    const clamp = value => Math.max(0, Math.min(1, value));
+    if (options.hidden) return clamp((progress - 0.22) / 0.18);
+    if (options.fadeIn) return clamp((0.62 - progress) / 0.2);
+    return 1;
   }
 
   noteY(hitTime, engine, layout) {
@@ -73,6 +92,7 @@ export class RhythmRenderer {
   render(engine, { accent }) {
     const context = this.context;
     if (!context) return;
+    this.mirror = engine.options?.mirror === true;
     this.surface.resize?.();
     const layout = this.layout();
     const { width, height, laneWidth, left, judgeY, topY, radius } = layout;
@@ -90,7 +110,7 @@ export class RhythmRenderer {
 
     // 레인 바탕 + 맞힌 레인 번쩍임
     RHYTHM_LANES.forEach((lane, index) => {
-      const x = left + index * laneWidth;
+      const x = this.laneCenter(index, layout) - laneWidth / 2;
       const gradient = context.createLinearGradient(0, topY, 0, judgeY);
       gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
       gradient.addColorStop(1, hexAlpha(lane.color, 0.07 + this.laneFlash[index].amount * 0.25));
@@ -145,8 +165,17 @@ export class RhythmRenderer {
     const notes = engine.visibleNotes().sort((first, second) => second.hitTime - first.hitTime);
     for (const note of notes) {
       const x = this.laneCenter(note.lane, layout);
-      if (note.state === 'pending') this.drawNote(context, note, x, this.noteY(note.hitTime, engine, layout), radius, note === head, accent);
-      else this.drawResolved(context, note, x, judgeY, radius, engine);
+      if (note.state === 'pending') {
+        const y = this.noteY(note.hitTime, engine, layout);
+        const alpha = this.noteAlpha(y, layout, engine.options ?? {});
+        if (alpha <= 0) continue;
+        context.save();
+        context.globalAlpha = alpha;
+        this.drawNote(context, note, x, y, radius, note === head, accent);
+        context.restore();
+      } else {
+        this.drawResolved(context, note, x, judgeY, radius, engine);
+      }
     }
     this.particles.draw(context);
 
@@ -269,6 +298,42 @@ export class RhythmRenderer {
     context.fillRect(width - 12 - barWidth, 13, barWidth, 4);
     context.fillStyle = '#36e2ff';
     context.fillRect(width - 12 - barWidth, 13, barWidth * snapshot.progress, 4);
+    this.drawFever(context, engine, layout, snapshot.fever);
+    const tags = modifierTags(engine.options);
+    if (tags) {
+      context.textAlign = 'left';
+      context.font = canvasFont(10, 'ui', 700);
+      context.fillStyle = engine.options.autoPlay ? '#ffb547' : '#c792ea';
+      context.fillText(tags, 12, 36);
+    }
+  }
+
+  // 피버 게이지(판정선 오른쪽 세로 막대) + 레벨 표시
+  drawFever(context, engine, layout, fever) {
+    if (!fever) return;
+    const x = layout.left + layout.laneWidth * RHYTHM_LANES.length + 14;
+    const top = layout.topY + 10;
+    const height = layout.judgeY - top;
+    if (x + 10 > layout.width) return;
+    context.fillStyle = 'rgba(255, 255, 255, 0.07)';
+    roundedRect(context, x, top, 8, height, 4);
+    context.fill();
+    const color = FEVER_COLORS[Math.min(FEVER_COLORS.length - 1, fever.level)];
+    const fill = height * Math.min(1, fever.gauge / 100);
+    context.fillStyle = color;
+    roundedRect(context, x, top + height - fill, 8, Math.max(4, fill), 4);
+    context.fill();
+    if (fever.level > 0) {
+      context.save();
+      context.textAlign = 'center';
+      context.textBaseline = 'bottom';
+      context.font = canvasFont(12);
+      context.shadowColor = color;
+      context.shadowBlur = 10;
+      context.fillStyle = color;
+      context.fillText(`FEVER x${(1 + fever.level * RHYTHM_RULES.fever.bonusPerLevel).toFixed(1)}`, x + 4, top - 2);
+      context.restore();
+    }
   }
 
   drawPopup(context, layout) {

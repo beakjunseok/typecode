@@ -88,7 +88,7 @@ test('악보: 곡 선율 위에 글자를 얹고, 난이도가 높을수록 촘�
   assert.equal(laneOfCharacter('f'), 1);
   assert.equal(laneOfCharacter('j'), 2);
   assert.equal(laneOfCharacter(';'), 3);
-  assert.equal(RHYTHM_MAX_POINTS_PER_CHARACTER, 260);
+  assert.equal(RHYTHM_MAX_POINTS_PER_CHARACTER, 390, "PERFECT+보너스 130 × 콤보 2 × 피버 1.5");
   const engine = create({ songId: 'twinkle', difficulty: 'nope' });
   assert.equal(engine.difficultyKey, 'normal', '모르는 난이도는 NORMAL');
   assert.ok(engine.chordAtBeat(engine.leadInBeats), '첫 박 화음');
@@ -188,4 +188,89 @@ test('대문자 노트는 소문자로 쳐도 맞고, 소문자 노트에 대문
   const result = engine.input('s', state.ms);
   assert.equal(result.correct, true);
   assert.equal(result.judgement, 'perfect');
+});
+
+// ---------- 다른 리듬 게임에서 가져온 시스템 ----------
+import { normalizeRhythmOptions, RHYTHM_RULES as RULES } from '../public/js/rhythm-engine.js';
+
+function startEngine(options) {
+  const engine = create({ songId: 'ode-to-joy', difficulty: 'easy', ...options });
+  const state = { ms: 0 };
+  engine.input('x', state.ms);
+  return { engine, state };
+}
+
+test('옵션 정리: 깨진 값은 기본값, 노페일은 서든데스·퍼펙트를 끄고 히든·페이드인은 함께 못 켠다', () => {
+  assert.deepEqual({ ...normalizeRhythmOptions('junk') }, { speed: 1, offsetMs: 0, noFail: false, suddenDeath: false, perfectOnly: false, hidden: false, fadeIn: false, mirror: false, autoPlay: false });
+  const options = normalizeRhythmOptions({ speed: 2, offsetMs: 433, noFail: true, suddenDeath: true, hidden: true, fadeIn: true });
+  assert.equal(options.speed, 2);
+  assert.equal(options.offsetMs, 200);
+  assert.equal(options.suddenDeath, false);
+  assert.equal(options.fadeIn, false);
+  assert.equal(normalizeRhythmOptions({ speed: 7 }).speed, 1);
+});
+
+test('속도 옵션은 낙하 시간만 바꾸고 판정 시각은 그대로', () => {
+  const normal = create({ songId: 'ode-to-joy', difficulty: 'normal' });
+  const fast = create({ songId: 'ode-to-joy', difficulty: 'normal', rhythmOptions: { speed: 2 } });
+  assert.equal(fast.fallSeconds, normal.fallSeconds / 2);
+  assert.deepEqual(fast.notes.map(note => note.hitTime), normal.notes.map(note => note.hitTime));
+});
+
+test('오프셋: +80ms면 80ms 늦게 친 것이 PERFECT', () => {
+  const { engine, state } = startEngine({ rhythmOptions: { offsetMs: 80 } });
+  const result = playNote(engine, engine.notes[0], 0.08, state);
+  assert.equal(result.judgement, 'perfect');
+  const plain = startEngine({});
+  assert.equal(playNote(plain.engine, plain.engine.notes[0], 0.08, plain.state).judgement, 'great');
+});
+
+test('자동 연주: 전부 PERFECT로 끝나지만 클리어 마크·입력은 없다', () => {
+  const { engine, state } = startEngine({ rhythmOptions: { autoPlay: true } });
+  assert.equal(engine.input(engine.notes[0].character, state.ms).reason, 'auto_play');
+  advanceTo(engine, engine.endTime + 1, state);
+  const summary = engine.summary();
+  assert.equal(summary.outcome, 'cleared');
+  assert.equal(summary.judgements.perfect, engine.notes.length);
+  assert.equal(summary.autoPlay, true);
+  assert.equal(summary.clearMark, null);
+});
+
+test('서든데스: MISS 하나면 실패 / 노페일: HP 0이어도 끝까지, 점수 절반', () => {
+  const sudden = startEngine({ rhythmOptions: { suddenDeath: true } });
+  advanceTo(sudden.engine, sudden.engine.notes[0].hitTime + RULES.missAfter + 0.05, sudden.state);
+  assert.equal(sudden.engine.outcome, 'failed');
+  const noFail = startEngine({ rhythmOptions: { noFail: true } });
+  advanceTo(noFail.engine, noFail.engine.endTime + 1, noFail.state);
+  assert.equal(noFail.engine.health, 0);
+  assert.equal(noFail.engine.outcome, 'cleared');
+});
+
+test('퍼펙트 온리: GREAT가 나오면 실패', () => {
+  const { engine, state } = startEngine({ rhythmOptions: { perfectOnly: true } });
+  playNote(engine, engine.notes[0], 0.08, state);
+  assert.equal(engine.outcome, 'failed');
+});
+
+test('피버: PERFECT가 이어지면 레벨이 오르고 배율이 붙으며, MISS에 끝난다 · 풀 콤보/올 퍼펙트 마크', () => {
+  const { engine, state } = startEngine({});
+  const events = [];
+  engine.onEvent = (type, payload) => events.push(type);
+  for (const note of engine.notes.slice(0, 25)) playNote(engine, note, 0, state);
+  assert.ok(engine.fever.level >= 1, `피버 레벨 ${engine.fever.level}`);
+  assert.ok(engine.feverMultiplier() > 1);
+  advanceTo(engine, engine.notes[25].hitTime + RULES.missAfter + 0.05, state);
+  assert.equal(engine.fever.level, 0);
+
+  const perfect = startEngine({});
+  for (const note of perfect.engine.notes) playNote(perfect.engine, note, 0, perfect.state);
+  advanceTo(perfect.engine, perfect.engine.endTime + 1, perfect.state);
+  assert.equal(perfect.engine.summary().clearMark, 'AP');
+  const combo = startEngine({});
+  combo.engine.notes.forEach((note, index) => playNote(combo.engine, note, index === 3 ? 0.08 : 0, combo.state));
+  advanceTo(combo.engine, combo.engine.endTime + 1, combo.state);
+  const summary = combo.engine.summary();
+  assert.equal(summary.clearMark, 'FC');
+  assert.equal(summary.late, 1);
+  assert.ok(summary.averageDeltaMs > 0);
 });

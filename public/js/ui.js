@@ -201,12 +201,14 @@ export function createUi(root = document) {
   }
 
   // saveable: false면 랭킹 등록 폼을 숨긴다(PvP 결과)
-  function showResult(summary, { languageKey, playerName, title = 'BUILD FINISHED', subtitle = null, saveable = true }) {
+  function showResult(summary, { languageKey, playerName, title = 'BUILD FINISHED', subtitle = null, saveable = true, unsavedNote = null }) {
     elements.saveForm.querySelector('label').hidden = !saveable;
     elements.playerName.hidden = !saveable;
     elements.saveButton.hidden = !saveable;
     elements.saveStatus.hidden = !saveable;
     elements.pvpResultNote.hidden = saveable;
+    if (!elements.pvpResultNote.dataset.defaultText) elements.pvpResultNote.dataset.defaultText = elements.pvpResultNote.textContent;
+    elements.pvpResultNote.textContent = unsavedNote ?? elements.pvpResultNote.dataset.defaultText;
     elements.resultTitle.textContent = title;
     elements.resultSub.textContent = subtitle ??
       `${languageLabel(languageKey)} · ${summary.durationSeconds}s · 토큰 ${summary.completedTokens}개 (클린 ${summary.cleanTokens})${summary.skippedTokens ? ` · 건너뜀 ${summary.skippedTokens}` : ''}`;
