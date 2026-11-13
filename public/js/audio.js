@@ -716,6 +716,12 @@ const SOUNDS = {
       }
     }
   },
+  // 10회 뽑기에서 희귀 이상 카드가 뒤집힐 때: 등급만큼 높은 짧은 '띵'
+  gachaCard(engine, context, time, { rarity = 2 } = {}) {
+    const frequency = [784, 880, 1046.5, 1318.5, 1568][Math.max(0, Math.min(4, rarity))];
+    engine.tone(context, { frequency, startTime: time, peak: 0.045, decay: 0.22 + rarity * 0.05, waveform: 'triangle' });
+    if (rarity >= 3) engine.bell(context, { frequency: frequency * 2, startTime: time + 0.02, peak: 0.025, length: 0.6 });
+  },
   // 결과를 고를 때·버튼 피드백: 짧은 '틱'
   gachaTick(engine, context, time) {
     engine.tone(context, { frequency: 1600, startTime: time, peak: 0.03, decay: 0.03, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
