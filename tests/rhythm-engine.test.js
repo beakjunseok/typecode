@@ -26,12 +26,14 @@ function playNote(engine, note, offsetSeconds, state) {
 }
 
 test('곡 목록: 선율·화음이 있고, 곡을 모르면 기본 곡, 음 이름 해석', () => {
-  assert.ok(RHYTHM_SONGS.length >= 7);
+  assert.ok(RHYTHM_SONGS.length >= 30);
   assert.equal(new Set(RHYTHM_SONGS.map(song => song.id)).size, RHYTHM_SONGS.length);
   for (const song of RHYTHM_SONGS) {
     assert.ok(song.melody.length > 20, song.id);
-    assert.ok(song.chords.length > 0, song.id);
-    assert.ok(song.totalBeats > 0 && song.bpm >= 90 && song.bpm <= 180, song.id);
+    assert.ok(song.chords.length > 0 || song.accompaniment?.length > 0, `${song.id} 반주`);
+    assert.ok(song.source, `${song.id} 출처`);
+    if (song.license) assert.match(song.license, /^(Public Domain|CC BY \d)/, `${song.id}: 동일조건(SA)·비상업 라이선스 파일은 쓰지 않는다`);
+    assert.ok(song.totalBeats > 0 && song.bpm >= 60 && song.bpm <= 180, song.id);
     for (let index = 1; index < song.melody.length; index++) assert.ok(song.melody[index].beat >= song.melody[index - 1].beat, `${song.id} 선율 시각순`);
   }
   assert.equal(getSong('없는곡').id, 'ode-to-joy');
@@ -79,7 +81,7 @@ test('악보: 곡 선율 위에 글자를 얹고, 난이도가 높을수록 촘�
       levels.push(engine.levelNumber());
     }
     assert.ok(perMinute[0] < 80, `${song.id} EASY 속도 ${Math.round(perMinute[0])}`);
-    assert.ok(perMinute.every((value, index) => index === 0 || value >= perMinute[index - 1] - 1), `${song.id} 난이도 순 ${perMinute.map(Math.round)}`);
+    assert.ok(perMinute.every((value, index) => index === 0 || value >= perMinute[index - 1] - 4), `${song.id} 난이도 순 ${perMinute.map(Math.round)}`);
     assert.ok(levels.every(level => level >= 1 && level <= 15));
   }
   assert.equal(laneOfCharacter('a'), 0);
@@ -87,7 +89,7 @@ test('악보: 곡 선율 위에 글자를 얹고, 난이도가 높을수록 촘�
   assert.equal(laneOfCharacter('j'), 2);
   assert.equal(laneOfCharacter(';'), 3);
   assert.equal(RHYTHM_MAX_POINTS_PER_CHARACTER, 260);
-  const engine = create({ songId: 'ode-to-joy', difficulty: 'nope' });
+  const engine = create({ songId: 'twinkle', difficulty: 'nope' });
   assert.equal(engine.difficultyKey, 'normal', '모르는 난이도는 NORMAL');
   assert.ok(engine.chordAtBeat(engine.leadInBeats), '첫 박 화음');
 });

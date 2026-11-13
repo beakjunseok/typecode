@@ -91,9 +91,20 @@ function renderDetail(detail, { songId, difficulty, focused, levelOf, bestOf }) 
   } else {
     record.textContent = '이 난이도는 아직 기록이 없어요';
   }
+  const credit = element('p', 'song-source');
+  const sourceText = song.license ? `악보 출처 · ${song.license}` : '저작권이 끝난 선율을 직접 채보';
+  if (/^https:\/\//.test(song.source ?? '')) {
+    const link = element('a', '', sourceText);
+    link.href = song.source;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    credit.append(link);
+  } else {
+    credit.textContent = sourceText;
+  }
   const start = element('p', 'song-start', focused ? '글자 키를 치면 시작해요' : '여기를 눌러 시작 준비');
   const keys = element('p', 'song-keys', '↑↓ 곡 바꾸기 · ←→ 난이도');
-  detail.replaceChildren(title, meta, facts, chips, record, start, keys);
+  detail.replaceChildren(title, meta, facts, chips, record, credit, start, keys);
 }
 
 // 상태 그대로 다시 그린다. O(곡 수 × 난이도 수)
