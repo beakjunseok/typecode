@@ -910,9 +910,9 @@ body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
 .skin-art[hidden] { display: none; }
 
 /* ---------- 떠 있는 키보드 무대 (스킨 카드 그림 느낌) ----------
-   키보드를 비스듬히 눕혀 띄우고(3D), 뒤로 LED 색 오라를 번지게 한다. 카드 그림이 있는 스킨은 그 그림을 흐리게 깔고,
-   영웅·전설은 별가루가 반짝인다. 글자를 읽기 쉽도록 기울기는 약하게. 움직임 줄이기 설정이면 둥실거림을 끈다 */
-.kb-stage { position: relative; isolation: isolate; perspective: 1400px; padding: 26px 8px 34px; border-radius: 18px; overflow: hidden; }
+   키보드를 똑바로 띄워 둥실거리게 하고, 뒤로 LED 색 오라를 번지게 한다. 카드 그림이 있는 스킨은 그 그림을 흐리게 깔고,
+   영웅·전설은 별가루가 반짝인다. 움직임 줄이기 설정이면 둥실거림을 끈다 */
+.kb-stage { position: relative; isolation: isolate; padding: 26px 8px 34px; border-radius: 18px; overflow: hidden; }
 .kb-stage::before {
   content: ''; position: absolute; inset: 0; z-index: -2; pointer-events: none;
   background: var(--kb-art, none) center / cover no-repeat, radial-gradient(ellipse at 50% 55%, rgba(40, 48, 90, 0.55), transparent 70%);
@@ -929,7 +929,7 @@ body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
 @keyframes kb-twinkle { from { opacity: 0.35; } to { opacity: 0.9; } }
 .kb-float {
   position: relative; transform-style: preserve-3d;
-  transform: rotateX(22deg) rotateZ(-5deg); animation: kb-bob 4.8s ease-in-out infinite;
+  animation: kb-bob 4.8s ease-in-out infinite;
 }
 .kb-float::before {
   content: ''; position: absolute; inset: -8px; z-index: -1; border-radius: 22px; pointer-events: none;
@@ -939,13 +939,9 @@ body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
 .kb-float[data-rarity='epic']::before { opacity: 0.85; inset: -12px; }
 .kb-float[data-rarity='legendary']::before { opacity: 1; inset: -16px; filter: blur(26px); animation: kb-aura 3s ease-in-out infinite alternate; }
 .kb-float .keyboard { box-shadow: 0 26px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -2px 0 rgba(0, 0, 0, 0.35); }
-@keyframes kb-bob { 0%, 100% { transform: rotateX(22deg) rotateZ(-5deg) translateY(0); } 50% { transform: rotateX(22deg) rotateZ(-5deg) translateY(-7px); } }
+@keyframes kb-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 @keyframes kb-aura { from { opacity: 0.75; } to { opacity: 1; } }
 .gacha-preview.kb-stage, .collection-preview.kb-stage { padding: 18px 6px 24px; }
 @media (prefers-reduced-motion: reduce) {
   .kb-float, .kb-float::before, .kb-stage::after { animation: none; }
-}
-@media (max-width: 640px) {
-  .kb-float, .kb-float { transform: rotateX(14deg) rotateZ(-3deg); }
-  @keyframes kb-bob { 0%, 100% { transform: rotateX(14deg) rotateZ(-3deg) translateY(0); } 50% { transform: rotateX(14deg) rotateZ(-3deg) translateY(-5px); } }
 }

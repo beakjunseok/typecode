@@ -113,7 +113,7 @@ export function createKeyboard(container, { compact = false, interactive = false
   });
   const fingerHint = document.createElement('div');
   fingerHint.className = 'kb-hint';
-  // 떠 있는 키보드 무대: 스킨 카드 그림처럼 비스듬히 떠서 둥실거리고, 뒤로 LED 색 오라가 번진다(.kb-float)
+  // 떠 있는 키보드 무대: 스킨 카드 그림처럼 떠서 둥실거리고, 뒤로 LED 색 오라가 번진다(.kb-float)
   const floating = document.createElement('div');
   floating.className = 'kb-float';
   floating.appendChild(board);
