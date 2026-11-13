@@ -127,6 +127,10 @@
         </div>
       </div>
     </div>
+    <div class="song-select" id="songSelect" hidden>
+      <ol class="song-list" role="listbox" aria-label="곡 목록"></ol>
+      <div class="song-detail" aria-live="polite"></div>
+    </div>
     <div class="overlay" id="arcadeOverlay">여기를 클릭(탭)해서 시작 준비<br><span id="arcadeOverlayHint">첫 글자를 치면 게임이 시작됩니다</span></div>
   </section>
 
@@ -165,11 +169,11 @@
   <details class="rules" id="rhythmHint" hidden>
     <summary>리듬 규칙</summary>
     <ul>
-      <li>128 BPM 반주에 맞춰 코드 낱말이 <b>한 글자씩 큰 원</b>으로 떨어져요. 레인은 그 글자를 치는 손가락 구역이에요. 아무 키나 치면 두 마디 카운트 뒤 시작해요.</li>
-      <li>원이 판정선의 고리에 닿는 순간 그 글자를 치세요. 화면 위에 지금 만드는 낱말이 보이고, 글자를 다 치면 낱말이 완성돼요.</li>
-      <li>정박에서 ±50ms PERFECT, ±100ms GREAT, ±150ms GOOD, 그보다 어긋나면 BAD, 0.25초 지나면 MISS. 너무 일찍 누른 키는 무시돼요. 대문자는 Shift 없이 소문자로 쳐도 돼요.</li>
-      <li>낱말의 모든 글자를 GOOD 이상으로, 오타 없이 치면 보너스. MISS·오타는 HP를 깎고, 0이 되면 실패해요.</li>
-      <li>Lv.1은 2박마다 한 글자(분당 약 60타), Lv.2 1박(약 100타), Lv.3 1·½·½박, Lv.4 ½박이에요.</li>
+      <li>곡 목록에서 곡과 난이도(EASY · NORMAL · HARD · EXPERT)를 고르세요. <kbd>↑</kbd><kbd>↓</kbd>로 곡, <kbd>←</kbd><kbd>→</kbd>로 난이도를 바꿀 수 있고, 곡을 고르면 첫 소절을 들려줘요. 숫자는 분당 칠 글자 수로 잰 레벨이에요.</li>
+      <li>곡의 선율 음마다 코드 낱말이 <b>한 글자씩 큰 원</b>으로 떨어져요. 레인은 그 글자를 치는 손가락 구역이고, 맞힌 글자는 그 음으로 울려요. 글자 키를 치면 카운트 뒤 시작해요.</li>
+      <li>원이 판정선의 고리에 닿는 순간 그 글자를 치세요. ±50ms PERFECT, ±100ms GREAT, ±150ms GOOD, 그보다 어긋나면 BAD, 0.25초 지나면 MISS. 너무 일찍 누른 키는 무시돼요. 대문자는 Shift 없이 소문자로 쳐도 돼요.</li>
+      <li>낱말의 모든 글자를 GOOD 이상으로, 오타 없이 치면 보너스. MISS·오타는 HP를 깎고, 0이 되면 실패해요. 곡·난이도별 최고 랭크는 이 기기에 남아요.</li>
+      <li>수록곡은 저작권이 끝난 클래식·민요 선율을 직접 옮겨 적고, 반주는 브라우저에서 합성해요.</li>
     </ul>
   </details>
   <details class="rules" id="batteryHint" hidden>

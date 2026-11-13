@@ -28,7 +28,7 @@ export function createUi(root = document) {
     accuracyValue: byId('accuracyValue'), comboValue: byId('comboValue'), multiplierStat: byId('multiplierStat'),
     multiplierValue: byId('multiplierValue'), scoreValue: byId('scoreValue'),
     stage: byId('stage'), arcadeStage: byId('arcadeStage'), arcadeCanvas: byId('arcadeCanvas'), arcadeTitle: byId('arcadeTitle'),
-    arcadeHint: byId('arcadeHint'), arcadeOverlay: byId('arcadeOverlay'), modeButtons: root.querySelectorAll('[data-mode]'),
+    arcadeHint: byId('arcadeHint'), arcadeOverlay: byId('arcadeOverlay'), songSelect: byId('songSelect'), modeButtons: root.querySelectorAll('[data-mode]'),
     durationGroup: byId('durationGroup'), levelSelect: byId('levelSelect'), keyboardSection: byId('keyboardSection'), keyboardToggle: byId('keyboardToggle'),
     inputBar: byId('inputBar'), inputTyped: byId('inputTyped'), inputWrong: byId('inputWrong'), inputRest: byId('inputRest'),
     inputTarget: byId('inputTarget'),

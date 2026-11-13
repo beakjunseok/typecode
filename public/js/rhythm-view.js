@@ -1,7 +1,7 @@
 // 리듬 모드 화면: 4레인(손가락 구역), 위에서 떨어지는 큰 원 글자 노트, 아래 판정선, 맨 위에 지금 만드는 낱말.
 // 노트 위치 = 판정선 − (정박 시각 − 게임 시간) ÷ 떨어지는 시간 × 레인 높이. 게임 시간은 오디오 시계를 따른다.
 import { setupCanvas, roundedRect, ParticleSystem, canvasFont, CANVAS_FONTS } from './game-view.js';
-import { RHYTHM_LANES, RHYTHM_RULES, BEAT_SECONDS } from './rhythm-engine.js';
+import { RHYTHM_LANES, RHYTHM_RULES } from './rhythm-engine.js';
 import { TOKEN_KINDS } from './tokens.js';
 
 const HUD_HEIGHT = 34;
@@ -81,7 +81,7 @@ export class RhythmRenderer {
     this.particles.update(frameSeconds);
     for (const flash of this.laneFlash) flash.amount = Math.max(0, flash.amount - frameSeconds * 3.5);
 
-    const beatPhase = engine.status === 'running' ? ((engine.gameTime / BEAT_SECONDS) % 1 + 1) % 1 : 0.5;
+    const beatPhase = engine.status === 'running' ? ((engine.gameTime / engine.beatSeconds) % 1 + 1) % 1 : 0.5;
     const pulse = Math.max(0, 1 - beatPhase * 3.5);
     const totalWidth = laneWidth * RHYTHM_LANES.length;
 
@@ -104,11 +104,11 @@ export class RhythmRenderer {
 
     // 박·마디 선(노트와 같은 속도로 내려온다)
     if (engine.status !== 'ready') {
-      const firstBeat = Math.ceil(engine.gameTime / BEAT_SECONDS);
-      const lastBeat = Math.floor((engine.gameTime + engine.fallSeconds) / BEAT_SECONDS);
+      const firstBeat = Math.ceil(engine.gameTime / engine.beatSeconds);
+      const lastBeat = Math.floor((engine.gameTime + engine.fallSeconds) / engine.beatSeconds);
       for (let beat = firstBeat; beat <= lastBeat; beat++) {
-        const y = this.noteY(beat * BEAT_SECONDS, engine, layout);
-        const bar = beat % RHYTHM_RULES.beatsPerBar === 0;
+        const y = this.noteY(beat * engine.beatSeconds, engine, layout);
+        const bar = (beat - engine.leadInBeats) % engine.beatsPerBar === 0;
         context.fillStyle = bar ? 'rgba(160, 180, 220, 0.2)' : 'rgba(160, 180, 220, 0.07)';
         context.fillRect(left, Math.round(y), totalWidth, bar ? 2 : 1);
       }
@@ -261,7 +261,10 @@ export class RhythmRenderer {
     context.textAlign = 'left';
     context.fillText(`HP ${Math.round(snapshot.health)} · 낱말 ${snapshot.wordsCompleted}/${engine.words.length}`, 12, 22);
     context.textAlign = 'right';
-    context.fillText(`♩=${snapshot.bpm} · ${Math.round(snapshot.progress * 100)}%`, width - 12, 22);
+    const chart = engine.chart;
+    context.fillText(`${engine.song.title} · ${Math.round(snapshot.progress * 100)}%`, width - 12, 22);
+    context.fillStyle = chart.color;
+    context.fillText(`${chart.label} ${engine.levelNumber()}`, width - 12, 36);
     context.fillStyle = 'rgba(255, 255, 255, 0.08)';
     context.fillRect(width - 12 - barWidth, 13, barWidth, 4);
     context.fillStyle = '#36e2ff';
@@ -304,9 +307,9 @@ export class RhythmRenderer {
   drawCountIn(context, engine, layout) {
     if (engine.status !== 'running') return;
     const firstHit = engine.notes[0]?.hitTime ?? 0;
-    const beatsLeft = Math.ceil((firstHit - engine.gameTime) / BEAT_SECONDS);
+    const beatsLeft = Math.ceil((firstHit - engine.gameTime) / engine.beatSeconds);
     if (beatsLeft < 1 || beatsLeft > 4) return;
-    const phase = ((engine.gameTime / BEAT_SECONDS) % 1 + 1) % 1;
+    const phase = ((engine.gameTime / engine.beatSeconds) % 1 + 1) % 1;
     context.save();
     context.globalAlpha = 1 - phase * 0.8;
     context.textAlign = 'center';

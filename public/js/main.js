@@ -10,9 +10,11 @@ import { createPvpLobby } from './pvp-lobby.js';
 import { DIFFICULTY_LEVELS } from './target-game.js';
 import { ThrowRenderer } from './throw-view.js';
 import { BatteryRenderer } from './battery-view.js';
-import { RhythmEngine, RHYTHM_RULES } from './rhythm-engine.js';
+import { RhythmEngine } from './rhythm-engine.js';
 import { RhythmRenderer } from './rhythm-view.js';
-import { RhythmMusic, hitFrequency } from './rhythm-music.js';
+import { RhythmMusic, midiToFrequency, createPreview } from './rhythm-music.js';
+import { RHYTHM_DIFFICULTIES, SONG_BY_ID, DEFAULT_SONG_ID, getSong } from './rhythm-songs.js';
+import { renderSongSelect, stepSong, stepDifficulty } from './song-select.js';
 import { createInputDiffer, INPUT_SENTINEL } from './input.js';
 import { SoundEngine } from './audio.js';
 import { BgmEngine } from './bgm.js';
@@ -45,7 +47,7 @@ const MODE_CONFIG = Object.freeze({
   },
   rhythm: {
     label: '리듬', arcade: true, title: 'beat-compiler.wav', resultTitle: 'STAGE CLEAR',
-    hint: `♩=${RHYTHM_RULES.bpm} · 떨어지는 글자가 판정선에 닿을 때 그 글자를 치세요`, Renderer: RhythmRenderer,
+    hint: '떨어지는 글자가 판정선에 닿을 때 그 글자를 치세요', Renderer: RhythmRenderer,
     // 오디오 시계로 박자를 맞춘다(소리를 꺼 두면 성능 시계)
     createEngine: options => new RhythmEngine({ ...options, getAudioContext: () => sound.context })
   }
@@ -59,6 +61,7 @@ const ui = createUi(document);
 const sound = new SoundEngine();
 const bgm = new BgmEngine(sound);
 const rhythmMusic = new RhythmMusic(sound);
+const songPreview = createPreview(sound);
 const keyboard = createKeyboard(ui.elements.keyboardSection);
 keyboard.setAudioSource(() => sound.spectrum(8));
 const renderers = {};
@@ -72,7 +75,10 @@ const settings = {
   batteryVariant: preferences.get('batteryVariant', 'ai') === 'pvp' ? 'pvp' : 'ai',
   keyboardVisible: preferences.get('keyboard', true) !== false,
   // 게임(휴대폰 던지기·배터리 구조) 화면의 키보드는 기본으로 숨긴다
-  keyboardInGame: preferences.get('keyboardGame', false) === true
+  keyboardInGame: preferences.get('keyboardGame', false) === true,
+  // 리듬 모드: 고른 곡과 난이도
+  rhythmSong: SONG_BY_ID.has(preferences.get('rhythmSong', DEFAULT_SONG_ID)) ? preferences.get('rhythmSong', DEFAULT_SONG_ID) : DEFAULT_SONG_ID,
+  rhythmDifficulty: RHYTHM_DIFFICULTIES[preferences.get('rhythmDifficulty', 'normal')] ? preferences.get('rhythmDifficulty', 'normal') : 'normal'
 };
 const run = { engine: null, generation: 0, sessionPromise: null, submitted: false, tickId: null, frameId: null, highlightId: null, lastTier: 0, powerActive: false, lastImeWarning: 0 };
 const now = () => performance.now();
@@ -164,14 +170,16 @@ function handleArcadeEvent(type, payload) {
     case 'start':
       if (settings.mode === 'rhythm') {
         sound.ensureContext();
+        songPreview.stop();
         rhythmMusic.reset();
+        updateSongSelect();
       } else sound.play('gameStart');
       if (isPvp()) {
         ui.log('sys', `PvP 시작 · vs ${pvp.opponentName} · ${LANGUAGES[pvp.hostSettings.language].label} · ${DIFFICULTY_LEVELS[pvp.hostSettings.level].label}`);
         break;
       }
       run.sessionPromise = startSession(run.generation);
-      ui.log('sys', `${modeConfig().label} started · ${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[settings.level].label}`);
+      ui.log('sys', `${modeConfig().label} started · ${LANGUAGES[settings.languageKey].label} · ${settings.mode === 'rhythm' ? rhythmLabel() : DIFFICULTY_LEVELS[settings.level].label}`);
       break;
     case 'spawn':
       sound.play('spawnRobot', { type: payload.robot.type });
@@ -263,7 +271,7 @@ function handleArcadeEvent(type, payload) {
       run.lastTier = 0;
       break;
     case 'judge':
-      sound.play('rhythmHit', { frequency: hitFrequency(payload.beat, payload.lane), judgement: payload.judgement });
+      sound.play('rhythmHit', { frequency: midiToFrequency(payload.note.midi), judgement: payload.judgement });
       if (payload.tier > run.lastTier) {
         sound.play('tierUp', { tier: payload.tier });
         pulseClass(ui.elements.arcadeStage, 'tier-flash', 600);
@@ -278,7 +286,7 @@ function handleArcadeEvent(type, payload) {
       run.lastTier = 0;
       break;
     case 'word':
-      if (payload.clean) sound.play('rhythmWord', { frequency: hitFrequency(payload.beat, payload.lane) });
+      if (payload.clean) sound.play('rhythmWord', { frequency: midiToFrequency(run.engine.findEntity(payload.word.noteIds.at(-1))?.midi ?? 72) });
       ui.log(payload.clean ? 'ok' : 'info', `${payload.word.token.text} ${payload.clean ? `완성 (+${payload.bonus})` : '완성 — 놓친 글자 있음'}`);
       break;
     case 'finish':
@@ -381,7 +389,7 @@ async function refreshBoard() {
 function arcadeSubtitle(summary) {
   if (summary.mode === 'rhythm') {
     const j = summary.judgements;
-    return `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[summary.level].label} · ♩=${summary.bpm} · 랭크 ${summary.rank} · 판정 정확도 ${summary.timingAccuracy}% · 낱말 ${summary.completedTokens}/${summary.totalWords} (깨끗이 ${summary.cleanTokens}) · PERFECT ${j.perfect} · GREAT ${j.great} · GOOD ${j.good} · BAD ${j.bad} · MISS ${j.miss}`;
+    return `${summary.songTitle} · ${RHYTHM_DIFFICULTIES[summary.difficulty]?.label ?? ''} · ${LANGUAGES[settings.languageKey].label} · 랭크 ${summary.rank} · 판정 정확도 ${summary.timingAccuracy}% · 낱말 ${summary.completedTokens}/${summary.totalWords} (깨끗이 ${summary.cleanTokens}) · PERFECT ${j.perfect} · GREAT ${j.great} · GOOD ${j.good} · BAD ${j.bad} · MISS ${j.miss}`;
   }
   const base = `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[summary.level].label} · 생존 ${summary.survivedSeconds}s`;
   if (summary.mode === 'battery') {
@@ -438,6 +446,7 @@ function handleFinish(summary) {
   }
   stopTicking();
   const newBest = !isPvp() && recordPersonalBest(summary);
+  if (summary.mode === 'rhythm') recordRhythmBest(summary);
   sound.play(endSound(summary, newBest));
   bgm.duck(true);
   ui.elements.hiddenInput.blur();
@@ -542,7 +551,9 @@ function createEngine() {
   }
   if (isPvp() && pvpConnected()) return createPvpEngine();
   const config = modeConfig();
+  const rhythmOptions = settings.mode === 'rhythm' ? { songId: settings.rhythmSong, difficulty: settings.rhythmDifficulty } : {};
   return config.createEngine({
+    ...rhythmOptions,
     tokenPool: getTokenPool(settings.languageKey), level: settings.level, onEvent: handleArcadeEvent,
     narrow: ui.elements.arcadeCanvas.getBoundingClientRect().width < NARROW_WIDTH || window.innerWidth < NARROW_WIDTH
   });
@@ -565,8 +576,9 @@ function resetGame() {
     const config = modeConfig();
     fitArcadeCanvas();
     renderers[settings.mode] ??= new config.Renderer(ui.elements.arcadeCanvas);
-    ui.elements.arcadeTitle.textContent = config.title;
-    ui.elements.arcadeHint.textContent = `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[settings.level].label}`;
+    const rhythm = settings.mode === 'rhythm';
+    ui.elements.arcadeTitle.textContent = rhythm ? `${settings.rhythmSong}.mid` : config.title;
+    ui.elements.arcadeHint.textContent = `${LANGUAGES[settings.languageKey].label} · ${rhythm ? rhythmLabel() : DIFFICULTY_LEVELS[settings.level].label}`;
     startFrameLoop();
   } else {
     ui.elements.fileName.textContent = LANGUAGES[settings.languageKey].file;
@@ -576,6 +588,99 @@ function resetGame() {
   renderStats();
   renderInputBar();
   updateFocusState();
+}
+
+// ---------- 리듬 곡 선택 ----------
+const rhythmLabel = () => `${getSong(settings.rhythmSong).title} · ${RHYTHM_DIFFICULTIES[settings.rhythmDifficulty].label}`;
+
+// 곡·난이도별 레벨 숫자: 고정 시드로 악보를 한 번 만들어 재고 언어별로 기억한다(글자 수가 낱말 길이에 따라 조금 달라서)
+const rhythmLevelCache = new Map();
+function seededRandom(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = Math.imul(state ^ (state >>> 15), 1 | state);
+    value ^= value + Math.imul(value ^ (value >>> 7), 61 | value);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function rhythmLevel(songId, difficulty) {
+  const key = `${settings.languageKey}:${songId}:${difficulty}`;
+  if (!rhythmLevelCache.has(key)) {
+    let level = 1;
+    try {
+      level = new RhythmEngine({ tokenPool: getTokenPool(settings.languageKey), random: seededRandom(7), songId, difficulty }).levelNumber();
+    } catch (error) {
+      /* 낱말이 모자란 언어 등: 1로 표시 */
+    }
+    rhythmLevelCache.set(key, level);
+  }
+  return rhythmLevelCache.get(key);
+}
+
+// 곡·난이도별 최고 기록 {score, rank}(이 기기). 점수가 더 높을 때만 바꾼다
+function rhythmBest(songId, difficulty) {
+  const all = preferences.get('rhythmBest', {});
+  return all && typeof all === 'object' ? all[`${songId}:${difficulty}`] ?? null : null;
+}
+function recordRhythmBest(summary) {
+  const all = { ...(preferences.get('rhythmBest', {}) || {}) };
+  const key = `${summary.songId}:${summary.difficulty}`;
+  if (all[key] && all[key].score >= summary.score) return;
+  all[key] = { score: summary.score, rank: summary.rank };
+  preferences.set('rhythmBest', all);
+}
+
+// 리듬 모드에서 아직 시작 전이면 곡 선택 화면을 보인다(시작하면 숨김)
+function updateSongSelect() {
+  const visible = settings.mode === 'rhythm' && run.engine?.status === 'ready' && !isPvp();
+  renderSongSelect(ui.elements.songSelect, {
+    visible,
+    songId: settings.rhythmSong,
+    difficulty: settings.rhythmDifficulty,
+    focused: document.activeElement === ui.elements.hiddenInput,
+    levelOf: rhythmLevel,
+    bestOf: rhythmBest
+  });
+  if (!visible) songPreview.stop();
+}
+
+// 곡·난이도를 바꾸면 저장하고 악보를 새로 만든다. 곡이 바뀌면 미리듣기
+function chooseRhythm({ songId = settings.rhythmSong, difficulty = settings.rhythmDifficulty }) {
+  if (run.engine?.status !== 'ready') return;
+  const songChanged = songId !== settings.rhythmSong;
+  if (!songChanged && difficulty === settings.rhythmDifficulty) return;
+  settings.rhythmSong = songId;
+  settings.rhythmDifficulty = difficulty;
+  preferences.set('rhythmSong', songId);
+  preferences.set('rhythmDifficulty', difficulty);
+  resetGame();
+  sound.play('uiClick');
+  if (songChanged) songPreview.play(getSong(songId));
+}
+
+// 곡 선택 중 방향키: ↑↓ 곡, ←→ 난이도. 처리했으면 true
+function handleSongSelectKey(event) {
+  if (settings.mode !== 'rhythm' || run.engine?.status !== 'ready') return false;
+  const moves = {
+    ArrowUp: () => ({ songId: stepSong(settings.rhythmSong, -1) }),
+    ArrowDown: () => ({ songId: stepSong(settings.rhythmSong, 1) }),
+    ArrowLeft: () => ({ difficulty: stepDifficulty(settings.rhythmDifficulty, -1) }),
+    ArrowRight: () => ({ difficulty: stepDifficulty(settings.rhythmDifficulty, 1) })
+  };
+  if (!moves[event.key]) return false;
+  event.preventDefault();
+  chooseRhythm(moves[event.key]());
+  return true;
+}
+
+function bindSongSelect() {
+  ui.elements.songSelect.addEventListener('click', event => {
+    const row = event.target.closest('[data-song]');
+    const chip = event.target.closest('[data-difficulty]');
+    if (row) chooseRhythm({ songId: row.dataset.song });
+    if (chip) chooseRhythm({ difficulty: chip.dataset.difficulty });
+  });
 }
 
 // ---------- 화면 키보드(연습 모드 전용) ----------
@@ -704,6 +809,7 @@ function applyEnter() {
 }
 
 function handleKeyDown(event) {
+  if (handleSongSelectKey(event)) return;
   if (event.key === 'Escape') {
     event.preventDefault();
     if (!isPvp()) resetGame();
@@ -772,7 +878,7 @@ function renderRhythmInputBar(engine) {
   ui.elements.inputWrong.textContent = '';
   ui.elements.inputRest.textContent = notes.slice(split).map(note => note.character).join('');
   const notice = run.inputNotice && run.inputNotice.until > Date.now() ? run.inputNotice.message : '';
-  ui.elements.inputTarget.textContent = notice || (word ? '' : engine.status === 'finished' ? 'game over' : '아무 키나 치면 시작');
+  ui.elements.inputTarget.textContent = notice || (word ? '' : engine.status === 'finished' ? 'game over' : '글자 키를 치면 시작');
   ui.elements.inputTarget.classList.toggle('notice', Boolean(notice));
   updateArcadeKeyboardHint();
 }
@@ -823,6 +929,9 @@ function updateFocusState() {
     finished: run.engine.status === 'finished',
     arcade: isArcade()
   });
+  // 리듬은 시작 전 안내를 곡 선택 화면이 대신한다
+  if (settings.mode === 'rhythm' && run.engine.status === 'ready') ui.elements.arcadeOverlay.hidden = true;
+  updateSongSelect();
 }
 
 // ---------- 배터리 구조 PvP ----------
@@ -1150,7 +1259,7 @@ function applyMode() {
   ui.elements.stage.hidden = arcade;
   ui.elements.arcadeStage.hidden = !arcade;
   ui.elements.durationGroup.hidden = arcade;
-  ui.elements.levelSelect.hidden = !arcade;
+  ui.elements.levelSelect.hidden = !arcade || settings.mode === 'rhythm';
   ui.elements.batteryVariantGroup.hidden = settings.mode !== 'battery';
   renderBatteryVariant();
   if (isPvp()) {
@@ -1163,7 +1272,7 @@ function applyMode() {
   document.getElementById('batteryHint').hidden = settings.mode !== 'battery';
   document.getElementById('rhythmHint').hidden = settings.mode !== 'rhythm';
   document.body.dataset.mode = settings.mode;
-  document.getElementById('arcadeOverlayHint').textContent = arcade ? `${modeConfig().hint} · ${settings.mode === 'rhythm' ? '아무 키나 치면 시작' : '첫 글자를 치면 시작'}` : '';
+  document.getElementById('arcadeOverlayHint').textContent = arcade ? `${modeConfig().hint} · ${settings.mode === 'rhythm' ? '글자 키를 치면 시작' : '첫 글자를 치면 시작'}` : '';
   applyKeyboardVisibility();
   renderInputBar();
   requestAnimationFrame(fitArcadeCanvas);
@@ -1172,6 +1281,7 @@ function applyMode() {
 function switchMode(mode) {
   if (!MODE_CONFIG[mode] || mode === settings.mode) return;
   if (!confirmLeavePvp()) return;
+  songPreview.stop();
   settings.mode = mode;
   preferences.set('mode', mode);
   run.highlightId = null;
@@ -1337,6 +1447,7 @@ const collection = createKeyboardCollection({
 applyInviteLink();
 bindSettings();
 bindEvents();
+bindSongSelect();
 applyMode();
 ui.log('sys', 'TYPE//CODE ready. 오타는 에러 로그로 남고, Backspace로 지울 수 있습니다.');
 resetGame();

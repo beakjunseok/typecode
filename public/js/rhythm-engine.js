@@ -6,12 +6,11 @@
 import { TargetGameEngine } from './target-game.js';
 import { getMultiplier, getTierProgress } from './engine.js';
 import { describeKey } from './keyboard.js';
+import { getSong, RHYTHM_DIFFICULTIES } from './rhythm-songs.js';
 
 export const RHYTHM_RULES = Object.freeze({
+  // 기본 곡(beat-compiler.wav)의 템포. 곡마다 bpm·박자가 다르다(rhythm-songs.js)
   bpm: 128,
-  beatsPerBar: 4,
-  bars: 40,
-  leadInBeats: 8,
   // 판정 창(초, 정박 기준 ±). 그 밖이지만 missAfter 안에 치면 BAD, 지나가면 MISS
   windows: Object.freeze({ perfect: 0.05, great: 0.1, good: 0.15 }),
   missAfter: 0.25,
@@ -26,7 +25,6 @@ export const RHYTHM_RULES = Object.freeze({
   maxFrameSeconds: 0.25
 });
 
-export const BEAT_SECONDS = 60 / RHYTHM_RULES.bpm;
 export const JUDGEMENTS = Object.freeze(['perfect', 'great', 'good', 'bad', 'miss']);
 // 점수 상한 검증용(서버): 글자 하나 최고점 = (PERFECT + 낱말 보너스) × 최대 배율 2
 export const RHYTHM_MAX_POINTS_PER_CHARACTER = (RHYTHM_RULES.points.perfect + RHYTHM_RULES.wordBonus) * 2;
@@ -44,25 +42,6 @@ export function laneOfCharacter(character) {
   return lane === -1 ? RHYTHM_LANES.length - 1 : lane;
 }
 
-// 난이도별: 글자 사이 간격(박, 순환), 낱말 사이 쉼(박), 떨어지는 시간(박), 낱말 최대 길이.
-// Lv.1 분당 약 64타 · Lv.2 128타 · Lv.3 약 190타 · Lv.4 256타(쉼 제외)
-export const RHYTHM_CHARTS = Object.freeze({
-  1: Object.freeze({ steps: Object.freeze([2]), wordGap: 2, fallBeats: 5, maxLength: 5 }),
-  2: Object.freeze({ steps: Object.freeze([1]), wordGap: 2, fallBeats: 4, maxLength: 6 }),
-  3: Object.freeze({ steps: Object.freeze([1, 0.5, 0.5]), wordGap: 2, fallBeats: 3.5, maxLength: 7 }),
-  4: Object.freeze({ steps: Object.freeze([0.5]), wordGap: 1.5, fallBeats: 3, maxLength: 8 })
-});
-
-// 화음 진행(마디마다, 4마디 순환): 레인별 타격음과 반주가 같은 화음을 쓴다. MIDI 음 번호
-export const RHYTHM_CHORDS = Object.freeze([
-  Object.freeze({ name: 'Am', root: 45, tones: Object.freeze([57, 60, 64, 69]) }),
-  Object.freeze({ name: 'F', root: 41, tones: Object.freeze([57, 60, 65, 69]) }),
-  Object.freeze({ name: 'C', root: 48, tones: Object.freeze([55, 60, 64, 67]) }),
-  Object.freeze({ name: 'G', root: 43, tones: Object.freeze([55, 59, 62, 67]) })
-]);
-export const chordAtBeat = beat => RHYTHM_CHORDS[Math.floor(Math.max(0, beat) / RHYTHM_RULES.beatsPerBar) % RHYTHM_CHORDS.length];
-
-// 리듬 모드에서는 대문자 노트를 소문자로 쳐도 맞다(Shift를 박에 맞추기 어려우므로). 반대(소문자 노트에 대문자)는 오타
 export const matchesNote = (typed, expected) => typed === expected || (expected !== expected.toLowerCase() && typed === expected.toLowerCase());
 
 export function judgeTiming(deltaSeconds) {
@@ -115,60 +94,102 @@ export class BeatClock {
 }
 
 export class RhythmEngine extends TargetGameEngine {
-  constructor({ getAudioContext = () => null, narrow = false, ...options }) {
-    const level = RHYTHM_CHARTS[options.level] ? Number(options.level) : 2;
-    const chart = RHYTHM_CHARTS[level];
-    super({ ...options, level, mode: 'rhythm', maxTokenLength: chart.maxLength });
+  constructor({ getAudioContext = () => null, songId, difficulty = 'normal', narrow = false, ...options }) {
+    const song = getSong(songId);
+    const difficultyKey = RHYTHM_DIFFICULTIES[difficulty] ? difficulty : 'normal';
+    const chart = RHYTHM_DIFFICULTIES[difficultyKey];
+    super({ ...options, level: 2, mode: 'rhythm', maxTokenLength: chart.maxLength });
+    this.song = song;
+    this.difficultyKey = difficultyKey;
     this.chart = chart;
+    this.bpm = song.bpm;
+    this.beatSeconds = 60 / song.bpm;
+    this.beatsPerBar = song.beatsPerBar;
+    this.leadInBeats = song.beatsPerBar * Math.ceil(8 / song.beatsPerBar);
     this.lanes = RHYTHM_LANES.length;
     this.clock = new BeatClock(getAudioContext);
-    this.fallSeconds = chart.fallBeats * BEAT_SECONDS;
+    this.fallSeconds = chart.fallSeconds;
     this.health = RHYTHM_RULES.health.start;
     this.counts = Object.fromEntries(JUDGEMENTS.map(name => [name, 0]));
     this.outcome = null;
     this.wordsCompleted = 0;
     this.cleanWords = 0;
     this.headIndex = 0;
-    const { words, notes } = this.buildChart();
+    const { words, notes, autoNotes } = this.buildChart();
     this.words = words;
     this.notes = notes;
+    this.autoNotes = autoNotes;
     this.lastHitTime = notes.at(-1)?.hitTime ?? 0;
-    this.endTime = this.lastHitTime + RHYTHM_RULES.outroSeconds;
+    this.endTime = (this.leadInBeats + song.totalBeats) * this.beatSeconds + RHYTHM_RULES.outroSeconds;
   }
 
-  // 악보: 리드인(2마디) 뒤부터 낱말을 글자 단위 노트로 깐다. 같은 낱말이 연달아 나오지 않게 한다. O(노트 수)
+  // 악보: 곡 선율의 음 중 난이도 격자(정박·반 박…)에 있고 앞 노트와 minGap초 이상 떨어진 음에 글자를 하나씩 얹는다.
+  // 낱말이 끝나면 wordRest초 쉬고 다음 낱말. 글자를 얹지 않은 음은 반주가 자동으로 연주한다. O(선율 음 수)
   buildChart() {
     const words = [];
     const notes = [];
-    const lastBeat = RHYTHM_RULES.leadInBeats + RHYTHM_RULES.bars * RHYTHM_RULES.beatsPerBar;
-    let beat = RHYTHM_RULES.leadInBeats;
-    let step = 0;
-    let previous = null;
-    while (true) {
-      let token = this.drawWeightedToken();
-      for (let attempt = 0; attempt < 6 && token.text === previous; attempt++) token = this.drawWeightedToken();
-      const characters = [...token.text];
-      let span = 0;
-      for (let index = 1; index < characters.length; index++) span += this.chart.steps[(step + index - 1) % this.chart.steps.length];
-      if (beat + span > lastBeat) break;
-      previous = token.text;
-      const word = { id: this.nextId++, index: words.length, token, noteIds: [], mistakes: 0, done: false, clean: false };
-      characters.forEach((character, charIndex) => {
+    const autoNotes = [];
+    const { minGap, wordRest, grid } = this.chart;
+    let word = null;
+    let characters = [];
+    let lastKeyed = -Infinity;
+    let previousText = null;
+    for (const event of this.song.melody) {
+      const beat = event.beat + this.leadInBeats;
+      const time = beat * this.beatSeconds;
+      const onGrid = Math.abs(event.beat / grid - Math.round(event.beat / grid)) < 1e-6;
+      if (!word) {
+        if (onGrid && time - lastKeyed >= (words.length ? Math.max(minGap, wordRest) : 0)) {
+          let token = this.drawWeightedToken();
+          for (let attempt = 0; attempt < 6 && token.text === previousText; attempt++) token = this.drawWeightedToken();
+          previousText = token.text;
+          word = { id: this.nextId++, index: words.length, token, noteIds: [], mistakes: 0, done: false, clean: false };
+          characters = [...token.text];
+        }
+      }
+      if (word && onGrid && time - lastKeyed >= minGap) {
+        const charIndex = word.noteIds.length;
+        const character = characters[charIndex];
         const note = {
-          id: this.nextId++, word, charIndex, character, lane: laneOfCharacter(character),
-          beat, hitTime: beat * BEAT_SECONDS, state: 'pending', judgement: null, delta: 0, resolvedAt: null
+          id: this.nextId++, word, charIndex, character, lane: laneOfCharacter(character), midi: event.midi, dur: event.dur,
+          beat, hitTime: time, state: 'pending', judgement: null, delta: 0, resolvedAt: null
         };
         notes.push(note);
         word.noteIds.push(note.id);
-        if (charIndex < characters.length - 1) {
-          beat += this.chart.steps[step % this.chart.steps.length];
-          step++;
+        lastKeyed = time;
+        if (word.noteIds.length === characters.length) {
+          words.push(word);
+          word = null;
         }
-      });
-      words.push(word);
-      beat += this.chart.wordGap;
+      } else {
+        autoNotes.push({ time, dur: event.dur * this.beatSeconds, midi: event.midi });
+      }
     }
-    return { words, notes };
+    // 곡이 끝나 다 못 놓은 낱말은 버리고 그 음은 반주가 연주한다
+    if (word) {
+      const unfinished = new Set(word.noteIds);
+      for (const note of notes.filter(entry => unfinished.has(entry.id))) autoNotes.push({ time: note.hitTime, dur: note.dur * this.beatSeconds, midi: note.midi });
+      notes.splice(notes.length - word.noteIds.length);
+      autoNotes.sort((first, second) => first.time - second.time);
+    }
+    return { words, notes, autoNotes };
+  }
+
+  // 이 박의 화음(곡의 화음 진행). 리드인 동안은 첫 화음
+  chordAtBeat(beat) {
+    const songBeat = beat - this.leadInBeats;
+    let chord = this.song.chords[0]?.chord;
+    for (const entry of this.song.chords) {
+      if (entry.beat > songBeat + 1e-6) break;
+      chord = entry.chord;
+    }
+    return chord;
+  }
+
+  // 분당 칠 글자 수 → 1~15 난이도 숫자(곡 목록 표시용)
+  levelNumber() {
+    const minutes = Math.max(0.1, (this.endTime - this.leadInBeats * this.beatSeconds) / 60);
+    return Math.max(1, Math.min(15, Math.round(this.notes.length / minutes / 16)));
   }
 
   // ---------- 시간 ----------
@@ -188,7 +209,7 @@ export class RhythmEngine extends TargetGameEngine {
   }
 
   get beat() {
-    return this.gameTime / BEAT_SECONDS;
+    return this.gameTime / this.beatSeconds;
   }
 
   // 놓친 노트 처리 + 끝 판정
@@ -375,7 +396,7 @@ export class RhythmEngine extends TargetGameEngine {
       counts: { ...this.counts },
       timingAccuracy: this.timingAccuracy(),
       wordsCompleted: this.wordsCompleted,
-      bpm: RHYTHM_RULES.bpm
+      bpm: this.bpm
     };
   }
 
@@ -389,7 +410,10 @@ export class RhythmEngine extends TargetGameEngine {
       totalWords: this.words.length,
       completedTokens: this.wordsCompleted,
       cleanTokens: this.cleanWords,
-      bpm: RHYTHM_RULES.bpm
+      bpm: this.bpm,
+      songId: this.song.id,
+      songTitle: this.song.title,
+      difficulty: this.difficultyKey
     };
   }
 }
