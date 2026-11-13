@@ -1,10 +1,12 @@
-// 리듬 모드 화면: 4레인, 위에서 떨어지는 낱말 노트, 아래 판정선. 박마다 판정선이 숨쉬고, 박·마디 선이 노트와 함께 내려온다.
+// 리듬 모드 화면: 4레인(손가락 구역), 위에서 떨어지는 큰 원 글자 노트, 아래 판정선, 맨 위에 지금 만드는 낱말.
 // 노트 위치 = 판정선 − (정박 시각 − 게임 시간) ÷ 떨어지는 시간 × 레인 높이. 게임 시간은 오디오 시계를 따른다.
-import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, canvasFont } from './game-view.js';
+import { setupCanvas, roundedRect, ParticleSystem, canvasFont, CANVAS_FONTS } from './game-view.js';
 import { RHYTHM_LANES, RHYTHM_RULES, BEAT_SECONDS } from './rhythm-engine.js';
+import { TOKEN_KINDS } from './tokens.js';
 
-const HUD_HEIGHT = 40;
-const JUDGE_FROM_BOTTOM = 64;
+const HUD_HEIGHT = 34;
+const WORD_AREA = 74;
+const JUDGE_FROM_BOTTOM = 68;
 const JUDGEMENT_STYLE = Object.freeze({
   perfect: { label: 'PERFECT', color: '#ffe066' },
   great: { label: 'GREAT', color: '#39ff88' },
@@ -12,6 +14,7 @@ const JUDGEMENT_STYLE = Object.freeze({
   bad: { label: 'BAD', color: '#c792ea' },
   miss: { label: 'MISS', color: '#ff4d6d' }
 });
+const visibleCharacter = character => character === ' ' ? '␣' : character;
 
 export class RhythmRenderer {
   constructor(canvas) {
@@ -19,6 +22,7 @@ export class RhythmRenderer {
     this.particles = new ParticleSystem();
     this.laneFlash = RHYTHM_LANES.map(() => ({ amount: 0, color: '#ffffff' }));
     this.popup = null;
+    this.wordFlash = null;
     this.lastGameTime = 0;
   }
 
@@ -26,21 +30,21 @@ export class RhythmRenderer {
     return this.surface.context;
   }
 
-  // 레인 위치: 가운데 정렬, 레인당 최대 140px
   layout() {
     const { width, height } = this.surface;
-    const laneWidth = Math.min(140, (width - 24) / RHYTHM_LANES.length);
+    const laneWidth = Math.min(130, (width - 24) / RHYTHM_LANES.length);
     const left = (width - laneWidth * RHYTHM_LANES.length) / 2;
     const judgeY = height - JUDGE_FROM_BOTTOM;
-    return { width, height, laneWidth, left, judgeY, topY: HUD_HEIGHT + 6 };
+    const radius = Math.max(16, Math.min(30, laneWidth * 0.36));
+    return { width, height, laneWidth, left, judgeY, topY: HUD_HEIGHT + WORD_AREA, radius };
   }
 
   laneCenter(lane, layout) {
     return layout.left + layout.laneWidth * (lane + 0.5);
   }
 
-  noteY(note, engine, layout) {
-    const ahead = (note.hitTime - engine.gameTime) / engine.fallSeconds;
+  noteY(hitTime, engine, layout) {
+    const ahead = (hitTime - engine.gameTime) / engine.fallSeconds;
     return layout.judgeY - ahead * (layout.judgeY - layout.topY);
   }
 
@@ -53,13 +57,16 @@ export class RhythmRenderer {
       flash.color = style.color;
       this.popup = { ...style, at: performance.now(), combo: payload.combo, delta: payload.delta };
       if (payload.judgement !== 'bad') {
-        this.particles.burst(this.laneCenter(payload.lane, layout), layout.judgeY, { color: style.color, count: payload.judgement === 'perfect' ? 26 : 16, speed: 200, life: 0.5, gravity: 260 });
+        this.particles.burst(this.laneCenter(payload.lane, layout), layout.judgeY, { color: style.color, count: payload.judgement === 'perfect' ? 24 : 14, speed: 220, life: 0.5, gravity: 280 });
       }
     } else if (type === 'miss') {
       const flash = this.laneFlash[payload.note.lane];
       flash.amount = 0.8;
       flash.color = JUDGEMENT_STYLE.miss.color;
       this.popup = { ...JUDGEMENT_STYLE.miss, at: performance.now(), combo: 0, delta: null };
+    } else if (type === 'word') {
+      this.wordFlash = { word: payload.word, clean: payload.clean, bonus: payload.bonus, at: performance.now() };
+      if (payload.clean) this.particles.burst(layout.width / 2, HUD_HEIGHT + WORD_AREA / 2, { color: '#ffe066', count: 30, speed: 260, life: 0.7 });
     }
   }
 
@@ -68,7 +75,7 @@ export class RhythmRenderer {
     if (!context) return;
     this.surface.resize?.();
     const layout = this.layout();
-    const { width, height, laneWidth, left, judgeY, topY } = layout;
+    const { width, height, laneWidth, left, judgeY, topY, radius } = layout;
     const frameSeconds = Math.min(0.1, Math.max(0, engine.gameTime - this.lastGameTime)) || 1 / 60;
     this.lastGameTime = engine.gameTime;
     this.particles.update(frameSeconds);
@@ -76,6 +83,7 @@ export class RhythmRenderer {
 
     const beatPhase = engine.status === 'running' ? ((engine.gameTime / BEAT_SECONDS) % 1 + 1) % 1 : 0.5;
     const pulse = Math.max(0, 1 - beatPhase * 3.5);
+    const totalWidth = laneWidth * RHYTHM_LANES.length;
 
     context.fillStyle = '#05070c';
     context.fillRect(0, 0, width, height);
@@ -85,38 +93,42 @@ export class RhythmRenderer {
       const x = left + index * laneWidth;
       const gradient = context.createLinearGradient(0, topY, 0, judgeY);
       gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
-      gradient.addColorStop(1, hexAlpha(lane.color, 0.08 + this.laneFlash[index].amount * 0.25));
+      gradient.addColorStop(1, hexAlpha(lane.color, 0.07 + this.laneFlash[index].amount * 0.25));
       context.fillStyle = gradient;
       context.fillRect(x, topY, laneWidth, judgeY - topY);
-      context.fillStyle = 'rgba(120, 140, 170, 0.18)';
+      context.fillStyle = 'rgba(120, 140, 170, 0.16)';
       context.fillRect(x, topY, 1, height - topY);
-      if (this.laneFlash[index].amount > 0) {
-        context.fillStyle = hexAlpha(this.laneFlash[index].color, this.laneFlash[index].amount * 0.35);
-        context.fillRect(x, judgeY - 90, laneWidth, 90);
-      }
     });
-    context.fillStyle = 'rgba(120, 140, 170, 0.18)';
-    context.fillRect(left + laneWidth * RHYTHM_LANES.length, topY, 1, height - topY);
+    context.fillStyle = 'rgba(120, 140, 170, 0.16)';
+    context.fillRect(left + totalWidth, topY, 1, height - topY);
 
     // 박·마디 선(노트와 같은 속도로 내려온다)
     if (engine.status !== 'ready') {
       const firstBeat = Math.ceil(engine.gameTime / BEAT_SECONDS);
       const lastBeat = Math.floor((engine.gameTime + engine.fallSeconds) / BEAT_SECONDS);
       for (let beat = firstBeat; beat <= lastBeat; beat++) {
-        const y = this.noteY({ hitTime: beat * BEAT_SECONDS }, engine, layout);
+        const y = this.noteY(beat * BEAT_SECONDS, engine, layout);
         const bar = beat % RHYTHM_RULES.beatsPerBar === 0;
-        context.fillStyle = bar ? 'rgba(160, 180, 220, 0.22)' : 'rgba(160, 180, 220, 0.08)';
-        context.fillRect(left, Math.round(y), laneWidth * RHYTHM_LANES.length, bar ? 2 : 1);
+        context.fillStyle = bar ? 'rgba(160, 180, 220, 0.2)' : 'rgba(160, 180, 220, 0.07)';
+        context.fillRect(left, Math.round(y), totalWidth, bar ? 2 : 1);
       }
     }
 
-    // 판정선: 박마다 밝아진다
+    // 판정 원(레인마다 빈 고리) + 판정선
+    RHYTHM_LANES.forEach((lane, index) => {
+      const x = this.laneCenter(index, layout);
+      context.beginPath();
+      context.arc(x, judgeY, radius + 3, 0, Math.PI * 2);
+      context.lineWidth = 2;
+      context.strokeStyle = hexAlpha(this.laneFlash[index].amount > 0 ? this.laneFlash[index].color : lane.color, 0.35 + pulse * 0.25 + this.laneFlash[index].amount * 0.5);
+      context.stroke();
+    });
     context.save();
     context.shadowColor = accent;
-    context.shadowBlur = 10 + pulse * 18;
+    context.shadowBlur = 8 + pulse * 16;
     context.fillStyle = accent;
-    context.globalAlpha = 0.55 + pulse * 0.45;
-    context.fillRect(left, judgeY - 1.5, laneWidth * RHYTHM_LANES.length, 3);
+    context.globalAlpha = 0.35 + pulse * 0.4;
+    context.fillRect(left, judgeY - 1, totalWidth, 2);
     context.restore();
 
     // 레인 이름
@@ -124,103 +136,166 @@ export class RhythmRenderer {
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     RHYTHM_LANES.forEach((lane, index) => {
-      context.fillStyle = hexAlpha(lane.color, 0.85);
-      context.fillText(lane.label, this.laneCenter(index, layout), judgeY + 26);
+      context.fillStyle = hexAlpha(lane.color, 0.8);
+      context.fillText(lane.label, this.laneCenter(index, layout), judgeY + radius + 18);
     });
-    context.textAlign = 'left';
 
-    // 노트: 늦게 떨어지는 것부터 그려 가까운(아래) 노트가 위에 오게
-    const compact = laneWidth < 110;
+    // 노트: 늦게 닿는 것부터 그려 가까운(아래) 노트가 위에 오게
+    const head = engine.headNote();
     const notes = engine.visibleNotes().sort((first, second) => second.hitTime - first.hitTime);
     for (const note of notes) {
-      const y = this.noteY(note, engine, layout);
-      const centerX = this.clampLabel(this.laneCenter(note.lane, layout), note, compact);
-      if (note.state === 'pending') {
-        const active = engine.targetId === note.id || (!engine.targetId && engine.targetables()[0]?.id === note.id);
-        const states = engine.getCharacterStates(note);
-        if (active && engine.targetId !== note.id) states[0] = 'current';
-        drawTokenLabel(context, centerX, y + (compact ? 10.5 : 12), note, states, { active, accent, compact });
-      } else {
-        // 판정된 노트는 판정선에서 퍼지며 사라진다
-        const age = (engine.gameTime - note.resolvedAt) / 0.4;
-        context.globalAlpha = Math.max(0, 1 - age);
-        context.strokeStyle = JUDGEMENT_STYLE[note.judgement].color;
-        context.lineWidth = 2;
-        const spread = 18 + age * 30;
-        roundedRect(context, centerX - spread, judgeY - 10 - age * 6, spread * 2, 20 + age * 12, 8);
-        context.stroke();
-        context.globalAlpha = 1;
-      }
+      const x = this.laneCenter(note.lane, layout);
+      if (note.state === 'pending') this.drawNote(context, note, x, this.noteY(note.hitTime, engine, layout), radius, note === head, accent);
+      else this.drawResolved(context, note, x, judgeY, radius, engine);
     }
     this.particles.draw(context);
 
     this.drawHud(context, engine, layout);
-    this.drawPopup(context, engine, layout);
+    this.drawWord(context, engine, layout);
+    this.drawPopup(context, layout);
     this.drawCountIn(context, engine, layout);
+    context.textAlign = 'left';
+    context.textBaseline = 'alphabetic';
   }
 
-  // 긴 낱말이 화면 밖으로 나가지 않게
-  clampLabel(centerX, note, compact) {
-    const half = note.token.text.length * (compact ? 3.7 : 4.3) + 10;
-    return Math.max(half + 4, Math.min(this.surface.width - half - 4, centerX));
+  // 큰 원 노트: 레인 색 테두리, 글자는 낱말 종류 색. 다음에 칠 노트는 밝게 빛난다
+  drawNote(context, note, x, y, radius, isHead, accent) {
+    const laneColor = RHYTHM_LANES[note.lane].color;
+    context.save();
+    const fill = context.createRadialGradient(x - radius * 0.3, y - radius * 0.35, radius * 0.1, x, y, radius);
+    fill.addColorStop(0, isHead ? '#2b3550' : '#1c2338');
+    fill.addColorStop(1, isHead ? '#151b2c' : '#0d111d');
+    context.fillStyle = fill;
+    context.beginPath();
+    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.fill();
+    context.lineWidth = isHead ? 3 : 2;
+    context.strokeStyle = isHead ? '#ffffff' : laneColor;
+    if (isHead) {
+      context.shadowColor = laneColor;
+      context.shadowBlur = 16;
+    }
+    context.stroke();
+    context.shadowBlur = 0;
+    context.fillStyle = TOKEN_KINDS[note.word.token.kind]?.color ?? '#e9edf8';
+    context.font = `700 ${Math.round(radius * 1.05)}px ${CANVAS_FONTS.code}`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(visibleCharacter(note.character), x, y + 1);
+    context.restore();
+    if (isHead && accent) {
+      context.fillStyle = 'rgba(255, 255, 255, 0.06)';
+    }
+  }
+
+  // 판정된 노트: 판정선에서 판정 색 고리가 퍼지며 사라진다
+  drawResolved(context, note, x, judgeY, radius, engine) {
+    const age = (engine.gameTime - note.resolvedAt) / 0.4;
+    context.globalAlpha = Math.max(0, 1 - age);
+    context.strokeStyle = JUDGEMENT_STYLE[note.judgement].color;
+    context.lineWidth = 3;
+    context.beginPath();
+    context.arc(x, judgeY, radius * (1 + age * 0.7), 0, Math.PI * 2);
+    context.stroke();
+    context.globalAlpha = 1;
+  }
+
+  // 맨 위: 지금 만드는 낱말(판정된 글자는 판정 색, 다음 글자에 밑줄) + 다음 낱말. 완성 직후 잠깐 완성 표시
+  drawWord(context, engine, layout) {
+    const centerY = HUD_HEIGHT + WORD_AREA / 2 - 2;
+    const flash = this.wordFlash && performance.now() - this.wordFlash.at < 650 ? this.wordFlash : null;
+    const word = flash?.word ?? engine.currentWord;
+    context.textBaseline = 'middle';
+    if (!word) return;
+    const notes = word.noteIds.map(id => engine.findEntity(id));
+    const size = Math.min(34, Math.max(20, (layout.width - 40) / Math.max(notes.length, 4) * 0.9));
+    context.font = `700 ${size}px ${CANVAS_FONTS.code}`;
+    const characterWidth = context.measureText('M').width;
+    const start = layout.width / 2 - characterWidth * notes.length / 2;
+    const kindColor = TOKEN_KINDS[word.token.kind]?.color ?? '#e9edf8';
+    const lift = flash ? Math.min(1, (performance.now() - flash.at) / 650) : 0;
+    context.save();
+    if (flash) {
+      context.globalAlpha = 1 - lift * 0.6;
+      context.shadowColor = flash.clean ? '#ffe066' : '#ff4d6d';
+      context.shadowBlur = 18;
+    }
+    notes.forEach((note, index) => {
+      const x = start + index * characterWidth;
+      if (note.state === 'pending') {
+        context.fillStyle = note === engine.headNote() ? '#ffffff' : 'rgba(201, 212, 224, 0.4)';
+        if (note === engine.headNote()) context.fillRect(x, centerY + size * 0.55, characterWidth - 2, 3);
+      } else {
+        context.fillStyle = note.judgement === 'miss' ? JUDGEMENT_STYLE.miss.color : note.judgement === 'bad' ? JUDGEMENT_STYLE.bad.color : kindColor;
+      }
+      context.textAlign = 'left';
+      context.fillText(visibleCharacter(note.character), x, centerY - lift * 10);
+    });
+    context.restore();
+    context.font = canvasFont(11, 'ui', 600);
+    context.textAlign = 'center';
+    if (flash) {
+      context.fillStyle = flash.clean ? '#ffe066' : '#8a98aa';
+      context.fillText(flash.clean ? `완성! +${flash.bonus}` : '완성', layout.width / 2, centerY + size * 0.85);
+    } else {
+      const next = engine.words[word.index + 1];
+      context.fillStyle = '#5c6a7e';
+      if (next) context.fillText(`다음  ${next.token.text}`, layout.width / 2, centerY + size * 0.85);
+    }
   }
 
   drawHud(context, engine, layout) {
     const { width } = layout;
     const snapshot = engine.snapshot();
-    // 체력 바
-    const barWidth = Math.min(220, width * 0.42);
+    const barWidth = Math.min(200, width * 0.36);
     context.fillStyle = 'rgba(255, 255, 255, 0.08)';
-    roundedRect(context, 12, 12, barWidth, 10, 5);
+    roundedRect(context, 12, 10, barWidth, 9, 4.5);
     context.fill();
     const health = snapshot.health / 100;
     context.fillStyle = health > 0.5 ? '#39ff88' : health > 0.25 ? '#ffcb6b' : '#ff4d6d';
-    roundedRect(context, 12, 12, Math.max(6, barWidth * health), 10, 5);
+    roundedRect(context, 12, 10, Math.max(5, barWidth * health), 9, 4.5);
     context.fill();
     context.font = canvasFont(10, 'ui', 600);
     context.fillStyle = '#8a98aa';
     context.textBaseline = 'top';
-    context.fillText(`HP ${Math.round(snapshot.health)}`, 12, 26);
-    // 진행 바 + BPM
-    context.textAlign = 'right';
-    context.fillText(`♩=${snapshot.bpm} · ${Math.round(snapshot.progress * 100)}%`, width - 12, 26);
-    context.fillStyle = 'rgba(255, 255, 255, 0.08)';
-    context.fillRect(width - 12 - barWidth, 15, barWidth, 4);
-    context.fillStyle = '#36e2ff';
-    context.fillRect(width - 12 - barWidth, 15, barWidth * snapshot.progress, 4);
     context.textAlign = 'left';
-    context.textBaseline = 'alphabetic';
+    context.fillText(`HP ${Math.round(snapshot.health)} · 낱말 ${snapshot.wordsCompleted}/${engine.words.length}`, 12, 22);
+    context.textAlign = 'right';
+    context.fillText(`♩=${snapshot.bpm} · ${Math.round(snapshot.progress * 100)}%`, width - 12, 22);
+    context.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    context.fillRect(width - 12 - barWidth, 13, barWidth, 4);
+    context.fillStyle = '#36e2ff';
+    context.fillRect(width - 12 - barWidth, 13, barWidth * snapshot.progress, 4);
   }
 
-  drawPopup(context, engine, layout) {
+  drawPopup(context, layout) {
     const popup = this.popup;
     if (!popup) return;
     const age = (performance.now() - popup.at) / 1000;
-    if (age > 0.7) return;
-    const centerX = layout.width / 2;
-    const y = layout.judgeY - 120 - age * 18;
-    const scale = 1 + Math.max(0, 0.18 - age) * 2;
+    if (age > 0.6) return;
+    const y = layout.judgeY - layout.radius - 70 - age * 16;
+    const scale = 1 + Math.max(0, 0.16 - age) * 2;
     context.save();
-    context.globalAlpha = Math.max(0, 1 - Math.max(0, age - 0.35) / 0.35);
-    context.translate(centerX, y);
+    context.globalAlpha = Math.max(0, 1 - Math.max(0, age - 0.3) / 0.3);
+    context.translate(layout.width / 2, y);
     context.scale(scale, scale);
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.font = canvasFont(26);
+    context.font = canvasFont(24);
     context.shadowColor = popup.color;
-    context.shadowBlur = 16;
+    context.shadowBlur = 14;
     context.fillStyle = popup.color;
     context.fillText(popup.label, 0, 0);
     context.shadowBlur = 0;
     if (popup.combo >= 2) {
-      context.font = canvasFont(14);
+      context.font = canvasFont(13);
       context.fillStyle = '#e9edf8';
-      context.fillText(`${popup.combo} COMBO`, 0, 26);
+      context.fillText(`${popup.combo} COMBO`, 0, 24);
     }
     if (popup.delta !== null && Math.abs(popup.delta) > RHYTHM_RULES.windows.perfect) {
       context.font = canvasFont(10, 'ui', 600);
       context.fillStyle = '#8a98aa';
-      context.fillText(`${popup.delta < 0 ? 'EARLY' : 'LATE'} ${Math.round(Math.abs(popup.delta) * 1000)}ms`, 0, -24);
+      context.fillText(`${popup.delta < 0 ? 'EARLY' : 'LATE'} ${Math.round(Math.abs(popup.delta) * 1000)}ms`, 0, -22);
     }
     context.restore();
   }
@@ -240,7 +315,7 @@ export class RhythmRenderer {
     context.fillStyle = '#e9edf8';
     context.shadowColor = '#36e2ff';
     context.shadowBlur = 20;
-    context.fillText(String(beatsLeft), layout.width / 2, layout.height * 0.42);
+    context.fillText(String(beatsLeft), layout.width / 2, layout.height * 0.45);
     context.restore();
   }
 }

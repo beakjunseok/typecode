@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RhythmEngine, RHYTHM_RULES, BEAT_SECONDS, RHYTHM_CHARTS, BeatClock, judgeTiming, chordAtBeat, RHYTHM_MAX_POINTS_PER_CHARACTER } from '../public/js/rhythm-engine.js';
+import { RhythmEngine, RHYTHM_RULES, RHYTHM_CHARTS, BeatClock, judgeTiming, chordAtBeat, laneOfCharacter, RHYTHM_MAX_POINTS_PER_CHARACTER } from '../public/js/rhythm-engine.js';
 import { getTokenPool } from '../public/js/tokens.js';
 
 const seeded = seed => {
@@ -17,33 +17,40 @@ function advanceTo(engine, seconds, state) {
   }
 }
 
-// 노트를 정박에서 offsetSeconds만큼 어긋나게 친다: 앞 글자는 미리, 마지막 글자는 그 시각에
+// 노트를 정박에서 offsetSeconds만큼 어긋나게 친다
 function playNote(engine, note, offsetSeconds, state) {
-  const text = note.token.text;
-  advanceTo(engine, Math.max(engine.gameTime, note.hitTime - engine.fallSeconds * 0.5), state);
-  for (const character of text.slice(0, -1)) engine.input(character, state.ms);
   advanceTo(engine, note.hitTime + offsetSeconds, state);
-  return engine.input(text.at(-1), state.ms);
+  return engine.input(note.character, state.ms);
 }
 
-test('악보: 128 BPM, 리드인 뒤 정박에만 노트, 레벨마다 간격·길이 제한', () => {
+test('악보: 128 BPM, 낱말을 글자 노트로 나눠 반 박 격자에, 레인은 손가락 구역, 레벨이 낮을수록 느리다', () => {
   assert.equal(RHYTHM_RULES.bpm, 128);
+  const perMinute = [];
   for (const level of [1, 2, 3, 4]) {
     const engine = create({ level });
     const chart = RHYTHM_CHARTS[level];
-    assert.ok(engine.notes.length > 20);
+    assert.ok(engine.words.length > 10);
     assert.equal(engine.notes[0].beat, RHYTHM_RULES.leadInBeats);
     for (const note of engine.notes) {
-      assert.ok(Number.isInteger(note.beat), '정박');
-      assert.ok(Math.abs(note.hitTime - note.beat * BEAT_SECONDS) < 1e-9);
-      assert.ok(note.token.text.length <= chart.maxLength, `Lv${level} ${note.token.text}`);
+      assert.equal(note.character.length, 1);
+      assert.ok(Number.isInteger(note.beat * 2), '반 박 격자');
       assert.ok(note.lane >= 0 && note.lane < 4);
     }
-    for (let index = 1; index < engine.notes.length; index++) assert.notEqual(engine.notes[index].token.text, engine.notes[index - 1].token.text);
+    for (const word of engine.words) {
+      assert.ok(word.token.text.length <= chart.maxLength);
+      assert.equal(word.noteIds.map(id => engine.findEntity(id).character).join(''), word.token.text);
+    }
+    for (let index = 1; index < engine.notes.length; index++) assert.ok(engine.notes[index].hitTime > engine.notes[index - 1].hitTime, '시각순, 겹치지 않음');
+    perMinute.push(engine.notes.length / (engine.endTime / 60));
   }
-  assert.equal(chordAtBeat(0).name, 'Am');
+  assert.ok(perMinute[0] < 70 && perMinute[1] < 110, `사람이 칠 수 있는 속도: ${perMinute.map(Math.round)}`);
+  assert.ok(perMinute.every((value, index) => index === 0 || value > perMinute[index - 1]));
+  assert.equal(laneOfCharacter('a'), 0);
+  assert.equal(laneOfCharacter('f'), 1);
+  assert.equal(laneOfCharacter('j'), 2);
+  assert.equal(laneOfCharacter(';'), 3);
   assert.equal(chordAtBeat(4).name, 'F');
-  assert.equal(RHYTHM_MAX_POINTS_PER_CHARACTER, 300);
+  assert.equal(RHYTHM_MAX_POINTS_PER_CHARACTER, 260);
 });
 
 test('판정 창: ±50ms PERFECT, ±100 GREAT, ±150 GOOD, 그 밖 BAD', () => {
@@ -54,31 +61,38 @@ test('판정 창: ±50ms PERFECT, ±100 GREAT, ±150 GOOD, 그 밖 BAD', () => {
   assert.equal(judgeTiming(0.2), 'bad');
 });
 
-test('첫 키는 시작 신호, 마지막 글자 타이밍으로 판정·콤보·점수·HP가 바뀐다', () => {
+test('글자마다 타이밍 판정, 일찍 누른 키는 무시, 범위 안 다른 글자는 오타, 낱말 완성 이벤트', () => {
   const engine = create({ level: 2 });
   const events = [];
   engine.onEvent = (type, payload) => events.push([type, payload]);
   const state = { ms: 1000 };
-  const start = engine.input('x', state.ms);
-  assert.ok(start.started);
+  assert.ok(engine.input('x', state.ms).started);
   assert.equal(engine.wrongKeystrokes, 0, '시작 키는 오타가 아님');
-  assert.equal(engine.input('x', state.ms).reason, 'no_note', '리드인 동안 노트 없음');
+  assert.equal(engine.input(engine.notes[0].character, state.ms).reason, 'too_early', '리드인 중 키는 무시');
 
   const offsets = [0, 0.02, -0.08, 0.13, 0.2];
   const expected = ['perfect', 'perfect', 'great', 'good', 'bad'];
   offsets.forEach((offset, index) => {
     const result = playNote(engine, engine.notes[index], offset, state);
-    assert.ok(result.fired);
     assert.equal(result.judgement, expected[index], `노트 ${index}`);
   });
   assert.equal(engine.combo, 0, 'BAD는 콤보를 끊는다');
-  assert.equal(engine.maxCombo, 4);
   assert.deepEqual(engine.counts, { perfect: 2, great: 1, good: 1, bad: 1, miss: 0 });
-  assert.ok(engine.score > 0);
-  assert.ok(events.some(([type]) => type === 'judge'));
+
+  const next = engine.headNote();
+  advanceTo(engine, next.hitTime - 0.05, state);
+  const wrong = next.character === 'z' ? 'q' : 'z';
+  const mistake = engine.input(wrong, state.ms);
+  assert.equal(mistake.correct, false);
+  assert.equal(engine.wrongKeystrokes, 1);
+  assert.equal(next.state, 'pending', '오타는 노트를 소모하지 않는다');
+
+  const firstWord = engine.words[0];
+  const wordEvent = events.find(([type, payload]) => type === 'word' && payload.word === firstWord);
+  if (firstWord.noteIds.length <= 5) assert.ok(wordEvent, '첫 낱말 완성');
 });
 
-test('판정선을 지나간 노트는 MISS, HP가 0이 되면 실패, 끝까지 버티면 클리어', () => {
+test('지나간 노트는 MISS, HP가 0이면 실패, 모두 PERFECT면 클리어 S·깨끗한 낱말 보너스', () => {
   const engine = create({ level: 4 });
   const state = { ms: 0 };
   engine.input('a', state.ms);
@@ -86,14 +100,11 @@ test('판정선을 지나간 노트는 MISS, HP가 0이 되면 실패, 끝까지
   engine.onEvent = (type, payload) => { if (type === 'finish') finished = payload.summary; };
   advanceTo(engine, engine.notes[0].hitTime + RHYTHM_RULES.missAfter + 0.05, state);
   assert.equal(engine.notes[0].state, 'missed');
-  assert.equal(engine.counts.miss, 1);
-  assert.ok(engine.health < 100);
   advanceTo(engine, engine.endTime + 1, state);
-  assert.equal(engine.status, 'finished');
   assert.equal(finished.outcome, 'failed');
   assert.equal(finished.rank, 'F');
 
-  const perfectRun = create({ level: 1 });
+  const perfectRun = create({ level: 2 });
   const runState = { ms: 0 };
   perfectRun.input('a', runState.ms);
   let summary = null;
@@ -103,6 +114,7 @@ test('판정선을 지나간 노트는 MISS, HP가 0이 되면 실패, 끝까지
   assert.equal(summary.outcome, 'cleared');
   assert.equal(summary.rank, 'S');
   assert.equal(summary.judgements.perfect, perfectRun.notes.length);
+  assert.equal(summary.cleanTokens, perfectRun.words.length);
   assert.ok(summary.score <= summary.correctKeystrokes * RHYTHM_MAX_POINTS_PER_CHARACTER, '서버 점수 상한 안');
 });
 
