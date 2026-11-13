@@ -1,4 +1,5 @@
 // 키보드 뽑기 화면(연출·효과음)과 키보드 도감. 규칙은 gacha.js, 스킨은 keyboard-skins.js, 그리기는 keyboard.js.
+import { skinArt } from './skin-art.js';
 import { createKeyboard } from './keyboard.js';
 import { SKINS, COLLECTIBLE_SKINS, RARITIES, RARITY_ORDER, getSkin, unlockedLedModes, skinsWithLedMode, MATERIALS } from './keyboard-skins.js';
 import { AMBIENT_NAMES, REACTIVE_NAMES, LED_LABELS } from './keyboard-led.js';
@@ -232,6 +233,7 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
       ? `이미 있는 키보드 · 키캡 조각 <b>+${result.refund}</b>`
       : `<span class="new-badge">NEW</span> ${MATERIALS[result.skin.material].label} · LED ${LED_LABELS[result.skin.led.pattern]} + ${LED_LABELS[result.skin.led.reactive]}`;
     revealKeyboard.setSkin(result.skin);
+    showArt(document.getElementById('gachaArt'), result.skin, true);
     elements.gachaResult.hidden = false;
     elements.gachaEquip.hidden = result.duplicate && state.equipped === result.skin.id;
     elements.gachaEquip.disabled = state.equipped === result.skin.id;
@@ -318,7 +320,7 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
       const info = RARITIES[entry.rarity];
       const { colors } = entry.skin;
       return `<button type="button" class="multi-card rank-${RARITY_ORDER.indexOf(entry.rarity)}" data-index="${index}" style="--rarity:${info.color};--case:${colors.case};--alpha:${colors.alphaBg};--mod:${colors.modBg};--accent:${colors.accentBg};--delay:${instant ? 0 : index * 110}ms" aria-label="${entry.skin.name} (${info.label})">
-        <span class="swatch" aria-hidden="true"><i class="a"></i><i class="a"></i><i class="m"></i><i class="x"></i></span>
+        ${swatch(entry.skin)}${skinArt(entry.skin.id) ? '' : '</span>'}
         <span class="tile-stars">${'★'.repeat(info.stars)}</span>
         <span class="tile-name">${entry.skin.name}</span>
         ${entry.duplicate ? `<span class="multi-dup">+${entry.refund} 조각</span>` : '<span class="new-badge">NEW</span>'}
@@ -363,13 +365,34 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
     }).join('');
   }
 
+  // 스킨 카드 그림: 있으면 보이고, 아직 없는 키보드(미보유)는 어둡게 실루엣만
+  function showArt(figure, skin, owned) {
+    if (!figure) return;
+    const source = skinArt(skin.id);
+    figure.hidden = !source;
+    if (!source) return;
+    const image = figure.querySelector('img');
+    if (image.getAttribute('src') !== source) image.src = source;
+    image.alt = `${skin.name} 카드 그림`;
+    figure.classList.toggle('locked', !owned);
+    figure.style.setProperty('--rarity', RARITIES[skin.rarity].color);
+  }
+
+  // 견본 칸: 그림이 있으면 그림 썸네일, 없으면 키캡 색 견본(여는 태그만, 닫는 쪽은 부르는 곳에서)
+  function swatch(skin) {
+    const source = skinArt(skin.id);
+    return source
+      ? `<span class="swatch art" aria-hidden="true" style="background-image:url('${source}')"></span>`
+      : '<span class="swatch" aria-hidden="true"><i class="a"></i><i class="a"></i><i class="m"></i><i class="x"></i>';
+  }
+
   function tile(skin) {
     const owned = state.owned.includes(skin.id);
     const info = RARITIES[skin.rarity];
     const { colors } = skin;
     const classes = ['skin-tile', owned ? 'owned' : 'locked', skin.id === selectedId ? 'selected' : '', skin.id === state.equipped ? 'equipped' : ''].filter(Boolean).join(' ');
     return `<button type="button" class="${classes}" data-skin="${skin.id}" style="--rarity:${info.color};--case:${colors.case};--alpha:${colors.alphaBg};--mod:${colors.modBg};--accent:${colors.accentBg};--fg:${colors.alphaFg}" aria-label="${skin.name} (${info.label}${owned ? '' : ', 미보유'})">
-      <span class="swatch" aria-hidden="true"><i class="a"></i><i class="a"></i><i class="m"></i><i class="x"></i><i class="led" style="--led:${ledDot(skin)}"></i></span>
+      ${swatch(skin)}${skinArt(skin.id) ? '' : `<i class="led" style="--led:${ledDot(skin)}"></i></span>`}
       <span class="tile-stars">${'★'.repeat(info.stars)}</span>
       <span class="tile-name">${skin.name}</span>
       ${skin.id === state.equipped ? '<span class="tile-tag">장착 중</span>' : owned ? '' : '<span class="tile-lock" aria-hidden="true">🔒</span>'}
@@ -404,6 +427,7 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
     elements.collectionDesc.textContent = skin.description;
     elements.collectionLed.textContent = `${MATERIALS[skin.material].label} · LED ${LED_LABELS[skin.led.pattern]} · 터치 ${LED_LABELS[skin.led.reactive]}`;
     previewKeyboard.setSkin(skin, equipped ? effectiveOverride() : null);
+    showArt(document.getElementById('collectionArt'), skin, owned);
     elements.collectionEquip.hidden = !owned;
     elements.collectionEquip.disabled = equipped;
     elements.collectionEquip.textContent = equipped ? '장착 중' : '장착하기';

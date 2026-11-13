@@ -1,5 +1,6 @@
 // 화면 키보드: 다음에 칠 키(주황 점)와 필요한 Shift(반대 손), 손가락 구역, 누름 피드백을 보여준다.
 // 스킨(키캡 3단 배색·케이스·소재)과 LED(평상시 무늬 + 터치 반응)를 입힐 수 있다. 코드 토큰은 ASCII라 US ANSI 배열을 쓴다.
+import { skinArt } from './skin-art.js';
 import { createLedState } from './keyboard-led.js';
 import { getSkin, MATERIALS } from './keyboard-skins.js';
 
@@ -112,7 +113,12 @@ export function createKeyboard(container, { compact = false, interactive = false
   });
   const fingerHint = document.createElement('div');
   fingerHint.className = 'kb-hint';
-  container.replaceChildren(...(compact ? [board] : [board, fingerHint]));
+  // 떠 있는 키보드 무대: 스킨 카드 그림처럼 비스듬히 떠서 둥실거리고, 뒤로 LED 색 오라가 번진다(.kb-float)
+  const floating = document.createElement('div');
+  floating.className = 'kb-float';
+  floating.appendChild(board);
+  container.classList.add('kb-stage');
+  container.replaceChildren(...(compact ? [floating] : [floating, fingerHint]));
 
   // ---------- 스킨·LED ----------
   const led = createLedState(ledKeys);
@@ -161,6 +167,22 @@ export function createKeyboard(container, { compact = false, interactive = false
     frameId = globalThis.requestAnimationFrame(loop);
   }
 
+  // 무대 꾸미기: 오라 색(LED 팔레트, 무지개면 원뿔 그라데이션), 등급(효과 세기), 카드 그림이 있으면 흐린 배경으로
+  function applyStage(skin) {
+    const palette = skin.led.palette;
+    const aura = palette === 'rainbow'
+      ? 'conic-gradient(from 0deg, #ff4d6d, #ffe066, #39ff88, #36e2ff, #a855f7, #ff4d6d)'
+      : palette.length > 1
+        ? `linear-gradient(120deg, ${palette.map(([hue, saturation, lightness]) => `hsl(${hue} ${saturation}% ${lightness}%)`).join(', ')})`
+        : `hsl(${palette[0][0]} ${palette[0][1]}% ${palette[0][2]}%)`;
+    floating.style.setProperty('--kb-aura', skin.led.pattern === 'off' ? 'rgba(255, 255, 255, 0.25)' : aura);
+    floating.dataset.rarity = skin.rarity;
+    const art = skinArt(skin.id);
+    if (art) container.style.setProperty('--kb-art', `url('${art}')`);
+    else container.style.removeProperty('--kb-art');
+    container.dataset.rarity = skin.rarity;
+  }
+
   // 스킨(아이디 또는 스킨 객체)을 입힌다. override = { pattern, reactive } 로 LED만 바꿀 수 있다
   function setSkin(skinOrId, override = null) {
     const skin = typeof skinOrId === 'string' || !skinOrId ? getSkin(skinOrId) : skinOrId;
@@ -176,6 +198,7 @@ export function createKeyboard(container, { compact = false, interactive = false
     style.setProperty('--case-bg', palette.case);
     board.dataset.material = skin.material;
     board.dataset.rarity = skin.rarity;
+    applyStage(skin);
     board.classList.toggle('underglow', skin.underglow);
     ledGlow = material.glow;
     shine = Boolean(material.shine);
