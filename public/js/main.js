@@ -924,6 +924,24 @@ function applyEnter() {
   updateKeyboardHint();
 }
 
+// 뗀 키로 칠 수 있는 글자 후보: event.key, 소문자, 키 자리(KeyA→a, Digit1→1). O(1)
+function releasedCharacters(event) {
+  const candidates = [];
+  if (typeof event.key === 'string' && event.key.length === 1) candidates.push(event.key, event.key.toLowerCase());
+  const letter = /^Key([A-Z])$/.exec(event.code ?? '');
+  if (letter) candidates.push(letter[1].toLowerCase());
+  const digit = /^Digit([0-9])$/.exec(event.code ?? '');
+  if (digit) candidates.push(digit[1]);
+  if (event.code === 'Space') candidates.push(' ');
+  return candidates;
+}
+
+function handleRhythmKeyUp(event) {
+  if (settings.mode !== 'rhythm' || run.engine?.status !== 'running' || typeof run.engine.release !== 'function') return;
+  const candidates = releasedCharacters(event);
+  if (candidates.length) run.engine.release(candidates, now());
+}
+
 function handleKeyDown(event) {
   shiftTracker.record(event);
   if (handleSongSelectKey(event)) return;
@@ -1538,6 +1556,8 @@ function bindEvents() {
   elements.stage.addEventListener('click', focusTypingArea);
   elements.arcadeStage.addEventListener('click', focusTypingArea);
   elements.hiddenInput.addEventListener('keydown', handleKeyDown);
+  // 리듬 롱노트: 키를 떼는 순간을 알려 준다(한글 자판이어도 키 자리로 글자를 찾는다)
+  document.addEventListener('keyup', handleRhythmKeyUp);
   elements.hiddenInput.addEventListener('input', handleInput);
   elements.hiddenInput.addEventListener('compositionend', handleCompositionEnd);
   elements.hiddenInput.addEventListener('paste', event => event.preventDefault());

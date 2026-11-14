@@ -26,6 +26,10 @@ export const RHYTHM_RULES = Object.freeze({
   // 피버(DJMAX식 자동 피버): GOOD 이상으로 게이지가 차고, 가득 차면 피버 레벨이 1 오른다(최대 5).
   // 피버 중 점수 × (1 + 0.1 × 레벨). BAD·MISS·오타가 나면 피버가 끝나고 레벨이 0으로
   fever: Object.freeze({ gain: Object.freeze({ perfect: 5, great: 3.5, good: 1.5 }), maxLevel: 5, bonusPerLevel: 0.1 }),
+  // 롱노트(막대): 선율에서 길게 끄는 음(minBeats박 이상)이고 다음 노트까지 여유가 있으면 막대로 만든다.
+  // 머리에서 키를 누르고 꼬리까지 떼지 않으면 성공(콤보 +1). releaseGrace초보다 일찍 떼면 끊김(콤보 끊김).
+  // 키를 떼는 신호가 없는 기기(휴대폰 화면 자판)는 꼬리에서 자동 성공
+  hold: Object.freeze({ minBeats: 1.5, minSeconds: 0.45, maxSeconds: 2.4, gapAfter: 0.22, releaseGrace: 0.12, maxShare: 0.25 }),
   // 탭 전환·멈춤으로 시계가 크게 건너뛰면 한 프레임에 이만큼만 진행(그 사이는 멈춘 것으로 본다)
   maxFrameSeconds: 0.25
 });
@@ -153,6 +157,8 @@ export class RhythmEngine extends TargetGameEngine {
     this.wordsCompleted = 0;
     this.cleanWords = 0;
     this.headIndex = 0;
+    this.activeHold = null;
+    this.holdStats = { done: 0, broken: 0 };
     const { words, notes, autoNotes } = this.buildChart();
     this.words = words;
     this.notes = notes;
@@ -210,7 +216,27 @@ export class RhythmEngine extends TargetGameEngine {
       notes.splice(notes.length - word.noteIds.length);
       autoNotes.sort((first, second) => first.time - second.time);
     }
+    this.markHolds(notes);
     return { words, notes, autoNotes };
+  }
+
+  // 길게 끄는 음을 롱노트로: 꼬리 = min(음 길이, 다음 노트 - gapAfter, maxSeconds). minSeconds보다 짧으면 일반 노트. O(노트 수)
+  markHolds(notes) {
+    const { minBeats, minSeconds, maxSeconds, gapAfter } = RHYTHM_RULES.hold;
+    for (let index = 0; index < notes.length; index++) {
+      const note = notes[index];
+      note.holdEnd = null;
+      note.holdState = null;
+      if (!(note.dur >= minBeats) || note.character === ' ') continue;
+      const next = notes[index + 1];
+      const room = (next ? next.hitTime : Infinity) - gapAfter;
+      const end = Math.min(note.hitTime + note.dur * this.beatSeconds, room, note.hitTime + maxSeconds);
+      if (end - note.hitTime >= minSeconds) note.holdEnd = end;
+    }
+    // 막대가 너무 많으면 지루하다: 전체의 maxShare까지, 긴 것부터 남긴다
+    const holds = notes.filter(note => note.holdEnd !== null).sort((first, second) => (second.holdEnd - second.hitTime) - (first.holdEnd - first.hitTime));
+    for (const note of holds.slice(Math.ceil(notes.length * RHYTHM_RULES.hold.maxShare))) note.holdEnd = null;
+    this.holdCount = notes.filter(note => note.holdEnd !== null).length;
   }
 
   // 이 박의 화음(곡의 화음 진행). 리드인 동안은 첫 화음
@@ -252,6 +278,7 @@ export class RhythmEngine extends TargetGameEngine {
 
   // 놓친 노트 처리 + 끝 판정
   step() {
+    if (this.activeHold && this.gameTime - this.offset >= this.activeHold.holdEnd) this.finishHold(true);
     let head = this.headNote();
     if (this.options.autoPlay) {
       while (head && this.gameTime >= head.hitTime) {
@@ -381,7 +408,9 @@ export class RhythmEngine extends TargetGameEngine {
     for (let index = Math.max(0, this.headIndex - 12); index < this.notes.length; index++) {
       const note = this.notes[index];
       if (note.hitTime - this.fallSeconds > this.gameTime) break;
-      if (note.state === 'pending' || this.gameTime - note.resolvedAt < 0.4) visible.push(note);
+      const holdVisible = note.holdEnd && (note.holdState === 'holding' || (note.state === 'missed' && this.gameTime < note.holdEnd + 0.2)
+        || (note.holdResolvedAt !== undefined && this.gameTime - note.holdResolvedAt < 0.4));
+      if (note.state === 'pending' || this.gameTime - note.resolvedAt < 0.4 || holdVisible) visible.push(note);
     }
     return visible;
   }
@@ -400,6 +429,8 @@ export class RhythmEngine extends TargetGameEngine {
     if (this.status !== 'running') return { accepted: false, reason: 'finished' };
     const head = this.headNote();
     if (this.options.autoPlay) return { accepted: false, reason: 'auto_play' };
+    // 막대를 누르고 있는 동안 키 자동 반복으로 들어오는 같은 글자는 무시
+    if (this.activeHold && matchesNote(character, this.activeHold.character)) return { accepted: false, reason: 'holding' };
     if (!head) return { accepted: false, reason: 'too_early' };
     const ahead = head.hitTime - (this.gameTime - this.offset);
     if (ahead > RHYTHM_RULES.missAfter) {
@@ -447,6 +478,12 @@ export class RhythmEngine extends TargetGameEngine {
     note.judgement = judgement;
     note.delta = delta;
     note.resolvedAt = this.gameTime;
+    if (note.holdEnd !== null && note.holdEnd !== undefined) {
+      // 막대 머리를 쳤으면 꼬리까지 누르고 있어야 한다(이전 막대는 이 시점에 끝난 것으로 본다)
+      if (this.activeHold) this.finishHold(true);
+      note.holdState = 'holding';
+      this.activeHold = note;
+    }
     this.changeHealth(RHYTHM_RULES.health[judgement]);
     const payload = { note, judgement, delta, combo: this.combo, lane: note.lane, beat: note.beat, character: note.character, tier: getTierProgress(this.combo).index };
     this.emit('judge', payload);
@@ -454,6 +491,41 @@ export class RhythmEngine extends TargetGameEngine {
     if (this.status !== 'running') return { accepted: true, correct: true, ...payload };
     this.checkWord(note.word);
     return { accepted: true, correct: true, ...payload };
+  }
+
+  // 키를 뗐다: 누르고 있던 막대의 글자면 꼬리 전에 뗐는지 본다. characters = 그 키로 칠 수 있는 글자 후보들
+  release(characters, nowMs) {
+    if (this.status !== 'running' || !this.activeHold) return { accepted: false, reason: 'no_hold' };
+    this.update(nowMs);
+    const note = this.activeHold;
+    if (!note || !characters.some(character => matchesNote(character, note.character) || character.toLowerCase() === note.character.toLowerCase())) {
+      return { accepted: false, reason: 'other_key' };
+    }
+    const early = note.holdEnd - (this.gameTime - this.offset) > RHYTHM_RULES.hold.releaseGrace;
+    this.finishHold(!early);
+    return { accepted: true, held: !early };
+  }
+
+  // 막대 끝: 성공이면 콤보 +1(점수는 머리에서만), 끊기면 콤보·피버가 끊긴다
+  finishHold(success) {
+    const note = this.activeHold;
+    if (!note) return;
+    this.activeHold = null;
+    note.holdState = success ? 'done' : 'broken';
+    note.holdResolvedAt = this.gameTime;
+    if (success) {
+      this.holdStats.done++;
+      this.combo++;
+      this.maxCombo = Math.max(this.maxCombo, this.combo);
+      this.emit('hold', { note, success: true, lane: note.lane, combo: this.combo });
+      return;
+    }
+    this.holdStats.broken++;
+    if (this.combo >= 5) this.emit('combo-lost', { combo: this.combo });
+    this.combo = 0;
+    this.breakFever();
+    this.emit('hold', { note, success: false, lane: note.lane, combo: 0 });
+    this.checkStrict('bad');
   }
 
   backspace() {
@@ -482,7 +554,7 @@ export class RhythmEngine extends TargetGameEngine {
   // 풀 콤보: 클리어 + MISS·BAD·오타 없음 / 올 퍼펙트: 풀 콤보 + 전부 PERFECT
   clearMark() {
     if (this.outcome !== 'cleared' || this.options.autoPlay) return null;
-    if (this.counts.miss || this.counts.bad || this.wrongKeystrokes) return null;
+    if (this.counts.miss || this.counts.bad || this.wrongKeystrokes || this.holdStats.broken) return null;
     return this.counts.great || this.counts.good ? 'FC' : 'AP';
   }
 
@@ -535,7 +607,8 @@ export class RhythmEngine extends TargetGameEngine {
       offsetMs: this.options.offsetMs,
       modifiers: Object.entries(this.options).filter(([key, value]) => value === true).map(([key]) => key),
       speed: this.options.speed,
-      autoPlay: this.options.autoPlay
+      autoPlay: this.options.autoPlay,
+      holds: { ...this.holdStats, total: this.holdCount }
     };
   }
 }
