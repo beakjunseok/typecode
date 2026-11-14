@@ -36,6 +36,41 @@ def detect_rows(image_bgr):
     return best[1] if best else []
 
 
+def detect_rows_local(image_bgr, window):
+    """검은 키·노란 키가 섞여 색 덩어리로 안 잡힐 때: 주변(window 픽셀)보다 밝은 곳 = 키캡 윗면으로 본다."""
+    height, width = image_bgr.shape[:2]
+    gray = cv2.GaussianBlur(cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY), (0, 0), 2).astype(np.float32)
+    mask = (gray > cv2.blur(gray, (window, window))).astype(np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    count, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=4)
+    boxes = []
+    for index in range(1, count):
+        x, y, w, h, area = stats[index]
+        if w < width * 0.025 or h < height * 0.04 or w > width * 0.6 or h > height * 0.2 or area < w * h * 0.45:
+            continue
+        boxes.append((x, y, x + w, y + h))
+    return group_rows(boxes)
+
+
+def best_rows(image_bgr, layout_rows):
+    """찾는 방법 여러 개 중 줄별 키 수가 배열과 같은 꼴(같은 수만큼 빠진 것 포함)인 결과를 고른다.
+    반환: (줄 목록, 줄별 키 수)"""
+    expected = [len(row) for row in layout_rows[:4]]
+    candidates = [detect_rows(image_bgr)] + [detect_rows_local(image_bgr, window) for window in (21, 31, 45)]
+    best = None
+    for rows in candidates:
+        try:
+            counts = grid_rows(rows, layout_rows)[1]
+        except Exception:
+            continue
+        shifts = [e - c for e, c in zip(expected, counts)]
+        # 모든 줄이 똑같이 0~2개 빠졌으면 일관된 결과로 본다. 덜 빠진 쪽이 낫다
+        score = (len(set(shifts)) == 1 and 0 <= shifts[0] <= 2, -max(abs(v) for v in shifts))
+        if best is None or score > best[0]:
+            best = (score, rows, counts)
+    return (best[1], best[2]) if best else ([], [0, 0, 0, 0])
+
+
 def group_rows(boxes):
     """세로 가운데가 비슷한 키캡끼리 한 줄. 키 높이 중앙값의 절반 안이면 같은 줄."""
     if not boxes:
