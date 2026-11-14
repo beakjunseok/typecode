@@ -142,8 +142,8 @@ test('조각 상점·장착·저장값 검증', () => {
 
 test('게임 포인트: 판 결과로 적립, 1회 100P·10회 900P, 10회는 희귀 이상 1개 보장, 무료 뽑기와 별개', () => {
   assert.equal(pointsForGame({ correctKeystrokes: 10, accuracy: 100, maxCombo: 50 }), 0, '너무 짧은 판은 0P');
-  assert.equal(pointsForGame({ correctKeystrokes: 300, accuracy: 100, maxCombo: 25 }), 30 + 4);
-  assert.equal(pointsForGame({ correctKeystrokes: 300, accuracy: 50, maxCombo: 0 }), 7, '정확도² 반영');
+  assert.equal(pointsForGame({ correctKeystrokes: 300, accuracy: 100, maxCombo: 25 }), 100 + 10);
+  assert.equal(pointsForGame({ correctKeystrokes: 300, accuracy: 50, maxCombo: 0 }), 25, '정확도² 반영');
   assert.equal(pointsForGame({ correctKeystrokes: 99999, accuracy: 100, maxCombo: 999 }), EARNING.maxPerGame);
   assert.equal(pointsForGame(null), 0);
 
