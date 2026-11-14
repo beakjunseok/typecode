@@ -23,6 +23,11 @@ SONGS = [
         'title': 'Compile Rush', 'composer': 'FreeMusic AI · 2026', 'bpmHint': 140, 'beatsPerBar': 4,
         'previewAt': 30, 'source': 'https://www.freemusic.ai/', 'license': 'FreeMusic AI 생성곡',
     },
+    {
+        'id': 'compile-rush-b', 'file': 'public/audio/compile-rush-b.mp3', 'url': '/audio/compile-rush-b.mp3',
+        'title': 'Compile Rush (Alt Mix)', 'composer': 'FreeMusic AI · 2026', 'bpmHint': 140, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://www.freemusic.ai/', 'license': 'FreeMusic AI 생성곡',
+    },
 ]
 
 
