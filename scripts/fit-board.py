@@ -281,7 +281,7 @@ def main(skin_id, image_path, keys_area=None, wide=False):
         if repaired is not None:
             detected = detect_keys.match_layout(detect_keys.detect_rows(repaired), layout_names)
             if detected:
-                print('줄마다 빠진 글자 키 1개를 채워 고침')
+                print('줄마다 빠진 글자 키를 채워 고침')
                 image = Image.fromarray(cv2.cvtColor(repaired, cv2.COLOR_BGR2RGB))
     if detected:
         print('키캡 직접 찾기: 성공')

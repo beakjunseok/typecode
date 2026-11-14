@@ -14,6 +14,8 @@ export const RHYTHM_RULES = Object.freeze({
   // 판정 창(초, 정박 기준 ±). 그 밖이지만 missAfter 안에 치면 BAD, 지나가면 MISS
   windows: Object.freeze({ perfect: 0.05, great: 0.1, good: 0.15 }),
   missAfter: 0.25,
+  // 판정 창보다 일찍(원이 오기 전) 맞는 키를 눌러도 이만큼 앞이면 인정한다(GOOD). 틀린 키는 그 범위에서 무시
+  earlyAccept: 0.6,
   // 글자 하나의 점수(× 콤보 배율). 낱말의 모든 글자를 GOOD 이상으로, 오타 없이 치면 글자당 wordBonus 추가
   points: Object.freeze({ perfect: 100, great: 70, good: 40, bad: 10 }),
   wordBonus: 30,
@@ -69,7 +71,12 @@ export function laneOfCharacter(character) {
   return lane === -1 ? RHYTHM_LANES.length - 1 : lane;
 }
 
-export const matchesNote = (typed, expected) => typed === expected || (expected !== expected.toLowerCase() && typed === expected.toLowerCase());
+// Shift로 치는 기호 → 같은 자리의 기본 키. 리듬 모드에서는 Shift 없이 그 자리만 눌러도 맞다(대문자도 소문자로 인정)
+const SHIFTED_TO_BASE = Object.freeze({ '~': '`', '!': '1', '@': '2', '#': '3', '$': '4', '%': '5', '^': '6', '&': '7', '*': '8', '(': '9', ')': '0',
+  '_': '-', '+': '=', '{': '[', '}': ']', '|': '\\', ':': ';', '"': "'", '<': ',', '>': '.', '?': '/' });
+export const matchesNote = (typed, expected) => typed === expected
+  || (expected !== expected.toLowerCase() && typed === expected.toLowerCase())
+  || SHIFTED_TO_BASE[expected] === typed;
 
 export function judgeTiming(deltaSeconds) {
   const distance = Math.abs(deltaSeconds);
@@ -393,7 +400,13 @@ export class RhythmEngine extends TargetGameEngine {
     if (this.status !== 'running') return { accepted: false, reason: 'finished' };
     const head = this.headNote();
     if (this.options.autoPlay) return { accepted: false, reason: 'auto_play' };
-    if (!head || head.hitTime - (this.gameTime - this.offset) > RHYTHM_RULES.missAfter) return { accepted: false, reason: 'too_early' };
+    if (!head) return { accepted: false, reason: 'too_early' };
+    const ahead = head.hitTime - (this.gameTime - this.offset);
+    if (ahead > RHYTHM_RULES.missAfter) {
+      // 원이 오기 전: 맞는 키면 GOOD으로 받아 주고(콤보 유지), 다른 키는 벌점 없이 무시
+      if (ahead <= RHYTHM_RULES.earlyAccept && matchesNote(character, head.character)) return this.hit(head, null, 'good');
+      return { accepted: false, reason: 'too_early' };
+    }
     if (!matchesNote(character, head.character)) {
       head.word.mistakes++;
       this.wrongKeystrokes++;
@@ -410,9 +423,9 @@ export class RhythmEngine extends TargetGameEngine {
     return this.hit(head);
   }
 
-  hit(note, fixedDelta = null) {
+  hit(note, fixedDelta = null, forcedJudgement = null) {
     const delta = fixedDelta ?? this.gameTime - this.offset - note.hitTime;
-    const judgement = judgeTiming(delta);
+    const judgement = forcedJudgement ?? judgeTiming(delta);
     this.fastLate.hits++;
     this.fastLate.deltaSum += delta;
     if (judgement !== 'perfect') this.fastLate[delta < 0 ? 'fast' : 'late']++;

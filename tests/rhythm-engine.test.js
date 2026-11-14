@@ -178,7 +178,9 @@ test('대문자 노트는 소문자로 쳐도 맞고, 소문자 노트에 대문
   assert.ok(matchesNote('N', 'N'));
   assert.ok(!matchesNote('N', 'n'));
   assert.ok(!matchesNote('m', 'N'));
-  assert.ok(!matchesNote('1', '!'), '기호는 그대로');
+  assert.ok(matchesNote('1', '!'), '리듬 모드는 Shift 기호를 같은 자리 기본 키로 쳐도 맞다');
+  assert.ok(matchesNote(',', '<') && matchesNote('.', '>'));
+  assert.ok(!matchesNote('!', '1'), '기본 키 노트에 Shift 기호는 오타');
   const engine = create({ songId: 'ode-to-joy', difficulty: 'normal' });
   const state = { ms: 0 };
   engine.input('x', state.ms);
@@ -273,4 +275,17 @@ test('피버: PERFECT가 이어지면 레벨이 오르고 배율이 붙으며, M
   assert.equal(summary.clearMark, 'FC');
   assert.equal(summary.late, 1);
   assert.ok(summary.averageDeltaMs > 0);
+});
+
+test('원이 오기 전(판정 창보다 이르게) 맞는 키를 누르면 GOOD으로 인정, 틀린 키는 무시', () => {
+  const engine = create({ songId: 'ode-to-joy', difficulty: 'normal' });
+  const state = { ms: 0 };
+  engine.input('x', state.ms);
+  const note = engine.notes[0];
+  advanceTo(engine, note.hitTime - 0.45, state);
+  assert.equal(engine.input(note.character === 'q' ? 'z' : 'q', state.ms).reason, 'too_early');
+  const result = engine.input(note.character, state.ms);
+  assert.equal(result.correct, true);
+  assert.equal(result.judgement, 'good');
+  assert.equal(engine.combo, 1);
 });

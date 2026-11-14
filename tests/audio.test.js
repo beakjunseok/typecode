@@ -92,7 +92,7 @@ test('로봇 명중음: 종류·무기·남은 체력마다 오류 없이 울리
   }
 });
 
-test('BGM 3곡: 모두 2분 넘는 곡 구성, 곡 전체를 오류 없이 끝까지 연주하고 루프한다', () => {
+test('BGM 3곡(모드별): 모두 2분 넘는 곡 구성, 곡 전체를 오류 없이 끝까지 연주하고 루프한다', () => {
   const { FakeContext, stats } = createFakeAudio();
   globalThis.AudioContext = FakeContext;
   const originalSetInterval = globalThis.setInterval;
@@ -101,7 +101,7 @@ test('BGM 3곡: 모두 2분 넘는 곡 구성, 곡 전체를 오류 없이 끝�
     const sound = new SoundEngine();
     const bgm = new BgmEngine(sound);
     const tempos = new Set();
-    for (const [name, song] of Object.entries(SONGS)) {
+    for (const [name, song] of Object.entries(SONGS).filter(([name]) => name !== 'lobby')) {
       tempos.add(song.tempo);
       assert.ok(songSeconds(song) >= 130, `${name}: ${songSeconds(song).toFixed(0)}초`);
       const sectionNames = new Set(expandForm(song).map(bar => bar.name));
@@ -231,4 +231,25 @@ test('스프라이트 오프셋은 겹치지 않고 그룹마다 클립이 있�
   const all = Object.values(LINEAR_SPRITE).flat().sort((a, b) => a[0] - b[0]);
   for (let index = 1; index < all.length; index++) assert.ok(all[index][0] >= all[index - 1][0] + all[index - 1][1]);
   for (const group of ['down', 'up', 'eraseDown', 'eraseUp']) assert.ok(LINEAR_SPRITE[group].length >= 3, group);
+});
+
+test('리듬 곡 선택 대기 음악(lobby): 오류 없이 연주하고 루프한다', () => {
+  const { FakeContext, stats } = createFakeAudio();
+  globalThis.AudioContext = FakeContext;
+  const originalSetInterval = globalThis.setInterval;
+  globalThis.setInterval = () => 1;
+  try {
+    const sound = new SoundEngine();
+    const bgm = new BgmEngine(sound);
+    bgm.play('lobby', { force: true });
+    const seconds = songSeconds(SONGS.lobby) * 2;
+    for (let tick = 0; tick < seconds / 0.025; tick++) {
+      sound.context.currentTime += 0.025;
+      bgm.schedule();
+    }
+    assert.ok(stats.oscillators + stats.noises > 300);
+    assert.deepEqual(stats.errors, []);
+  } finally {
+    globalThis.setInterval = originalSetInterval;
+  }
 });
