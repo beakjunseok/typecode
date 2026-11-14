@@ -143,6 +143,46 @@ SONGS = [
         'title': 'Hello World 송', 'composer': 'AI Music Generator · 2026', 'bpmHint': 112.3, 'beatsPerBar': 4,
         'previewAt': 30, 'source': 'https://ai-music-generator.ai', 'license': 'AI Music Generator 생성곡 (무료 플랜 · 비상업)',
     },
+    {
+        'id': 'soaring-arpeggio', 'file': 'public/audio/soaring-arpeggio.mp3', 'url': '/audio/soaring-arpeggio.mp3',
+        'title': 'Soaring Arpeggio', 'composer': 'Suno AI · 2026', 'bpmHint': 143.6, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'soaring-arpeggio-b', 'file': 'public/audio/soaring-arpeggio-b.mp3', 'url': '/audio/soaring-arpeggio-b.mp3',
+        'title': 'Soaring Arpeggio (Alt Mix)', 'composer': 'Suno AI · 2026', 'bpmHint': 143.6, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'wobbling-supersaw', 'file': 'public/audio/wobbling-supersaw.mp3', 'url': '/audio/wobbling-supersaw.mp3',
+        'title': 'Wobbling Supersaw', 'composer': 'Suno AI · 2026', 'bpmHint': 152.0, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'wobbling-supersaw-b', 'file': 'public/audio/wobbling-supersaw-b.mp3', 'url': '/audio/wobbling-supersaw-b.mp3',
+        'title': 'Wobbling Supersaw (Alt Mix)', 'composer': 'Suno AI · 2026', 'bpmHint': 152.0, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'bouncy-piano-joy', 'file': 'public/audio/bouncy-piano-joy.mp3', 'url': '/audio/bouncy-piano-joy.mp3',
+        'title': 'Bouncy Piano Joy', 'composer': 'Suno AI · 2026', 'bpmHint': 117.5, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'bouncy-piano-joy-b', 'file': 'public/audio/bouncy-piano-joy-b.mp3', 'url': '/audio/bouncy-piano-joy-b.mp3',
+        'title': 'Bouncy Piano Joy (Alt Mix)', 'composer': 'Suno AI · 2026', 'bpmHint': 92.3, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'turbo-sprint', 'file': 'public/audio/turbo-sprint.mp3', 'url': '/audio/turbo-sprint.mp3',
+        'title': 'Turbo Sprint', 'composer': 'Suno AI · 2026', 'bpmHint': 103.4, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'turbo-sprint-b', 'file': 'public/audio/turbo-sprint-b.mp3', 'url': '/audio/turbo-sprint-b.mp3',
+        'title': 'Turbo Sprint (Alt Mix)', 'composer': 'Suno AI · 2026', 'bpmHint': 107.7, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
 ]
 
 
