@@ -7,7 +7,8 @@ export const PITY = Object.freeze({ rare: 10, epic: 30, legendary: 60, softStart
 export const COSTS = Object.freeze({ single: 100, multi: 900, multiCount: 10 });
 // 한 판에서 받는 포인트: 맞게 친 글자 10개당 1P × 정확도² + 최대 콤보 10마다 2P, 한 판 최대 300P.
 // 맞게 친 글자가 20개 미만이면(바로 끝낸 판) 0P
-export const EARNING = Object.freeze({ charactersPerPoint: 10, comboStep: 10, comboPoints: 2, maxPerGame: 300, minimumCharacters: 20 });
+// 판마다 적립: 맞게 친 글자 3개당 1P × 정확도², 최대 콤보 10마다 5P. 300자·100%·25콤보 ≈ 110P(1회 뽑기 100P)
+export const EARNING = Object.freeze({ charactersPerPoint: 3, comboStep: 10, comboPoints: 5, maxPerGame: 800, minimumCharacters: 15 });
 
 export function pointsForGame(summary) {
   const correct = Number(summary?.correctKeystrokes) || 0;
