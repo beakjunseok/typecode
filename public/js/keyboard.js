@@ -192,19 +192,18 @@ export function createKeyboard(container, { compact = false, interactive = false
 
   // 정면 일러스트가 있는 스킨: 그림 한 장을 판으로 깔고, 키마다 같은 그림에서 제 자리만 잘라 보여 준다.
   // 그래서 가만히 있을 땐 그림과 똑같고, 누르면 그 키캡만 내려간다. 좌표는 그림 대비 비율. O(키 수)
-  function applyBoardArt(skin) {
-    const art = SKIN_BOARDS[skin.id];
-    board.classList.toggle('art-board', Boolean(art));
-    if (!art) {
-      board.style.removeProperty('--board');
-      board.style.removeProperty('--board-ratio');
-      board.style.removeProperty('--board-scale');
-      for (const element of keyElements.values()) {
-        element.classList.remove('art-light');
-        for (const name of ['--kx', '--ky', '--kw', '--kh']) element.style.removeProperty(name);
-      }
-      return;
+  function clearBoardArt() {
+    board.classList.remove('art-board');
+    board.style.removeProperty('--board');
+    board.style.removeProperty('--board-ratio');
+    board.style.removeProperty('--board-scale');
+    for (const element of keyElements.values()) {
+      element.classList.remove('art-light');
+      for (const name of ['--kx', '--ky', '--kw', '--kh']) element.style.removeProperty(name);
     }
+  }
+
+  function paintBoardArt(art) {
     board.style.setProperty('--board', `url('${art.image}')`);
     board.style.setProperty('--board-ratio', String(art.ratio));
     board.style.setProperty('--board-scale', String(Number(art.scale) > 0 ? art.scale : 1.04));
@@ -219,6 +218,21 @@ export function createKeyboard(container, { compact = false, interactive = false
       element.style.setProperty('--kw', String(w));
       element.style.setProperty('--kh', String(h));
     }
+    board.classList.add('art-board');
+  }
+
+  // 정면 일러스트가 있는 스킨: 그림 한 장을 판으로 깔고, 키마다 같은 그림에서 제 자리만 잘라 보여 준다.
+  // 그림을 다 받은 뒤에만 바꾼다. 못 받으면(네트워크·옛 캐시) 키캡이 투명해지지 않게 CSS 키보드를 그대로 둔다. O(키 수)
+  let boardArtToken = 0;
+  function applyBoardArt(skin) {
+    const art = SKIN_BOARDS[skin.id];
+    const token = ++boardArtToken;
+    clearBoardArt();
+    if (!art || typeof Image === 'undefined') return;
+    const probe = new Image();
+    probe.onload = () => { if (token === boardArtToken) paintBoardArt(art); };
+    probe.onerror = () => { if (token === boardArtToken) clearBoardArt(); };
+    probe.src = art.image;
   }
 
   // 스킨(아이디 또는 스킨 객체)을 입힌다. override = { pattern, reactive } 로 LED만 바꿀 수 있다
