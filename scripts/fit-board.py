@@ -275,11 +275,15 @@ def main(skin_id, image_path, keys_area=None, wide=False):
     layout_names = [[name for name, _ in row] for row in board_layout.ROWS]
     bgr = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
     rows_found = detect_keys.detect_rows(bgr)
-    detected = detect_keys.match_layout(rows_found, layout_names)
+    detected = detect_keys.match_layout(rows_found, layout_names, bgr)
     if not detected:
-        repaired = detect_keys.repair_rows(bgr, rows_found, layout_names)
+        try:
+            repaired = detect_keys.repair_rows(bgr, rows_found, layout_names)
+        except (ValueError, IndexError) as error:
+            print(f'빠진 키 보충 실패: {error}')
+            repaired = None
         if repaired is not None:
-            detected = detect_keys.match_layout(detect_keys.detect_rows(repaired), layout_names)
+            detected = detect_keys.match_layout(detect_keys.detect_rows(repaired), layout_names, repaired)
             if detected:
                 print('줄마다 빠진 글자 키를 채워 고침')
                 image = Image.fromarray(cv2.cvtColor(repaired, cv2.COLOR_BGR2RGB))

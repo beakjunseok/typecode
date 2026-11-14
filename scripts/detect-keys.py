@@ -100,21 +100,108 @@ def complete_rows(rows, layout_rows):
     return completed, pitch, gap
 
 
-def match_layout(rows, layout_rows):
+def find_spacebar(image_bgr, rows4, pitch):
+    """맨 아랫줄을 덩어리로 못 찾았을 때: 넷째 줄 바로 아래 띠에서 기울기가 낮은(평평한) 가장 긴 가로 구간을 스페이스로 본다."""
+    if image_bgr is None:
+        return None
+    row_pitch = float(np.median([np.mean([(b[1] + b[3]) / 2 for b in rows4[i + 1]]) - np.mean([(b[1] + b[3]) / 2 for b in rows4[i]]) for i in range(3)]))
+    height_key = float(np.median([b[3] - b[1] for row in rows4 for b in row]))
+    center = np.mean([(b[1] + b[3]) / 2 for b in rows4[3]]) + row_pitch
+    top, bottom = int(center - height_key * 0.25), int(center + height_key * 0.25)
+    left, right = int(min(row[0][0] for row in rows4)), int(max(row[-1][2] for row in rows4))
+    if top < 0 or bottom >= image_bgr.shape[0]:
+        return None
+    gray = cv2.GaussianBlur(cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY), (0, 0), 1.5).astype(np.float32)
+    profile = np.abs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3))[top:bottom, left:right].mean(axis=0)
+    flat = profile < np.percentile(profile, 60)
+    best, start = (0, 0, 0), None
+    for index, value in enumerate(list(flat) + [False]):
+        if value and start is None:
+            start = index
+        elif not value and start is not None:
+            if index - start > best[0]:
+                best = (index - start, start, index)
+            start = None
+    if best[0] < pitch * 3:
+        return None
+    return (left + best[1], center - height_key / 2, left + best[2], center + height_key / 2)
+
+
+def snap_row(row, letter_count, pitch, key_width, edge_left, edge_right, gap, left_mod=True):
+    """한 줄을 격자에 맞춘다: 글자 키는 같은 간격으로 놓이므로 찾은 1칸 키들의 가운데로 직선(위치 = a + pitch × 번호)을 맞추고,
+    글자 키 letter_count개를 그 위에 다시 놓는다. 양 끝 기능키는 키보드 끝부터 첫·끝 글자 키 앞까지.
+    반환: (상자 목록, 그림에 그려진 글자 키 수). 조각나거나 붙어 잡힌 덩어리도 바로잡힌다."""
+    singles = [b for b in row if 0.6 * key_width <= b[2] - b[0] <= 1.35 * key_width]
+    if len(singles) < 3:
+        return None, 0
+    centers = np.array([(b[0] + b[2]) / 2 for b in singles])
+    slope, intercept = pitch, centers.min()
+    # 번호 매기기 ↔ 직선 맞추기를 두 번 되풀이해 간격 오차가 끝으로 갈수록 쌓이지 않게 한다
+    for _ in range(3):
+        indices = np.round((centers - intercept) / slope)
+        if len(set(indices)) < 2:
+            break
+        slope, intercept = np.polyfit(indices, centers, 1)
+    drawn = int(indices.max() - indices.min() + 1)
+    top = float(np.median([b[1] for b in singles]))
+    bottom = float(np.median([b[3] for b in singles]))
+    # 그려진 글자 키 묶음의 가운데에 맞춰 letter_count개를 놓는다(빠진 키가 있어도 가운데 정렬)
+    first = intercept + slope * ((indices.min() + indices.max()) / 2 - (letter_count - 1) / 2)
+    letters = [(first + slope * i - key_width / 2, top, first + slope * i + key_width / 2, bottom) for i in range(letter_count)]
+    # 그림에 실제로 그려진 글자 키 자리(빠진 키 보충용)
+    snap_row.drawn_letters = [(intercept + slope * i - key_width / 2, top, intercept + slope * i + key_width / 2, bottom)
+                              for i in range(int(indices.min()), int(indices.max()) + 1)]
+    right = (letters[-1][2] + gap, top, edge_right, bottom)
+    if not left_mod:
+        # 첫 줄(` 1 2 …)은 왼쪽 기능키가 없다: 맨 왼쪽 키도 1칸 키라 키보드 끝에서 시작한다
+        return letters + [right], drawn
+    return [(edge_left, top, letters[0][0] - gap, bottom)] + letters + [right], drawn
+
+
+def grid_rows(rows, layout_rows):
+    """위 4줄을 격자로 바로잡는다. 반환: (줄 상자 목록 4개, 줄마다 그림에 그려진 키 수(기능키 2개 포함), 간격, 틈)"""
+    rows4, pitch, gap = complete_rows(rows, layout_rows)
+    widths = [b[2] - b[0] for row in rows4 for b in row]
+    key_width = float(np.median([w for w in widths if w <= 1.4 * np.median(widths)]))
+    outer = rows4 + ([sorted(rows[4], key=lambda b: b[0])] if len(rows) > 4 and rows[4] else [])
+    edge_left = min(row[0][0] for row in outer)
+    edge_right = max(row[-1][2] for row in outer)
+    snapped, counts = [], []
+    grid_rows.drawn_letters = []
+    for row, names in zip(rows4, layout_rows[:4]):
+        has_left = len(names[0]) > 1
+        mods = 2 if has_left else 1
+        snap_row.drawn_letters = []
+        boxes, drawn = snap_row(row, len(names) - mods, pitch, key_width, edge_left, edge_right, gap, has_left)
+        if boxes is not None:
+            boxes = list(boxes)
+            grid_rows.drawn_letters.append(snap_row.drawn_letters)
+        else:
+            grid_rows.drawn_letters.append([])
+        snapped.append(boxes)
+        counts.append(drawn + mods)
+    return snapped, counts, pitch, gap
+
+
+def match_layout(rows, layout_rows, image_bgr=None):
     """찾은 줄을 배열(키 이름 줄 목록)에 짝짓는다. 줄마다 키 수가 맞아야 하고, 마지막 줄은 가장 넓은 덩어리를 스페이스로.
     맞으면 {키: (x1,y1,x2,y2)}, 아니면 None."""
     if len(rows) < 5:
         return None
-    rows4, pitch, gap = complete_rows(rows, layout_rows)
+    rows4, counts, pitch, gap = grid_rows(rows, layout_rows)
     result = {}
-    for row, names in zip(rows4, layout_rows[:4]):
-        if len(row) != len(names):
+    for row, count, names in zip(rows4, counts, layout_rows[:4]):
+        if row is None or count != len(names):
             return None
         result.update(dict(zip(names, row)))
     bottom = sorted(rows[4], key=lambda b: b[0])
     space = max(bottom, key=lambda b: b[2] - b[0])
     if space[2] - space[0] < pitch * 3:
-        return None
+        found = find_spacebar(image_bgr, rows4, pitch)
+        if found is None:
+            return None
+        result[layout_rows[4][0]] = found
+        return result
     # 스페이스바가 조각으로 잡히면 양옆 키 바로 앞까지 넓힌다
     position = bottom.index(space)
     left = bottom[position - 1][2] + gap if position > 0 else space[0]
@@ -138,21 +225,29 @@ def repair_rows(image, rows, layout_rows):
     오른쪽 끝 기능키(Backspace·\\·Enter·Shift)를 그만큼 줄여 줄 길이를 맞춘다. 고칠 게 없거나 못 고치면 None."""
     if len(rows) < 5:
         return None
-    rows4, pitch, _ = complete_rows(rows, layout_rows)
+    rows4, counts, pitch, _ = grid_rows(rows, layout_rows)
     repaired, changed = image.copy(), False
     centers = [(row[0][1] + row[0][3]) / 2 for row in rows[:5]]
-    for index, (row, names) in enumerate(zip(rows4, layout_rows[:4])):
-        missing = len(names) - len(row)
+    for index, (row, count, names) in enumerate(zip(rows4, counts, layout_rows[:4])):
+        if row is None:
+            return None
+        missing = len(names) - count
+        # 격자 상자는 배열 키 수만큼 놓였으므로, 그려진 키만 남겨 실제 그림 위치로 쓴다
         if missing == 0:
             continue
-        if missing not in (1, 2) or len(row) < 4:
+        if missing not in (1, 2):
             return None
-        half_gap = (row[-1][0] - row[-2][2]) / 2
+        # 격자는 배열 키 수만큼 놓였으므로 가운데로 정렬된 그려진 글자 키만 남긴다
+        letters = grid_rows.drawn_letters[index]
+        if len(letters) < 3:
+            return None
+        half_gap = (pitch - (letters[0][2] - letters[0][0])) / 2
         row_gap = (centers[1] - centers[0]) / 2
         top = int(max(0, centers[index] - row_gap))
         bottom = int(min(image.shape[0], centers[index] + row_gap))
-        row_left, row_right = int(row[0][0] - half_gap), int(row[-1][2] + half_gap)
-        cell_left, cell_right = int(row[-2][0] - half_gap), int(row[-2][2] + half_gap)
+        row_left, row_right = max(0, int(row[0][0] - half_gap)), min(image.shape[1], int(row[-1][2] + half_gap))
+        last_center = (letters[-1][0] + letters[-1][2]) / 2
+        cell_left, cell_right = int(last_center - pitch / 2), int(last_center + pitch / 2)
         band = image[top:bottom]
         # 마지막 글자 키 칸을 하나 더 끼운 줄을 원래 줄 길이로 고르게 줄인다(약 7%)
         widened = np.concatenate([band[:, row_left:cell_right]] + [band[:, cell_left:cell_right]] * missing + [band[:, cell_right:row_right]], axis=1)
