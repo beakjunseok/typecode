@@ -21,8 +21,7 @@ def check(path):
     if image is None:
         return None, '그림을 열 수 없음'
     try:
-        rows = detect_keys.detect_rows(image)
-        _, counts, _, _ = detect_keys.grid_rows(rows, LAYOUT)
+        _, counts = detect_keys.best_rows(image, LAYOUT)
     except Exception as error:  # 키를 거의 못 찾은 그림
         return None, f'키를 찾지 못함 ({error.__class__.__name__})'
     missing = [expected - count for expected, count in zip(EXPECTED, counts)]
