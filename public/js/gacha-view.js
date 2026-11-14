@@ -1,5 +1,6 @@
 // 키보드 뽑기 화면(연출·효과음)과 키보드 도감. 규칙은 gacha.js, 스킨은 keyboard-skins.js, 그리기는 keyboard.js.
 import { skinArt } from './skin-art.js';
+import { SKIN_BOARDS } from './skin-boards.js';
 import { createKeyboard } from './keyboard.js';
 import { SKINS, COLLECTIBLE_SKINS, RARITIES, RARITY_ORDER, getSkin, unlockedLedModes, skinsWithLedMode, MATERIALS } from './keyboard-skins.js';
 import { AMBIENT_NAMES, REACTIVE_NAMES, LED_LABELS } from './keyboard-led.js';
@@ -156,9 +157,11 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
     return pattern || reactive ? { pattern, reactive } : null;
   }
 
+  // 저장할 때마다 보유 포인트가 바뀌었을 수 있으니 화면(오른쪽 위 포인트)에 알린다
   function save() {
     preferences.set('gacha', state);
     preferences.set('ledOverride', ledOverride);
+    document.dispatchEvent(new CustomEvent('typecode:points', { detail: { points: state.points } }));
   }
 
   const equippedSkin = () => getSkin(state.equipped);
@@ -379,10 +382,12 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
   }
 
   // 견본 칸: 그림이 있으면 그림 썸네일, 없으면 키캡 색 견본(여는 태그만, 닫는 쪽은 부르는 곳에서)
+  // 목록 썸네일: 정면 키보드 그림(가로로 길어 칸에 딱 맞다)을 먼저, 없으면 카드 그림, 둘 다 없으면 색 견본
   function swatch(skin) {
-    const source = skinArt(skin.id);
+    const board = SKIN_BOARDS[skin.id]?.image;
+    const source = board ?? skinArt(skin.id);
     return source
-      ? `<span class="swatch art" aria-hidden="true" style="background-image:url('${source}')"></span>`
+      ? `<span class="swatch art${board ? ' board' : ''}" aria-hidden="true" style="background-image:url('${source}')"></span>`
       : '<span class="swatch" aria-hidden="true"><i class="a"></i><i class="a"></i><i class="m"></i><i class="x"></i>';
   }
 

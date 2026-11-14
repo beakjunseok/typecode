@@ -157,7 +157,7 @@ button.icon.off { opacity: 0.4; }
 }
 
 .stats {
-  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
   background: linear-gradient(180deg, var(--desk), #121729);
   border: 1px solid var(--rule); border-radius: var(--radius-lg);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
@@ -764,6 +764,8 @@ body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
   display: block; height: 58px; padding: 0; background-size: 150% auto; background-position: center 48%; border: 1px solid var(--rarity);
 }
 .skin-tile.locked .swatch.art { filter: brightness(0.25) saturate(0.4); }
+.skin-tile .swatch.art.board, .multi-card .swatch.art.board { background-size: cover; background-position: center; background-color: #05070c; }
+.skin-tile.locked .swatch.art.board { filter: brightness(0.5) saturate(0.55); }
 .skin-art { position: relative; margin: 0 auto; width: min(220px, 60%); }
 .skin-art img { display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 12px; border: 2px solid var(--rarity, #8a98aa); box-shadow: 0 0 24px color-mix(in srgb, var(--rarity, #8a98aa) 45%, transparent); }
 .skin-art figcaption { position: absolute; right: 6px; bottom: 6px; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; color: #e9edf8; background: rgba(0, 0, 0, 0.55); }
@@ -1146,7 +1148,6 @@ body[data-mode='battery'] #arcadeOverlay { --mode-art: url('/art/mode-battery.we
 .kb-stage .keyboard.art-board .key.art-light .shifted { text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5); }
 .kb-stage .keyboard.art-board .key .legend { position: absolute; inset: 0; align-items: center; justify-content: center; text-align: center; }
 
-.stats .stat.points .value { color: #ffcf5c; }
 
 /* 리듬 모드: 누른 키가 속한 손가락 구역(레인) 전체가 레인 색으로 번쩍인다 */
 .key .zone {
@@ -1157,3 +1158,16 @@ body[data-mode='battery'] #arcadeOverlay { --mode-art: url('/art/mode-battery.we
 .key.zone-flash .zone { animation: zone-flash 0.22s ease-out; }
 @keyframes zone-flash { from { opacity: 0.95; } to { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .key.zone-flash .zone { animation-duration: 0.12s; } }
+
+/* 보유 뽑기 포인트: 오른쪽 위. 휴대폰에서는 로고 줄 오른쪽 끝에 붙는다 */
+header { position: relative; }
+.points-total {
+  font: 700 14px/1 var(--font-display); color: #ffcf5c; background: rgba(255, 207, 92, 0.1);
+  border: 1px solid rgba(255, 207, 92, 0.35); border-radius: 999px; padding: 7px 11px; cursor: pointer; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.points-total:hover { background: rgba(255, 207, 92, 0.18); }
+.points-total:focus-visible { outline: 2px solid #ffcf5c; outline-offset: 2px; }
+@media (max-width: 640px) {
+  .points-total { position: absolute; top: 0; right: 0; font-size: 12px; padding: 6px 9px; }
+}

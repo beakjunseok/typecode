@@ -41,6 +41,7 @@
         <button type="button" data-battery-variant="pvp" title="친구와 1:1 대결(방 코드)">👥 PvP</button>
       </div>
       <div class="icon-buttons">
+        <button type="button" class="points-total" id="pointsTotal" title="보유 뽑기 포인트 · 눌러서 뽑기">0P</button>
         <button type="button" class="icon" id="soundToggle" aria-pressed="true" title="효과음">🔊</button>
         <button type="button" class="icon" id="bgmToggle" aria-pressed="true" title="배경음악">♫</button>
         <button type="button" class="icon gacha-button" id="gachaButton" title="오늘의 키보드 뽑기">🎁</button>
@@ -60,7 +61,6 @@
     <div class="stat"><div class="label">콤보</div><div class="value" id="comboValue">0</div></div>
     <div class="stat mult" id="multiplierStat"><div class="label">배율</div><div class="value" id="multiplierValue">×1.0</div></div>
     <div class="stat"><div class="label">점수</div><div class="value" id="scoreValue">0</div></div>
-    <div class="stat points" title="이번 판에서 받을 뽑기 포인트(맞게 친 글자 20개부터)"><div class="label">포인트</div><div class="value" id="pointsValue">+0P</div></div>
   </div>
 
   <section class="stage" id="stage" data-tier="0" aria-label="입력 영역">

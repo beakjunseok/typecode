@@ -59,6 +59,8 @@ function scoreNote(sound, context, { midi, time, seconds, level = 1, destination
 
 // 리듬 모드 소리 키우기: 반주·키 소리·음원·미리듣기를 모두 증폭 버스(× RHYTHM_BOOST)에 모아 master로 보낸다.
 // master 뒤 압축기가 있어 커져도 찢어지지 않는다. sound를 감싸 tone()의 기본 출력과 master만 바꾼다
+import { SONG_VOLUME } from './rhythm-volume.js';
+
 export const RHYTHM_BOOST = 2.6;
 function rhythmBus(sound, context) {
   if (!sound.master) return undefined;
@@ -70,11 +72,23 @@ function rhythmBus(sound, context) {
   }
   return sound.rhythmBusNode;
 }
+// 곡마다 소리 크기 맞추기: 증폭 버스 = RHYTHM_BOOST × 곡 보정값(rhythm-volume.js, 실측으로 만든 값)
+export function setSongVolume(sound, songId) {
+  const raw = sound?.isBoosted ? sound.rawSound : sound;
+  const context = raw?.context;
+  if (!context) return;
+  const bus = rhythmBus(raw, context);
+  if (!bus) return;
+  const factor = Number.isFinite(SONG_VOLUME[songId]) ? SONG_VOLUME[songId] : 1;
+  bus.gain.setValueAtTime(RHYTHM_BOOST * factor, context.currentTime);
+}
+
 export function boostedSound(sound) {
   if (!sound || sound.isBoosted) return sound;
   return new Proxy(sound, {
     get(target, property) {
       if (property === 'isBoosted') return true;
+      if (property === 'rawSound') return target;
       if (property === 'tone' || property === 'noise') {
         return (context, options) => target[property](context, { ...options, destination: options.destination ?? rhythmBus(target, context) });
       }
@@ -92,6 +106,7 @@ export class RhythmMusic {
   }
 
   reset() {
+    this.volumeSong = null;
     this.nextHalf = 0;
     this.nextAuto = 0;
     this.nextScore = 0;
@@ -137,6 +152,10 @@ export class RhythmMusic {
   pump(engine, intensity = 0) {
     if (engine.status !== 'running' || !this.sound.enabled) return;
     const context = this.sound.context;
+    if (this.volumeSong !== engine.song.id && context) {
+      this.volumeSong = engine.song.id;
+      setSongVolume(this.sound, engine.song.id);
+    }
     const offset = engine.clock.audioOffset;
     if (!context || offset === null) return;
     const half = engine.beatSeconds / 2;
@@ -242,6 +261,7 @@ export function createPreview(rawSound) {
       this.stop();
       const context = sound.ensureContext?.();
       if (!context || !sound.enabled) return;
+      setSongVolume(sound, song.id);
       if (song.audio) {
         this.playAudio(context, song, 8);
         return;
