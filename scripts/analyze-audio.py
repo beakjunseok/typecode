@@ -88,6 +88,61 @@ SONGS = [
         'title': 'Pursuit Mode (Alt Mix)', 'composer': 'Suno AI · 2026', 'bpmHint': 123.0, 'beatsPerBar': 4,
         'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
     },
+    {
+        'id': 'slap-on-the-two', 'file': 'public/audio/slap-on-the-two.mp3', 'url': '/audio/slap-on-the-two.mp3',
+        'title': 'Slap on the Two', 'composer': 'Mureka AI · 2026', 'bpmHint': 117.5, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://www.mureka.ai', 'license': 'Mureka AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'slap-on-the-two-b', 'file': 'public/audio/slap-on-the-two-b.mp3', 'url': '/audio/slap-on-the-two-b.mp3',
+        'title': 'Slap on the Two (Alt Mix)', 'composer': 'Mureka AI · 2026', 'bpmHint': 117.5, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://www.mureka.ai', 'license': 'Mureka AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'tap-riot', 'file': 'public/audio/tap-riot.mp3', 'url': '/audio/tap-riot.mp3',
+        'title': 'Tap Riot', 'composer': 'Mureka AI · 2026', 'bpmHint': 89.1, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://www.mureka.ai', 'license': 'Mureka AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'tap-riot-b', 'file': 'public/audio/tap-riot-b.mp3', 'url': '/audio/tap-riot-b.mp3',
+        'title': 'Tap Riot (Alt Mix)', 'composer': 'Mureka AI · 2026', 'bpmHint': 107.7, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://www.mureka.ai', 'license': 'Mureka AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'midnight-keys', 'file': 'public/audio/midnight-keys.mp3', 'url': '/audio/midnight-keys.mp3',
+        'title': 'Midnight Keys', 'composer': 'AI Song Maker · 2026', 'bpmHint': 129.2, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://aisongmaker.io', 'license': 'AI Song Maker 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'midnight-keys-b', 'file': 'public/audio/midnight-keys-b.mp3', 'url': '/audio/midnight-keys-b.mp3',
+        'title': 'Midnight Keys (Alt Mix)', 'composer': 'AI Song Maker · 2026', 'bpmHint': 129.2, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://aisongmaker.io', 'license': 'AI Song Maker 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'wired-up', 'file': 'public/audio/wired-up.mp3', 'url': '/audio/wired-up.mp3',
+        'title': 'Wired Up', 'composer': 'AI Song Maker · 2026', 'bpmHint': 172.3, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://aisongmaker.io', 'license': 'AI Song Maker 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'wired-up-b', 'file': 'public/audio/wired-up-b.mp3', 'url': '/audio/wired-up-b.mp3',
+        'title': 'Wired Up (Alt Mix)', 'composer': 'AI Song Maker · 2026', 'bpmHint': 112.3, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://aisongmaker.io', 'license': 'AI Song Maker 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'debug-night', 'file': 'public/audio/debug-night.mp3', 'url': '/audio/debug-night.mp3',
+        'title': 'Debug Night', 'composer': 'AI Make Song · 2026', 'bpmHint': 117.5, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://aimakesong.com', 'license': 'AI Make Song 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'debug-night-b', 'file': 'public/audio/debug-night-b.mp3', 'url': '/audio/debug-night-b.mp3',
+        'title': 'Debug Night (Alt Mix)', 'composer': 'AI Make Song · 2026', 'bpmHint': 117.5, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://aimakesong.com', 'license': 'AI Make Song 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'hello-world', 'file': 'public/audio/hello-world.mp3', 'url': '/audio/hello-world.mp3',
+        'title': 'Hello World 송', 'composer': 'AI Music Generator · 2026', 'bpmHint': 112.3, 'beatsPerBar': 4,
+        'previewAt': 30, 'source': 'https://ai-music-generator.ai', 'license': 'AI Music Generator 생성곡 (무료 플랜 · 비상업)',
+    },
 ]
 
 
