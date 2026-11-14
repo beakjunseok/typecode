@@ -6,7 +6,11 @@ import { drawDrone } from './drone-view.js';
 import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING, SKIN, PHONE_HELD_SCALE } from './developer-view.js';
 import { THROW_RULES } from './throw-engine.js';
 import {
-  setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont } from './game-view.js';
+  setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont,
+  loadArt, drawCoverArt } from './game-view.js';
+
+// 서버실 복도 그림(AI 생성, public/art/throw-stage.webp). 소실점이 화면 가운데 위로 오게 깐다
+const STAGE_ART = loadArt('/art/throw-stage.webp');
 
 const ROBOT_STYLE = {
   basic: { name: '버그봇', body: '#2f5d72', bodyLight: '#4b8aa6', trim: '#7fdbca', eye: '#36e2ff', width: 40, height: 46, stride: 7 },
@@ -159,6 +163,15 @@ export class ThrowRenderer {
     gradient.addColorStop(1, '#141a3a');
     context.fillStyle = gradient;
     context.fillRect(0, 0, width, height);
+    // 그림은 낱말·로봇이 잘 보이게 어둡게 깔고, 아래(책상 쪽)로 갈수록 더 어둡게 덮는다
+    if (drawCoverArt(context, STAGE_ART, { y: HUD_HEIGHT, width, height: height - HUD_HEIGHT, focusY: 0.35, alpha: 0.62 })) {
+      const shade = context.createLinearGradient(0, HUD_HEIGHT, 0, height);
+      shade.addColorStop(0, 'rgba(6, 9, 22, 0.15)');
+      shade.addColorStop(0.6, 'rgba(6, 9, 22, 0.35)');
+      shade.addColorStop(1, 'rgba(6, 9, 22, 0.8)');
+      context.fillStyle = shade;
+      context.fillRect(0, HUD_HEIGHT, width, height - HUD_HEIGHT);
+    }
     // 저 멀리 서버실: 레인마다 랙 문이 열려 있고(로봇이 나오는 곳) 문 사이 랙에는 LED가 깜빡인다
     const wallTop = HUD_HEIGHT;
     context.fillStyle = '#0a0e22';

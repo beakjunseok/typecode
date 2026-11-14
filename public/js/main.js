@@ -462,7 +462,8 @@ function handleFinish(summary) {
     recordRhythmBest(summary);
     rememberRhythmTiming(summary);
   }
-  sound.play(endSound(summary, newBest));
+  const ending = endSound(summary, newBest);
+  sound.play(ending);
   bgm.duck(true);
   ui.elements.hiddenInput.blur();
   renderStats();
@@ -497,6 +498,7 @@ function handleFinish(summary) {
       languageKey: settings.languageKey,
       playerName: preferences.get('name', ''),
       ...heading,
+      mood: ending === 'defeat' ? 'lose' : 'win',
       ...(newBest ? { subtitle: `🏆 개인 최고 기록${heading.subtitle ? ` · ${heading.subtitle}` : ''}` } : {})
     }
   };
