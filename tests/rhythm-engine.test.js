@@ -30,9 +30,11 @@ test('곡 목록: 선율·화음이 있고, 곡을 모르면 기본 곡, 음 이
   assert.equal(new Set(RHYTHM_SONGS.map(song => song.id)).size, RHYTHM_SONGS.length);
   for (const song of RHYTHM_SONGS) {
     assert.ok(song.melody.length > 20, song.id);
-    assert.ok(song.chords.length > 0 || song.accompaniment?.length > 0, `${song.id} 반주`);
+    assert.ok(song.chords.length > 0 || song.accompaniment?.length > 0 || song.audio?.url, `${song.id} 반주`);
     assert.ok(song.source, `${song.id} 출처`);
-    if (song.license) assert.match(song.license, /^(Public Domain|CC BY \d)/, `${song.id}: 동일조건(SA)·비상업 라이선스 파일은 쓰지 않는다`);
+    // AI 음원은 AI 표시와 음원 파일이 있어야 한다. 그 밖의 곡은 퍼블릭 도메인·CC BY만
+    if (song.ai) assert.ok(song.audio?.url && /AI/.test(song.license), `${song.id}: AI 곡 표시`);
+    else if (song.license) assert.match(song.license, /^(Public Domain|CC BY \d)/, `${song.id}: 동일조건(SA)·비상업 라이선스 파일은 쓰지 않는다`);
     assert.ok(song.totalBeats > 0 && song.bpm >= 60 && song.bpm <= 180, song.id);
     for (let index = 1; index < song.melody.length; index++) assert.ok(song.melody[index].beat >= song.melody[index - 1].beat, `${song.id} 선율 시각순`);
   }
