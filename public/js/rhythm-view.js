@@ -98,6 +98,14 @@ export class RhythmRenderer {
       flash.amount = 0.8;
       flash.color = JUDGEMENT_STYLE.miss.color;
       this.popup = { ...JUDGEMENT_STYLE.miss, at: performance.now(), combo: 0, delta: null };
+    } else if (type === 'hold') {
+      // 막대 끝: 성공이면 레인 색 불꽃, 끊기면 BREAK
+      const flash = this.laneFlash[payload.lane];
+      const color = payload.success ? RHYTHM_LANES[payload.lane].color : JUDGEMENT_STYLE.miss.color;
+      flash.amount = 1;
+      flash.color = color;
+      this.popup = { label: payload.success ? 'HOLD' : 'BREAK', color, at: performance.now(), combo: payload.combo, delta: null };
+      if (payload.success) this.particles.burst(this.laneCenter(payload.lane, layout), layout.judgeY, { color, count: 20, speed: 240, life: 0.5, gravity: 260 });
     } else if (type === 'word') {
       this.wordFlash = { word: payload.word, clean: payload.clean, bonus: payload.bonus, at: performance.now() };
       if (payload.clean) this.particles.burst(layout.width / 2, HUD_HEIGHT + WORD_AREA / 2, { color: '#ffe066', count: 30, speed: 260, life: 0.7 });
@@ -179,8 +187,17 @@ export class RhythmRenderer {
     // 노트: 늦게 닿는 것부터 그려 가까운(아래) 노트가 위에 오게
     const head = engine.headNote();
     const notes = engine.visibleNotes().sort((first, second) => second.hitTime - first.hitTime);
+    // 롱노트 막대: 머리 노트보다 먼저(뒤에) 그린다
+    for (const note of notes) {
+      if (note.holdEnd) this.drawHoldBody(context, note, engine, layout);
+    }
     for (const note of notes) {
       const x = this.laneCenter(note.lane, layout);
+      if (note.holdState === 'holding') {
+        // 누르고 있는 동안 머리는 판정선에 붙어 빛난다
+        this.drawNote(context, note, x, judgeY, radius, true, accent);
+        continue;
+      }
       if (note.state === 'pending') {
         const y = this.noteY(note.hitTime, engine, layout);
         const alpha = this.noteAlpha(y, layout, engine.options ?? {});
@@ -231,6 +248,48 @@ export class RhythmRenderer {
     if (isHead && accent) {
       context.fillStyle = 'rgba(255, 255, 255, 0.06)';
     }
+  }
+
+  // 롱노트 몸통: 머리(판정 전엔 떨어지는 위치, 누르는 중엔 판정선)부터 꼬리까지 위아래가 둥근 막대.
+  // 누르는 중엔 밝게 흐르고, 끊기거나 놓치면 회색으로 흐려진다. 화면 밖은 잘라 그린다
+  drawHoldBody(context, note, engine, layout) {
+    const { judgeY, topY, radius } = layout;
+    const holding = note.holdState === 'holding';
+    const finished = note.holdState === 'done' || note.holdState === 'broken';
+    const headY = holding || finished ? judgeY : this.noteY(note.hitTime, engine, layout);
+    const tailY = Math.max(topY - radius, this.noteY(note.holdEnd, engine, layout));
+    if (headY - tailY < 2) return;
+    const alphaBase = note.state === 'missed' || note.holdState === 'broken' ? 0.35 : 1;
+    const fade = finished ? Math.max(0, 1 - (engine.gameTime - note.holdResolvedAt) / 0.4) : 1;
+    const visible = this.noteAlpha(headY, layout, engine.options ?? {});
+    const alpha = alphaBase * fade * (holding ? 1 : Math.max(0.25, visible));
+    if (alpha <= 0) return;
+    const x = this.laneCenter(note.lane, layout);
+    const halfWidth = radius * 0.62;
+    const laneColor = note.state === 'missed' || note.holdState === 'broken' ? '#5a6275' : RHYTHM_LANES[note.lane].color;
+    context.save();
+    context.globalAlpha = alpha;
+    const body = context.createLinearGradient(x - halfWidth, 0, x + halfWidth, 0);
+    body.addColorStop(0, hexAlpha(laneColor, holding ? 0.55 : 0.35));
+    body.addColorStop(0.5, hexAlpha(laneColor, holding ? 0.95 : 0.7));
+    body.addColorStop(1, hexAlpha(laneColor, holding ? 0.55 : 0.35));
+    context.fillStyle = body;
+    if (holding) {
+      context.shadowColor = laneColor;
+      context.shadowBlur = 18;
+    }
+    roundedBar(context, x - halfWidth, tailY - halfWidth, halfWidth * 2, headY - tailY + halfWidth * 2, halfWidth);
+    context.fill();
+    context.shadowBlur = 0;
+    context.lineWidth = 2;
+    context.strokeStyle = hexAlpha('#ffffff', holding ? 0.85 : 0.4);
+    context.stroke();
+    // 꼬리 끝 둥근 마개: 여기서 키를 뗀다
+    context.fillStyle = hexAlpha('#ffffff', holding ? 0.9 : 0.6);
+    context.beginPath();
+    context.arc(x, tailY, halfWidth * 0.55, 0, Math.PI * 2);
+    context.fill();
+    context.restore();
   }
 
   // 판정된 노트: 판정선에서 판정 색 고리가 퍼지며 사라진다
@@ -407,4 +466,16 @@ export class RhythmRenderer {
 function hexAlpha(hex, alpha) {
   const value = Number.parseInt(hex.slice(1), 16);
   return `rgba(${value >> 16 & 255}, ${value >> 8 & 255}, ${value & 255}, ${Math.max(0, Math.min(1, alpha)).toFixed(3)})`;
+}
+
+// 위아래가 반원인 세로 막대(캡슐). 너비보다 짧으면 원
+function roundedBar(context, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  context.beginPath();
+  context.moveTo(x + r, y);
+  context.arcTo(x + width, y, x + width, y + height, r);
+  context.arcTo(x + width, y + height, x, y + height, r);
+  context.arcTo(x, y + height, x, y, r);
+  context.arcTo(x, y, x + width, y, r);
+  context.closePath();
 }

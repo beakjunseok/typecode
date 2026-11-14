@@ -291,3 +291,54 @@ test('원이 오기 전(판정 창보다 이르게) 맞는 키를 누르면 GOOD
   assert.equal(result.judgement, 'good');
   assert.equal(engine.combo, 1);
 });
+
+test('롱노트: 길게 끄는 음은 막대가 되고, 꼬리까지 누르면 성공·일찍 떼면 끊김·떼는 신호가 없으면 자동 성공', () => {
+  const engine = create({ songId: 'canon', difficulty: 'normal' });
+  assert.ok(engine.holdCount > 0 && engine.holdCount <= Math.ceil(engine.notes.length * 0.25));
+  const state = { ms: 0 };
+  engine.input('x', state.ms);
+  const holds = engine.notes.filter(note => note.holdEnd);
+  for (const note of holds) {
+    assert.ok(note.holdEnd - note.hitTime >= 0.45);
+    const next = engine.notes[engine.notes.indexOf(note) + 1];
+    if (next) assert.ok(next.hitTime - note.holdEnd >= 0.2, '막대 끝과 다음 노트 사이 여유');
+  }
+  // 첫 막대 전까지는 자동으로 맞혀 둔다
+  const [first, second, third] = holds;
+  const playUntil = target => {
+    for (const note of engine.notes) {
+      if (note === target) break;
+      if (note.state !== 'pending') continue;
+      advanceTo(engine, note.hitTime, state);
+      engine.input(note.character, state.ms);
+      if (note.holdEnd) advanceTo(engine, note.holdEnd + 0.01, state);
+    }
+  };
+  playUntil(first);
+  advanceTo(engine, first.hitTime, state);
+  engine.input(first.character, state.ms);
+  assert.equal(first.holdState, 'holding');
+  assert.equal(engine.input(first.character, state.ms).reason, 'holding', '키 자동 반복은 무시');
+  const comboBefore = engine.combo;
+  advanceTo(engine, first.hitTime + 0.1, state);
+  assert.equal(engine.release([first.character], state.ms).held, false);
+  assert.equal(first.holdState, 'broken');
+  assert.equal(engine.combo, 0);
+  assert.ok(comboBefore > 0);
+
+  playUntil(second);
+  advanceTo(engine, second.hitTime, state);
+  engine.input(second.character, state.ms);
+  advanceTo(engine, second.holdEnd - 0.05, state);
+  assert.equal(engine.release([second.character.toLowerCase()], state.ms).held, true, '꼬리 바로 앞에서 떼면 성공');
+  assert.equal(second.holdState, 'done');
+
+  if (third) {
+    playUntil(third);
+    advanceTo(engine, third.hitTime, state);
+    engine.input(third.character, state.ms);
+    advanceTo(engine, third.holdEnd + 0.05, state);
+    assert.equal(third.holdState, 'done', '떼는 신호 없이 꼬리를 지나면 자동 성공');
+  }
+  assert.equal(engine.holdStats.broken, 1);
+});
