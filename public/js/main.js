@@ -491,8 +491,6 @@ function handleFinish(summary) {
   } catch (error) {
     console.error(error);
   }
-  const pointsStat = document.getElementById('pointsValue');
-  if (pointsStat) pointsStat.textContent = `+${earned}P`;
   run.lastResult = {
     summary,
     options: {
@@ -518,25 +516,12 @@ function showLastResult() {
   }
 }
 
-// 이번 판에서 받을 뽑기 포인트(판이 끝나면 실제 적립값과 같다). 자동 연주는 0
-function renderPointsStat(engine, snapshot) {
-  const element = document.getElementById('pointsValue');
-  if (!element) return;
-  const points = engine.options?.autoPlay ? 0 : pointsForGame({
-    correctKeystrokes: engine.correctKeystrokes ?? snapshot.correctKeystrokes,
-    accuracy: snapshot.accuracy,
-    maxCombo: engine.maxCombo ?? snapshot.maxCombo
-  });
-  element.textContent = `+${points}P`;
-}
-
 // ---------- 진행 ----------
 function renderStats() {
   const engine = run.engine;
   if (!engine) return;
   const snapshot = isArcade() ? engine.snapshot() : engine.snapshot(now());
   ui.renderStats(snapshot);
-  renderPointsStat(engine, snapshot);
   // 콤보가 오를수록 키보드 LED(전설 스킨)가 빨라지고 밝아진다: 30콤보(×2 단계)에서 최대
   keyboard.setEnergy((snapshot.combo ?? 0) / 30);
 }
@@ -1584,6 +1569,15 @@ const collection = createKeyboardCollection({
     if (run.engine?.status !== 'finished' && !isPvp()) focusTypingArea();
   }
 });
+
+// 오른쪽 위 보유 포인트: 적립·뽑기로 바뀔 때마다 갱신, 누르면 뽑기 창
+function renderPointsTotal(points = collection.points()) {
+  const element = document.getElementById('pointsTotal');
+  if (element) element.textContent = `${Number(points || 0).toLocaleString('ko-KR')}P`;
+}
+document.addEventListener('typecode:points', event => renderPointsTotal(event.detail?.points));
+document.getElementById('pointsTotal')?.addEventListener('click', () => document.getElementById('gachaButton')?.click());
+renderPointsTotal();
 
 applyInviteLink();
 bindSettings();
