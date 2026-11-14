@@ -201,7 +201,9 @@ export function createUi(root = document) {
   }
 
   // saveable: false면 랭킹 등록 폼을 숨긴다(PvP 결과)
-  function showResult(summary, { languageKey, playerName, title = 'BUILD FINISHED', subtitle = null, saveable = true, unsavedNote = null }) {
+  // mood: 'win'이면 축하 그림, 'lose'면 좌절 그림을 결과창 위에 깐다
+  function showResult(summary, { languageKey, playerName, title = 'BUILD FINISHED', subtitle = null, saveable = true, unsavedNote = null, mood = 'win' }) {
+    elements.resultModal.dataset.mood = mood === 'lose' ? 'lose' : 'win';
     elements.saveForm.querySelector('label').hidden = !saveable;
     elements.playerName.hidden = !saveable;
     elements.saveButton.hidden = !saveable;

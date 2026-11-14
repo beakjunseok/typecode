@@ -4,7 +4,7 @@ import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
 import { BATTERY_RULES } from './battery-engine.js';
 import { MASCOT_PALETTES, createRig, reactRig, updateRig, drawPhoneMascot, drawDrainBot } from './battery-characters.js';
-import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom } from './game-view.js';
+import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady } from './game-view.js';
 
 const BEAM_SECONDS = 0.35;
 const isPvp = engine => engine.mode === 'battery-pvp';
@@ -12,6 +12,10 @@ const rivalLabel = engine => engine.rivalName ?? '방전봇';
 const wallSeconds = () => performance.now() / 1000;
 
 const HUD_HEIGHT = 34;
+// 달밤 바다 도시 그림(AI 생성, public/art/battery-stage.webp). 그림 속 수평선 높이(세로 비율)와 달 위치(가로 비율)
+const STAGE_ART = loadArt('/art/battery-stage.webp');
+const ART_HORIZON = 0.726;
+const ART_FOCUS_X = 0.6;
 const SEA_HEIGHT = 64;
 const SIDE_STYLE = {
   me: { top: '#7dffc4', bottom: '#169a62', glow: '#4df0a6', label: '#4df0a6' },
@@ -164,6 +168,7 @@ export class BatteryRenderer {
 
   // 밤하늘: 위는 깊은 남색, 수평선 쪽은 도시 불빛이 번진 따뜻한 남보라. 별·초승달·통신탑 실루엣
   drawSky(context, width, engine) {
+    if (this.drawSkyArt(context, width, engine)) return;
     const sky = context.createLinearGradient(0, HUD_HEIGHT, 0, this.waterY);
     sky.addColorStop(0, SCENE.skyTop);
     sky.addColorStop(0.6, SCENE.skyMid);
@@ -178,6 +183,31 @@ export class BatteryRenderer {
     this.drawStars(context, width, engine);
     this.drawMoon(context, width);
     this.drawSkyline(context, width, engine);
+  }
+
+  // 그림 속 수평선을 화면 수면(waterY)에 맞춰 깐다. 높이를 기준으로 키워 세로 화면에서는 달 쪽을 남기고 좌우를 자른다.
+  // 그림이 아직 없으면 false → 원래 그리던 하늘을 쓴다
+  drawSkyArt(context, width, engine) {
+    const image = STAGE_ART;
+    if (!isArtReady(image)) return false;
+    const skyHeight = this.waterY;
+    const scale = Math.max(width / image.naturalWidth, skyHeight / (image.naturalHeight * ART_HORIZON));
+    const drawWidth = image.naturalWidth * scale;
+    const drawHeight = image.naturalHeight * scale;
+    const left = Math.min(0, Math.max(width - drawWidth, width / 2 - drawWidth * ART_FOCUS_X));
+    context.fillStyle = SCENE.skyTop;
+    context.fillRect(0, 0, width, this.waterY);
+    context.drawImage(image, left, this.waterY - drawHeight * ART_HORIZON, drawWidth, drawHeight);
+    // 위쪽 HUD·충전선 글씨가 묻히지 않게 위를 살짝 어둡게
+    const shade = context.createLinearGradient(0, 0, 0, this.waterY);
+    shade.addColorStop(0, 'rgba(6, 9, 22, 0.55)');
+    shade.addColorStop(0.5, 'rgba(6, 9, 22, 0.15)');
+    shade.addColorStop(1, 'rgba(6, 9, 22, 0)');
+    context.fillStyle = shade;
+    context.fillRect(0, 0, width, this.waterY);
+    const { towers } = this.skylineLayout(width);
+    for (const tower of towers) this.drawCellTower(context, tower, this.waterY + 2, engine);
+    return true;
   }
 
   // 별 48개: 위치는 고정, 크기 1~2px, 각자 다른 박자로 깜빡인다. O(48)
@@ -485,7 +515,8 @@ export class BatteryRenderer {
     context.lineTo(width, height);
     context.lineTo(0, height);
     context.closePath();
-    context.fillStyle = SCENE.seaBack;
+    // 그림이 있으면 그림 속 물결·달빛이 비치도록 뒤 물결을 반투명하게
+    context.fillStyle = isArtReady(STAGE_ART) ? 'rgba(15, 26, 62, 0.5)' : SCENE.seaBack;
     context.fill();
 
     context.beginPath();
@@ -494,7 +525,7 @@ export class BatteryRenderer {
     context.lineTo(0, height);
     context.closePath();
     const sea = context.createLinearGradient(0, this.waterY, 0, height);
-    sea.addColorStop(0, danger ? `rgba(${Math.round(22 + 100 * pulse)}, ${Math.round(48 - 18 * pulse)}, ${Math.round(106 - 48 * pulse)}, 0.94)` : 'rgba(22, 48, 106, 0.94)');
+    sea.addColorStop(0, danger ? `rgba(${Math.round(22 + 100 * pulse)}, ${Math.round(48 - 18 * pulse)}, ${Math.round(106 - 48 * pulse)}, 0.94)` : (isArtReady(STAGE_ART) ? 'rgba(22, 48, 106, 0.72)' : 'rgba(22, 48, 106, 0.94)'));
     sea.addColorStop(1, 'rgba(6, 10, 25, 0.99)');
     context.fillStyle = sea;
     context.fill();

@@ -47,6 +47,28 @@ export function setupCanvas(canvas) {
   return surface;
 }
 
+// 배경 그림을 한 번만 불러 둔다(브라우저가 아니면 null). 그릴 때는 isArtReady로 다 받았는지 확인한다
+export function loadArt(source) {
+  if (typeof Image === 'undefined') return null;
+  return Object.assign(new Image(), { src: source, decoding: 'async' });
+}
+
+export const isArtReady = image => Boolean(image?.complete && image.naturalWidth);
+
+// 그림이 상자를 빈틈없이 덮도록 비율을 지켜 키운다. focusX/focusY(0~1)는 잘릴 때 남길 기준점.
+// 그림이 아직 없으면 아무것도 그리지 않고 false를 돌려준다(호출한 쪽이 그리던 배경을 그대로 쓴다)
+export function drawCoverArt(context, image, { x = 0, y = 0, width, height, focusX = 0.5, focusY = 0.5, alpha = 1 }) {
+  if (!isArtReady(image) || !(width > 0) || !(height > 0)) return false;
+  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+  const drawWidth = image.naturalWidth * scale;
+  const drawHeight = image.naturalHeight * scale;
+  context.save();
+  context.globalAlpha = alpha;
+  context.drawImage(image, x + (width - drawWidth) * focusX, y + (height - drawHeight) * focusY, drawWidth, drawHeight);
+  context.restore();
+  return true;
+}
+
 export function roundedRect(context, x, y, width, height, radius) {
   context.beginPath();
   context.moveTo(x + radius, y);
