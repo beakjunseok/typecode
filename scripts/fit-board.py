@@ -272,8 +272,17 @@ def main(skin_id, image_path, keys_area=None, wide=False):
     board = fit_global(edges, keys, guess)
     # 1순위: 키캡 덩어리를 직접 찾아 배열과 짝짓기. 안 맞으면 템플릿 정렬 방식으로
     import cv2
-    detected = detect_keys.match_layout(detect_keys.detect_rows(cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)),
-                                        [[name for name, _ in row] for row in board_layout.ROWS])
+    layout_names = [[name for name, _ in row] for row in board_layout.ROWS]
+    bgr = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
+    rows_found = detect_keys.detect_rows(bgr)
+    detected = detect_keys.match_layout(rows_found, layout_names)
+    if not detected:
+        repaired = detect_keys.repair_rows(bgr, rows_found, layout_names)
+        if repaired is not None:
+            detected = detect_keys.match_layout(detect_keys.detect_rows(repaired), layout_names)
+            if detected:
+                print('줄마다 빠진 글자 키 1개를 채워 고침')
+                image = Image.fromarray(cv2.cvtColor(repaired, cv2.COLOR_BGR2RGB))
     if detected:
         print('키캡 직접 찾기: 성공')
         boxes = {name: tuple(float(v) for v in box) for name, box in detected.items()}

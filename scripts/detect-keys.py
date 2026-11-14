@@ -80,17 +80,77 @@ def match_layout(rows, layout_rows):
         return None
     singles = [b[2] - b[0] for row in rows[:4] for b in row]
     pitch = float(np.median([row[i + 1][0] - row[i][0] for row in rows[:4] for i in range(len(row) - 1)])) if singles else 0
+    rows4 = [fill_gaps(row, pitch) for row in rows[:4]]
+    # 줄 양 끝 키(Esc·Tab·Shift 등 색이 다른 키)를 못 찾았으면, 다른 줄들이 닿는 키보드 좌우 끝까지 한 키로 채운다
+    edge_left = min(row[0][0] for row in rows4)
+    edge_right = max(row[-1][2] for row in rows4)
+    gap = max(2.0, pitch - float(np.median([b[2] - b[0] for row in rows4 for b in row if b[2] - b[0] < pitch])))
     result = {}
-    for row, names in zip(rows[:4], layout_rows[:4]):
-        row = fill_gaps(row, pitch)
+    for row, names in zip(rows4, layout_rows[:4]):
+        row = list(row)
+        # 빛 번짐 등으로 생긴 작은 가짜 조각은 뺀다
+        single = float(np.median([b[2] - b[0] for b in row]))
+        while len(row) > len(names):
+            smallest = min(row, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+            if smallest[2] - smallest[0] > single * 0.75:
+                break
+            row.remove(smallest)
+        if len(row) < len(names) and row[0][0] - edge_left > pitch * 0.5:
+            row.insert(0, (edge_left, row[0][1], row[0][0] - gap, row[0][3]))
+        if len(row) < len(names) and edge_right - row[-1][2] > pitch * 0.5:
+            row.append((row[-1][2] + gap, row[-1][1], edge_right, row[-1][3]))
         if len(row) != len(names):
             return None
         result.update(dict(zip(names, row)))
-    space = max(rows[4], key=lambda b: b[2] - b[0])
+    bottom = sorted(rows[4], key=lambda b: b[0])
+    space = max(bottom, key=lambda b: b[2] - b[0])
     if space[2] - space[0] < pitch * 3:
         return None
+    # 스페이스바가 조각으로 잡히면 양옆 키 바로 앞까지 넓힌다
+    position = bottom.index(space)
+    left = bottom[position - 1][2] + gap if position > 0 else space[0]
+    right = bottom[position + 1][0] - gap if position + 1 < len(bottom) else space[2]
+    space = (min(space[0], left), space[1], max(space[2], right), space[3])
     result[layout_rows[4][0]] = space
     return result
+
+
+def stretch_strip(strip, width):
+    """가로 3분할 크기 바꾸기: 양 끝(둥근 모서리)은 그대로 두고 가운데만 늘이거나 줄인다."""
+    height, current = strip.shape[:2]
+    edge = max(2, min(int(current * 0.3), int(width * 0.45)))
+    middle = max(1, width - 2 * edge)
+    center = cv2.resize(strip[:, edge:current - edge], (middle, height), interpolation=cv2.INTER_AREA)
+    return np.concatenate([strip[:, :edge], center, strip[:, current - edge:]], axis=1)[:, :width]
+
+
+def repair_rows(image, rows, layout_rows):
+    """AI가 줄마다 글자 키를 하나 덜 그린 그림(13·13·12·11개)을 고친다: 줄의 마지막 글자 키를 하나 복사해 끼우고,
+    오른쪽 끝 기능키(Backspace·\\·Enter·Shift)를 그만큼 줄여 줄 길이를 맞춘다. 고칠 게 없거나 못 고치면 None."""
+    if len(rows) < 5:
+        return None
+    pitch = float(np.median([row[i + 1][0] - row[i][0] for row in rows[:4] for i in range(len(row) - 1)]))
+    repaired, changed = image.copy(), False
+    centers = [(row[0][1] + row[0][3]) / 2 for row in rows[:5]]
+    for index, (row, names) in enumerate(zip(rows[:4], layout_rows[:4])):
+        row = fill_gaps(row, pitch)
+        missing = len(names) - len(row)
+        if missing == 0:
+            continue
+        if missing != 1 or len(row) < 3:
+            return None
+        half_gap = (row[-1][0] - row[-2][2]) / 2
+        row_gap = (centers[1] - centers[0]) / 2
+        top = int(max(0, centers[index] - row_gap))
+        bottom = int(min(image.shape[0], centers[index] + row_gap))
+        row_left, row_right = int(row[0][0] - half_gap), int(row[-1][2] + half_gap)
+        cell_left, cell_right = int(row[-2][0] - half_gap), int(row[-2][2] + half_gap)
+        band = image[top:bottom]
+        # 마지막 글자 키 칸을 하나 더 끼운 줄을 원래 줄 길이로 고르게 줄인다(약 7%)
+        widened = np.concatenate([band[:, row_left:cell_right], band[:, cell_left:cell_right], band[:, cell_right:row_right]], axis=1)
+        repaired[top:bottom, row_left:row_right] = cv2.resize(widened, (row_right - row_left, bottom - top), interpolation=cv2.INTER_AREA)
+        changed = True
+    return repaired if changed else None
 
 
 if __name__ == '__main__':
