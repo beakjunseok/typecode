@@ -14,7 +14,11 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('board_layout', ROOT / 'scripts' / 'board-layout.py')
 board_layout = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(board_layout)
+detect_spec = importlib.util.spec_from_file_location('detect_keys', ROOT / 'scripts' / 'detect-keys.py')
+detect_keys = importlib.util.module_from_spec(detect_spec)
+detect_spec.loader.exec_module(detect_keys)
 TEMPLATE_CANVAS, TEMPLATE_BOARD = 2048, (82, 674, 1884, 699)
+MISMATCHES = []
 MODULE_PATH = ROOT / 'public' / 'js' / 'skin-boards.js'
 
 
@@ -143,6 +147,8 @@ def refine_keys(image, boxes, board):
         runs = [(a + row_left, b + row_left) for a, b in runs_below(profile, (low + high) / 2, int(unit_x * 0.35))]
         if not runs:
             continue
+        if len(names) > 1 and len(runs) != len(names):
+            MISMATCHES.append(f'줄 {round((boxes[names[0]][1] - board[1]) / unit_y)}: 그림 {len(runs)}개 / 배열 {len(names)}개')
         # 그림의 키캡 수가 템플릿과 같으면 순서대로, 한 개(스페이스)면 가장 넓은 구간, 아니면 겹침으로 짝짓는다
         owners = {}
         if len(names) == 1:
@@ -150,14 +156,21 @@ def refine_keys(image, boxes, board):
             owners = {}
         elif len(runs) == len(names):
             owners = {index: [name] for index, name in enumerate(names)}
-        for name in ([] if owners else names):
+        else:
+            # 색이 다른 포인트 키 때문에 구간이 어긋나면, 줄 전체 범위(첫 구간 시작~끝 구간 끝)를 배열 너비 비율로 나눈다
+            row_start = min(a for a, b in runs if b > boxes[names[0]][0] - unit_x * 0.6)
+            row_end = max(b for a, b in runs if a < boxes[names[-1]][2] + unit_x * 0.6)
+            spans_override = split_run((row_start, row_end), names, boxes)
+        if len(names) > 1 and len(runs) != len(names):
+            owners = {}
+        for name in ([] if owners or len(names) == 1 or len(runs) != len(names) else names):
             left, _, right, _ = boxes[name]
             overlap = [max(0, min(right, b) - max(left, a)) for a, b in runs]
             best = int(np.argmax(overlap))
             if overlap[best] > (right - left) * 0.25:
                 owners.setdefault(best, []).append(name)
         if len(names) != 1:
-            spans = {}
+            spans = spans_override if len(runs) != len(names) else {}
         for run_index, owned in owners.items():
             spans.update(split_run(runs[run_index], owned, boxes))
         # 위·아래: 이 줄 키캡들의 가로 범위에서 같은 방식
@@ -187,6 +200,49 @@ def legend_tone(image, boxes):
     return 'dark' if float(np.median(centers)) > 150 else 'light'
 
 
+def normalize_to_pitch(boxes, template_boxes):
+    """찾은 구간은 키캡 윗면만 잡히기 쉬워 실제 키보다 작다. 키 가운데는 찾은 값을 쓰고,
+    크기는 그림에서 잰 키 간격(1키 너비·줄 간격)으로 다시 정해 키캡 전체를 덮게 한다."""
+    rows = {}
+    for name, box in boxes.items():
+        rows.setdefault(round(template_boxes[name][1]), []).append(name)
+    centers_x = []
+    for names in rows.values():
+        names.sort(key=lambda name: boxes[name][0])
+        singles = [name for name in names if len(name) == 1]
+        for first, second in zip(singles, singles[1:]):
+            if names.index(second) - names.index(first) == 1:
+                centers_x.append(((boxes[second][0] + boxes[second][2]) - (boxes[first][0] + boxes[first][2])) / 2)
+    row_centers = sorted((sum(boxes[name][1] + boxes[name][3] for name in names) / (2 * len(names))) for names in rows.values())
+    if len(centers_x) < 5 or len(row_centers) < 3:
+        return boxes
+    pitch_x = float(np.median(centers_x))
+    pitch_y = float(np.median(np.diff(row_centers)))
+    template_unit = float(np.median([template_boxes[name][2] - template_boxes[name][0] for name in boxes if len(name) == 1]))
+    result = {}
+    for name, (left, top, right, bottom) in boxes.items():
+        center_x, center_y = (left + right) / 2, (top + bottom) / 2
+        units = (template_boxes[name][2] - template_boxes[name][0]) / template_unit
+        if name == 'Space':
+            half_w = (right - left) / 2 + pitch_x * 0.06
+        else:
+            half_w = (units * pitch_x - pitch_x * 0.08) / 2 if units > 1.05 else pitch_x * 0.46
+        half_h = pitch_y * 0.46
+        result[name] = (center_x - half_w, center_y - half_h, center_x + half_w, center_y + half_h)
+    return result
+
+
+def light_keys(image, boxes):
+    """윗면이 밝은 키(글자를 진하게 써야 할 키) 목록."""
+    gray = np.asarray(image.convert('L'), dtype=np.float32)
+    result = []
+    for name, (l, t, r, b) in boxes.items():
+        patch = gray[int(t + (b - t) * 0.3):int(b - (b - t) * 0.3), int(l + (r - l) * 0.3):int(r - (r - l) * 0.3)]
+        if patch.size and float(np.median(patch)) > 150:
+            result.append(name)
+    return sorted(result)
+
+
 def write_module(entries):
     lines = ['// 자동 생성: scripts/fit-board.py. 정면 일러스트 키보드 스킨의 그림 경로·비율·키 좌표(그림 대비 0~1 [x, y, w, h]).',
              f'export const SKIN_BOARDS = Object.freeze({json.dumps(entries, ensure_ascii=False, indent=2)});', '']
@@ -201,15 +257,40 @@ def load_entries():
     return json.loads(text[start:end])
 
 
-def main(skin_id, image_path):
+def main(skin_id, image_path, keys_area=None, wide=False):
     image = Image.open(image_path).convert('RGB')
     ratio, keys = board_layout.unit_layout()
     edges = edge_map(image)
-    guess = guess_board(edges, ratio)
+    if keys_area:
+        # 손으로 잡은 키 영역(x1,y1,x2,y2: 첫 키 왼쪽 위 ~ 스페이스 줄 오른쪽 아래)에서 케이스 테두리만큼 넓힌다
+        x1, y1, x2, y2 = keys_area
+        unit_x, unit_y = (x2 - x1) / board_layout.UNITS_W, (y2 - y1) / board_layout.UNITS_H
+        guess = (x1 - unit_x * board_layout.BEZEL_U, y1 - unit_y * board_layout.BEZEL_U,
+                 (x2 - x1) + 2 * unit_x * board_layout.BEZEL_U, (y2 - y1) + 2 * unit_y * board_layout.BEZEL_U)
+    else:
+        guess = guess_board(edges, ratio)
     board = fit_global(edges, keys, guess)
-    boxes = refine_keys(image, key_boxes(board, keys), board)
+    # 1순위: 키캡 덩어리를 직접 찾아 배열과 짝짓기. 안 맞으면 템플릿 정렬 방식으로
+    import cv2
+    detected = detect_keys.match_layout(detect_keys.detect_rows(cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)),
+                                        [[name for name, _ in row] for row in board_layout.ROWS])
+    if detected:
+        print('키캡 직접 찾기: 성공')
+        boxes = {name: tuple(float(v) for v in box) for name, box in detected.items()}
+        left = min(b[0] for b in boxes.values()); right = max(b[2] for b in boxes.values())
+        top = min(b[1] for b in boxes.values()); bottom = max(b[3] for b in boxes.values())
+        unit_x = (right - left) / board_layout.UNITS_W; unit_y = (bottom - top) / board_layout.UNITS_H
+        board = (left - unit_x * board_layout.BEZEL_U, top - unit_y * board_layout.BEZEL_U,
+                 right - left + 2 * unit_x * board_layout.BEZEL_U, bottom - top + 2 * unit_y * board_layout.BEZEL_U)
+        # 덩어리는 키캡 윗면이라 옆벽까지 덮도록 조금 넓힌다
+        boxes = {name: (l - unit_x * 0.05, t - unit_y * 0.05, r + unit_x * 0.05, b + unit_y * 0.08) for name, (l, t, r, b) in boxes.items()}
+    else:
+        print('키캡 직접 찾기: 실패 → 템플릿 정렬')
+        template = key_boxes(board, keys)
+        boxes = normalize_to_pitch(refine_keys(image, template, board), template)
     # 그림은 보드보다 살짝 넓게 잘라 케이스 빛·장식이 남게 한다
-    margin_x, margin_y = board[2] * 0.03, board[3] * 0.08
+    # 영웅·전설은 케이스 밖 오라·입자까지 보이게 넓게 자른다
+    margin_x, margin_y = (board[2] * 0.07, board[3] * 0.2) if wide else (board[2] * 0.03, board[3] * 0.08)
     crop = (max(0, board[0] - margin_x), max(0, board[1] - margin_y),
             min(image.width, board[0] + board[2] + margin_x), min(image.height, board[1] + board[3] + margin_y))
     crop_w, crop_h = crop[2] - crop[0], crop[3] - crop[1]
@@ -222,7 +303,7 @@ def main(skin_id, image_path):
     normalized = {name: [round((l - crop[0]) / crop_w, 5), round((t - crop[1]) / crop_h, 5), round((r - l) / crop_w, 5), round((b - t) / crop_h, 5)]
                   for name, (l, t, r, b) in boxes.items()}
     entries = load_entries()
-    entries[skin_id] = {'image': f'/skins/board/{skin_id}.webp', 'ratio': round(crop_w / crop_h, 5), 'legend': legend_tone(image, boxes), 'keys': normalized}
+    entries[skin_id] = {'image': f'/skins/board/{skin_id}.webp', 'ratio': round(crop_w / crop_h, 5), 'scale': round(crop_w / board[2], 4), 'legend': legend_tone(image, boxes), 'lightKeys': light_keys(image, boxes), 'keys': normalized}
     write_module(entries)
     preview = cropped.copy()
     from PIL import ImageDraw
@@ -230,10 +311,13 @@ def main(skin_id, image_path):
     for x, y, w, h in normalized.values():
         draw.rectangle([x * preview.width, y * preview.height, (x + w) * preview.width, (y + h) * preview.height], outline='red', width=2)
     preview.save(f'/tmp/fit-{skin_id}.png')
+    print('키 수 불일치: ' + ('; '.join(MISMATCHES) if MISMATCHES else '없음'))
     print(f'{skin_id}: board={tuple(round(v) for v in board)} crop={cropped.size}')
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        sys.exit('사용: python3 scripts/fit-board.py <skin-id> <image-path>')
-    main(sys.argv[1], sys.argv[2])
+    arguments = [value for value in sys.argv[1:] if value != '--wide']
+    if len(arguments) not in (2, 3):
+        sys.exit('사용: python3 scripts/fit-board.py <skin-id> <image-path> [x1,y1,x2,y2 키 영역] [--wide]')
+    area = tuple(float(v) for v in arguments[2].split(',')) if len(arguments) == 3 else None
+    main(arguments[0], arguments[1], area, '--wide' in sys.argv)

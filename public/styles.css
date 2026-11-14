@@ -1109,7 +1109,7 @@ body[data-mode='battery'] #arcadeOverlay { --mode-art: url('/art/mode-battery.we
 
 /* ===== 정면 일러스트 키보드(SKIN_BOARDS): 그림 한 장 = 키보드. 키는 같은 그림의 제 자리 조각 ===== */
 .kb-stage .keyboard.art-board {
-  display: block; width: calc(var(--unit) * 16.6 + 24px); max-width: calc(100vw - 32px); aspect-ratio: var(--board-ratio); padding: 0;
+  display: block; width: calc(var(--unit) * 16 * var(--board-scale, 1.04) + 24px); max-width: calc(100vw - 32px); aspect-ratio: var(--board-ratio); padding: 0;
   background: var(--board) 0 0 / 100% 100% no-repeat !important; border: 0 !important; border-radius: 0;
   box-shadow: none !important; filter: drop-shadow(0 18px 26px rgba(0, 0, 0, 0.6));
 }
@@ -1142,6 +1142,6 @@ body[data-mode='battery'] #arcadeOverlay { --mode-art: url('/art/mode-battery.we
 .kb-float:has(.art-board) .kb-deco { display: none; }
 .kb-stage:has(.art-board) { padding-top: 0; }
 @media (prefers-reduced-motion: reduce) { .kb-stage .keyboard.art-board .key.next { animation: none; } }
-.keyboard.art-board[data-legend='dark'] { --art-legend: #2b2134; --art-legend-dim: rgba(43, 33, 52, 0.62); --art-legend-shadow: 0 1px 0 rgba(255, 255, 255, 0.55); }
-.kb-stage .keyboard.art-board[data-legend='dark'] .key .shifted { text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5); }
+.keyboard.art-board .key.art-light { --art-legend: #2b2134; --art-legend-dim: rgba(43, 33, 52, 0.62); --art-legend-shadow: 0 1px 0 rgba(255, 255, 255, 0.55); }
+.kb-stage .keyboard.art-board .key.art-light .shifted { text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5); }
 .kb-stage .keyboard.art-board .key .legend { position: absolute; inset: 0; align-items: center; justify-content: center; text-align: center; }

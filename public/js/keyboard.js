@@ -198,14 +198,19 @@ export function createKeyboard(container, { compact = false, interactive = false
     if (!art) {
       board.style.removeProperty('--board');
       board.style.removeProperty('--board-ratio');
-      delete board.dataset.legend;
-      for (const element of keyElements.values()) for (const name of ['--kx', '--ky', '--kw', '--kh']) element.style.removeProperty(name);
+      board.style.removeProperty('--board-scale');
+      for (const element of keyElements.values()) {
+        element.classList.remove('art-light');
+        for (const name of ['--kx', '--ky', '--kw', '--kh']) element.style.removeProperty(name);
+      }
       return;
     }
     board.style.setProperty('--board', `url('${art.image}')`);
     board.style.setProperty('--board-ratio', String(art.ratio));
-    board.dataset.legend = art.legend === 'dark' ? 'dark' : 'light';
+    board.style.setProperty('--board-scale', String(Number(art.scale) > 0 ? art.scale : 1.04));
+    const lightKeys = new Set(Array.isArray(art.lightKeys) ? art.lightKeys : []);
     for (const [keyId, element] of keyElements) {
+      element.classList.toggle('art-light', lightKeys.has(keyId));
       const box = art.keys[keyId];
       if (!Array.isArray(box) || box.length !== 4) continue;
       const [x, y, w, h] = box;
