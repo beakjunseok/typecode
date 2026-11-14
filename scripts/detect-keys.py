@@ -73,22 +73,19 @@ def fill_gaps(row, pitch):
     return filled
 
 
-def match_layout(rows, layout_rows):
-    """찾은 줄을 배열(키 이름 줄 목록)에 짝짓는다. 줄마다 키 수가 맞아야 하고, 마지막 줄은 가장 넓은 덩어리를 스페이스로.
-    맞으면 {키: (x1,y1,x2,y2)}, 아니면 None."""
-    if len(rows) < 5:
-        return None
-    singles = [b[2] - b[0] for row in rows[:4] for b in row]
-    pitch = float(np.median([row[i + 1][0] - row[i][0] for row in rows[:4] for i in range(len(row) - 1)])) if singles else 0
+def complete_rows(rows, layout_rows):
+    """위 4줄을 다듬는다: 빠진 칸 채우기, 빛 번짐 조각 빼기, 줄 양 끝(색이 다른 기능키) 못 찾은 것 채우기.
+    반환: (줄 4개, 키 간격, 키 사이 틈). 줄 키 수가 배열보다 적을 수 있다(그림에 키가 빠진 경우)."""
+    pitch = float(np.median([row[i + 1][0] - row[i][0] for row in rows[:4] for i in range(len(row) - 1)]))
     rows4 = [fill_gaps(row, pitch) for row in rows[:4]]
-    # 줄 양 끝 키(Esc·Tab·Shift 등 색이 다른 키)를 못 찾았으면, 다른 줄들이 닿는 키보드 좌우 끝까지 한 키로 채운다
-    edge_left = min(row[0][0] for row in rows4)
-    edge_right = max(row[-1][2] for row in rows4)
+    # 키보드 좌우 끝: 위 4줄과 맨 아랫줄(Ctrl·Alt 등) 중 가장 바깥
+    outer = rows4 + ([sorted(rows[4], key=lambda b: b[0])] if len(rows) > 4 and rows[4] else [])
+    edge_left = min(row[0][0] for row in outer)
+    edge_right = max(row[-1][2] for row in outer)
     gap = max(2.0, pitch - float(np.median([b[2] - b[0] for row in rows4 for b in row if b[2] - b[0] < pitch])))
-    result = {}
+    completed = []
     for row, names in zip(rows4, layout_rows[:4]):
         row = list(row)
-        # 빛 번짐 등으로 생긴 작은 가짜 조각은 뺀다
         single = float(np.median([b[2] - b[0] for b in row]))
         while len(row) > len(names):
             smallest = min(row, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
@@ -99,6 +96,18 @@ def match_layout(rows, layout_rows):
             row.insert(0, (edge_left, row[0][1], row[0][0] - gap, row[0][3]))
         if len(row) < len(names) and edge_right - row[-1][2] > pitch * 0.5:
             row.append((row[-1][2] + gap, row[-1][1], edge_right, row[-1][3]))
+        completed.append(row)
+    return completed, pitch, gap
+
+
+def match_layout(rows, layout_rows):
+    """찾은 줄을 배열(키 이름 줄 목록)에 짝짓는다. 줄마다 키 수가 맞아야 하고, 마지막 줄은 가장 넓은 덩어리를 스페이스로.
+    맞으면 {키: (x1,y1,x2,y2)}, 아니면 None."""
+    if len(rows) < 5:
+        return None
+    rows4, pitch, gap = complete_rows(rows, layout_rows)
+    result = {}
+    for row, names in zip(rows4, layout_rows[:4]):
         if len(row) != len(names):
             return None
         result.update(dict(zip(names, row)))
@@ -125,19 +134,18 @@ def stretch_strip(strip, width):
 
 
 def repair_rows(image, rows, layout_rows):
-    """AI가 줄마다 글자 키를 하나 덜 그린 그림(13·13·12·11개)을 고친다: 줄의 마지막 글자 키를 하나 복사해 끼우고,
+    """AI가 줄마다 글자 키를 한두 개 덜 그린 그림을 고친다: 줄의 마지막 글자 키를 빠진 수만큼 복사해 끼우고,
     오른쪽 끝 기능키(Backspace·\\·Enter·Shift)를 그만큼 줄여 줄 길이를 맞춘다. 고칠 게 없거나 못 고치면 None."""
     if len(rows) < 5:
         return None
-    pitch = float(np.median([row[i + 1][0] - row[i][0] for row in rows[:4] for i in range(len(row) - 1)]))
+    rows4, pitch, _ = complete_rows(rows, layout_rows)
     repaired, changed = image.copy(), False
     centers = [(row[0][1] + row[0][3]) / 2 for row in rows[:5]]
-    for index, (row, names) in enumerate(zip(rows[:4], layout_rows[:4])):
-        row = fill_gaps(row, pitch)
+    for index, (row, names) in enumerate(zip(rows4, layout_rows[:4])):
         missing = len(names) - len(row)
         if missing == 0:
             continue
-        if missing != 1 or len(row) < 3:
+        if missing not in (1, 2) or len(row) < 4:
             return None
         half_gap = (row[-1][0] - row[-2][2]) / 2
         row_gap = (centers[1] - centers[0]) / 2
@@ -147,7 +155,7 @@ def repair_rows(image, rows, layout_rows):
         cell_left, cell_right = int(row[-2][0] - half_gap), int(row[-2][2] + half_gap)
         band = image[top:bottom]
         # 마지막 글자 키 칸을 하나 더 끼운 줄을 원래 줄 길이로 고르게 줄인다(약 7%)
-        widened = np.concatenate([band[:, row_left:cell_right], band[:, cell_left:cell_right], band[:, cell_right:row_right]], axis=1)
+        widened = np.concatenate([band[:, row_left:cell_right]] + [band[:, cell_left:cell_right]] * missing + [band[:, cell_right:row_right]], axis=1)
         repaired[top:bottom, row_left:row_right] = cv2.resize(widened, (row_right - row_left, bottom - top), interpolation=cv2.INTER_AREA)
         changed = True
     return repaired if changed else None

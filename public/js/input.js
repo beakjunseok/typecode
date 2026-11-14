@@ -37,7 +37,8 @@ export function hangulToKeys(value) {
 // onCharacter(ch): 게임에 넘길 ASCII 글자, onBackspace(): 게임에 반영된 글자 하나 지우기,
 // onIgnored(ch): 한글 등 게임에서 쓰지 않는 글자(경고용).
 // onHangul(): 한글 자판 입력을 영문 키로 바꿨을 때(안내용). onEnter(): 줄바꿈(모바일 키보드의 Enter)이 들어왔을 때.
-export function createInputDiffer({ onCharacter, onBackspace, onIgnored = () => {}, onHangul = () => {}, onEnter = () => {} }) {
+// resolveCase(ch): 한글 자판에서 Shift를 눌렀는데 자모가 같은 글자(ㅊ=c/C 등)를 대문자로 되돌린다. 기본은 그대로.
+export function createInputDiffer({ onCharacter, onBackspace, onIgnored = () => {}, onHangul = () => {}, onEnter = () => {}, resolveCase = character => character }) {
   // 센티널 자리는 true: 모바일에서 빈 칸에 Backspace를 누르면 센티널이 지워지는데, 그게 곧 '한 글자 지우기'다.
   let mirror = INPUT_SENTINEL;
   let applied = [true];
@@ -45,7 +46,8 @@ export function createInputDiffer({ onCharacter, onBackspace, onIgnored = () => 
   // 공통 접두사 이후를 '지운 글자 + 새 글자'로 본다. 값 길이 n에 대해 O(n)
   function sync(rawValue) {
     const value = hangulToKeys(rawValue);
-    if (value !== rawValue && /[\u3131-\u3163\uac00-\ud7a3]/.test(rawValue)) onHangul();
+    const fromHangul = value !== rawValue && /[\u3131-\u3163\uac00-\ud7a3]/.test(rawValue);
+    if (fromHangul) onHangul();
     let common = 0;
     while (common < mirror.length && common < value.length && mirror[common] === value[common]) common++;
     for (let index = mirror.length - 1; index >= common; index--) {
@@ -57,7 +59,7 @@ export function createInputDiffer({ onCharacter, onBackspace, onIgnored = () => 
         onEnter();
         applied.push(false);
       } else if (TYPEABLE.test(character)) {
-        onCharacter(character);
+        onCharacter(fromHangul && /[a-zA-Z]/.test(character) ? resolveCase(character) : character);
         applied.push(true);
       } else {
         onIgnored(character);
@@ -75,4 +77,33 @@ export function createInputDiffer({ onCharacter, onBackspace, onIgnored = () => 
   }
 
   return { sync, reset, get value() { return mirror; } };
+}
+
+// 한글 자판 입력의 대소문자 복원. 두벌식은 Shift+C도 'ㅊ'이라 글자만 보면 대문자인지 알 수 없다.
+// keydown에서 누른 자리(event.code)와 Shift·CapsLock을 순서대로 적어 두고, 자모에서 풀어낸 영문 키를 하나씩 맞춰 본다.
+// 오래된 기록(1.5초)은 버린다. 기록 수 k에 대해 O(k)
+export function createShiftTracker({ maxAgeMs = 1500, now = () => Date.now() } = {}) {
+  let strokes = [];
+
+  function record(event) {
+    const match = /^Key([A-Z])$/.exec(event?.code ?? '');
+    if (!match || event.ctrlKey || event.metaKey || event.altKey) return;
+    // 영문 자판이면 브라우저가 이미 대소문자를 맞게 넣으므로 한글(조합) 입력일 때만 적는다
+    if (typeof event.key === 'string' && /^[\x20-\x7e]$/.test(event.key)) return;
+    const capsLock = typeof event.getModifierState === 'function' && event.getModifierState('CapsLock');
+    strokes.push({ letter: match[1].toLowerCase(), upper: Boolean(event.shiftKey) !== Boolean(capsLock), at: now() });
+    if (strokes.length > 32) strokes = strokes.slice(-32);
+  }
+
+  function resolve(character) {
+    const time = now();
+    strokes = strokes.filter(stroke => time - stroke.at <= maxAgeMs);
+    const index = strokes.findIndex(stroke => stroke.letter === character.toLowerCase());
+    if (index < 0) return character;
+    const stroke = strokes[index];
+    strokes = strokes.slice(index + 1);
+    return stroke.upper ? character.toUpperCase() : character.toLowerCase();
+  }
+
+  return { record, resolve, clear: () => { strokes = []; } };
 }

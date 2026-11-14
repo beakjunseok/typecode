@@ -10,12 +10,12 @@ import { createPvpLobby } from './pvp-lobby.js';
 import { DIFFICULTY_LEVELS } from './target-game.js';
 import { ThrowRenderer } from './throw-view.js';
 import { BatteryRenderer } from './battery-view.js';
-import { RhythmEngine, normalizeRhythmOptions } from './rhythm-engine.js';
+import { RhythmEngine, normalizeRhythmOptions, RHYTHM_LANES, laneOfCharacter } from './rhythm-engine.js';
 import { RhythmRenderer } from './rhythm-view.js';
 import { RhythmMusic, midiToFrequency, createPreview } from './rhythm-music.js';
 import { RHYTHM_DIFFICULTIES, SONG_BY_ID, DEFAULT_SONG_ID, getSong } from './rhythm-songs.js';
 import { renderSongSelect, stepSong, stepDifficulty, stepSpeed } from './song-select.js';
-import { createInputDiffer, INPUT_SENTINEL } from './input.js';
+import { createInputDiffer, INPUT_SENTINEL, createShiftTracker } from './input.js';
 import { SoundEngine } from './audio.js';
 import { BgmEngine } from './bgm.js';
 import { emitSparks, pulseClass } from './effects.js';
@@ -174,6 +174,7 @@ function handleArcadeEvent(type, payload) {
       if (settings.mode === 'rhythm') {
         sound.ensureContext();
         songPreview.stop();
+        bgm.stop();
         rhythmMusic.reset();
         updateSongSelect();
       } else sound.play('gameStart');
@@ -468,23 +469,65 @@ function handleFinish(summary) {
   ui.setFocusState({ focused: false, finished: true, arcade: isArcade() });
   keyboard.setNext(null);
   ui.log('sys', `run finished · score ${summary.score} · ${summary.charactersPerMinute}타 (${summary.wordsPerMinute} WPM) · ${summary.accuracy}%`);
-  const heading = resultHeading(summary);
-  // 판마다 키보드 뽑기 포인트 적립(결과창에 표시)
-  const earned = autoPlay ? 0 : collection.earnPoints(pointsForGame(summary));
-  const pointsLine = document.getElementById('resultPoints');
-  if (pointsLine) {
-    pointsLine.hidden = false;
-    pointsLine.innerHTML = earned
-      ? `🎁 뽑기 포인트 <b>+${earned}P</b> · 보유 ${collection.points()}P`
-      : autoPlay ? `🎁 자동 연주는 포인트가 없어요 · 보유 ${collection.points()}P`
-        : `🎁 이번 판은 포인트가 없어요(맞게 친 글자 ${EARNING.minimumCharacters}개 이상부터) · 보유 ${collection.points()}P`;
+  // 결과창은 무슨 일이 있어도 띄운다: 제목·포인트 계산에서 오류가 나도 기본 결과로 보여 준다
+  let heading = {};
+  try {
+    heading = resultHeading(summary);
+  } catch (error) {
+    console.error(error);
   }
-  ui.showResult(summary, {
-    languageKey: settings.languageKey,
-    playerName: preferences.get('name', ''),
-    ...heading,
-    ...(newBest ? { subtitle: `🏆 개인 최고 기록${heading.subtitle ? ` · ${heading.subtitle}` : ''}` } : {})
+  let earned = 0;
+  try {
+    // 판마다 키보드 뽑기 포인트 적립(결과창에 표시)
+    earned = autoPlay ? 0 : collection.earnPoints(pointsForGame(summary));
+    const pointsLine = document.getElementById('resultPoints');
+    if (pointsLine) {
+      pointsLine.hidden = false;
+      pointsLine.innerHTML = earned
+        ? `🎁 뽑기 포인트 <b>+${earned}P</b> · 보유 ${collection.points()}P`
+        : autoPlay ? `🎁 자동 연주는 포인트가 없어요 · 보유 ${collection.points()}P`
+          : `🎁 이번 판은 포인트가 없어요(맞게 친 글자 ${EARNING.minimumCharacters}개 이상부터) · 보유 ${collection.points()}P`;
+    }
+  } catch (error) {
+    console.error(error);
+  }
+  const pointsStat = document.getElementById('pointsValue');
+  if (pointsStat) pointsStat.textContent = `+${earned}P`;
+  run.lastResult = {
+    summary,
+    options: {
+      languageKey: settings.languageKey,
+      playerName: preferences.get('name', ''),
+      ...heading,
+      ...(newBest ? { subtitle: `🏆 개인 최고 기록${heading.subtitle ? ` · ${heading.subtitle}` : ''}` } : {})
+    }
+  };
+  showLastResult();
+}
+
+// 마지막 결과창을 (다시) 띄운다. 그리기 중 오류가 나도 창 자체는 열리게 한다
+function showLastResult() {
+  if (!run.lastResult) return;
+  try {
+    ui.showResult(run.lastResult.summary, run.lastResult.options);
+  } catch (error) {
+    console.error(error);
+    ui.log('warn', '결과 화면을 그리다 문제가 생겼어요 — 기본 결과만 보여 줍니다');
+  } finally {
+    ui.elements.resultModal.hidden = false;
+  }
+}
+
+// 이번 판에서 받을 뽑기 포인트(판이 끝나면 실제 적립값과 같다). 자동 연주는 0
+function renderPointsStat(engine, snapshot) {
+  const element = document.getElementById('pointsValue');
+  if (!element) return;
+  const points = engine.options?.autoPlay ? 0 : pointsForGame({
+    correctKeystrokes: engine.correctKeystrokes ?? snapshot.correctKeystrokes,
+    accuracy: snapshot.accuracy,
+    maxCombo: engine.maxCombo ?? snapshot.maxCombo
   });
+  element.textContent = `+${points}P`;
 }
 
 // ---------- 진행 ----------
@@ -493,6 +536,7 @@ function renderStats() {
   if (!engine) return;
   const snapshot = isArcade() ? engine.snapshot() : engine.snapshot(now());
   ui.renderStats(snapshot);
+  renderPointsStat(engine, snapshot);
   // 콤보가 오를수록 키보드 LED(전설 스킨)가 빨라지고 밝아진다: 30콤보(×2 단계)에서 최대
   keyboard.setEnergy((snapshot.combo ?? 0) / 30);
 }
@@ -546,10 +590,11 @@ function updateArcadeMusic(snapshot) {
   }
 }
 
-// 리듬 모드는 BGM 대신 게임이 직접 박자에 맞춘 반주를 낸다
+// 리듬 모드는 BGM 대신 게임이 직접 박자에 맞춘 반주를 낸다. 곡을 고르는 동안(시작 전)에는 대기 음악을 튼다
 function startMusic() {
   if (settings.mode === 'rhythm') {
-    bgm.stop();
+    if (run.engine?.status === 'ready' && !isPvp()) bgm.play('lobby');
+    else bgm.stop();
     return;
   }
   bgm.play(settings.mode);
@@ -587,6 +632,7 @@ function resetGame() {
   bgm.setIntensity(0);
   bgm.duck(false);
   ui.hideResult();
+  run.lastResult = null;
   if (isArcade()) {
     const config = modeConfig();
     fitArcadeCanvas();
@@ -700,7 +746,14 @@ function chooseRhythm({ songId = settings.rhythmSong, difficulty = settings.rhyt
   preferences.set('rhythmDifficulty', difficulty);
   resetGame();
   sound.play('uiClick');
-  if (songChanged) songPreview.play(getSong(songId));
+  if (songChanged) {
+    startMusic();
+    songPreview.play(getSong(songId));
+    // 미리듣기 동안 대기 음악을 줄였다가 끝나면 되돌린다
+    bgm.duck(true);
+    clearTimeout(run.previewDuckTimer);
+    run.previewDuckTimer = setTimeout(() => bgm.duck(false), 8500);
+  }
 }
 
 // 곡 선택 중 방향키: ↑↓ 곡, ←→ 난이도. 처리했으면 true
@@ -783,11 +836,13 @@ function updateArcadeKeyboardHint() {
 
 // ---------- 입력 ----------
 // 숨은 textarea의 값 변화를 글자·지우기로 바꾼다(input.js). 모바일 조합 입력·스와이프·자동수정도 같은 규칙.
+const shiftTracker = createShiftTracker();
 const inputDiffer = createInputDiffer({
   onCharacter: character => applyCharacter(character),
+  resolveCase: character => shiftTracker.resolve(character),
   onBackspace: () => applyBackspace(false),
   onIgnored: () => warnIme(),
-  onHangul: () => showInputNotice('한→영 자동 변환 · 대문자는 영문 키보드'),
+  onHangul: () => showInputNotice('한→영 자동 변환'),
   onEnter: () => applyEnter()
 });
 
@@ -813,6 +868,12 @@ function applyCharacter(character) {
   if (isArcade()) {
     const result = engine.input(character, now());
     if (result?.accepted) keyboard.press(character, result.correct !== false);
+    if (settings.mode === 'rhythm') {
+      // 아무 키나 누르면 그 키가 속한 레인(키보드 1/4)이 레인 색으로 빛난다. 첫 키로 곡이 시작되면 대기 음악을 끈다
+      const lane = RHYTHM_LANES[laneOfCharacter(character)];
+      if (lane) keyboard.flashZone(lane.fingers, lane.color);
+      if (result?.started) startMusic();
+    }
     renderStats();
     renderInputBar();
     return;
@@ -864,6 +925,7 @@ function applyEnter() {
 }
 
 function handleKeyDown(event) {
+  shiftTracker.record(event);
   if (handleSongSelectKey(event)) return;
   if (event.key === 'Escape') {
     event.preventDefault();
@@ -963,7 +1025,11 @@ function fitArcadeCanvas() {
 
 function focusTypingArea() {
   startMusic();
-  if (run.engine.status === 'finished') return;
+  if (run.engine.status === 'finished') {
+    // 끝난 판의 결과창을 실수로 닫았으면(바깥 클릭·Esc 등) 화면을 누를 때 다시 보여 준다
+    if (ui.elements.resultModal.hidden && !isPvp()) showLastResult();
+    return;
+  }
   if (isPvp() && !['countdown', 'playing'].includes(pvp.phase)) return;
   // 이미 입력 중이면 건드리지 않는다: 값을 되돌리면 모바일 키보드의 조합이 깨지고, 스크롤이 튀어 화면이 흔들린다
   if (document.activeElement === ui.elements.hiddenInput) return;

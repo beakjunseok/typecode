@@ -148,7 +148,31 @@ export const SONGS = {
     form: ['intro', 'verse', 'pre', 'chorus', 'verse', 'pre', 'chorus', 'bridge', 'breakdown', 'build',
       { section: 'chorus', transpose: 1 }, { section: 'outro', transpose: 1 }],
     loopFrom: 1
-  }
+  },
+  // 리듬 곡 선택 대기: 느긋한 로파이 루프. 미리듣기를 가리지 않게 드럼은 가볍게.
+  lobby: {
+    title: 'Pick a Track',
+    tempo: 92, key: 57, scale: 'major', swing: 0.12,
+    kits: {
+      lofi: { kick: 'x......x..x.....', snare: '....x.......x...', hat: 'x.x.x.x.x.x.x.x.' },
+      soft: { kick: 'x...............', snare: '................', hat: '..x...x...x...x.' }
+    },
+    sections: {
+      intro: { bars: 4, chords: ['IVmaj7', 'iii7', 'ii7', 'Imaj7'], comp: 'pad', bass: 'R-------5-------', drums: 'soft' },
+      loop: {
+        bars: 8, chords: ['IVmaj7', 'iii7', 'ii7', 'Imaj7', 'IVmaj7', 'iii7', 'ii7', 'V'], drums: 'lofi', bass: 'R...R.5.R...O.5.',
+        comp: { instrument: 'stab', pattern: '..x.....x.x.....' }, lead: 'bell',
+        melody: ['5---3-2-3-------', '5---3-2-1-------', '2---3-4-5---3---', '3---------------',
+          '6---5-3-5-------', '5---3-2-3-5-----', '4---3-2-1---2---', '2---------------']
+      },
+      dream: {
+        bars: 4, chords: ['vi7', 'iii7', 'IVmaj7', 'V'], drums: 'soft', bass: 'R-------R-------', comp: 'arp', lead: 'bell',
+        melody: ['8-------7---5---', '6-------5---3---', '4---5---6---8---', '7---------------']
+      }
+    },
+    form: ['intro', 'loop', 'loop', 'dream', 'loop'],
+    loopFrom: 1
+  },
 };
 
 const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10] };

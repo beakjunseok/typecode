@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createInputDiffer, INPUT_SENTINEL } from '../public/js/input.js';
+import { createInputDiffer, INPUT_SENTINEL, createShiftTracker } from '../public/js/input.js';
 
 function setup() {
   const log = [];
@@ -88,4 +88,30 @@ test('모바일 Enter(줄바꿈 문자)는 onEnter로, 지워져도 Backspace로
   differ.reset();
   differ.sync(' \r\n');
   assert.deepEqual(log, ['a', 'b', '↵', '↵', '↵']);
+});
+
+test('한글 자판에서 Shift로 친 C·G는 대문자로 되돌린다(두벌식은 Shift+C도 ㅊ)', () => {
+  let clock = 0;
+  const tracker = createShiftTracker({ now: () => clock });
+  const typed = [];
+  const differ = createInputDiffer({ onCharacter: character => typed.push(character), onBackspace() {}, resolveCase: tracker.resolve });
+  tracker.record({ code: 'KeyC', key: 'Process', shiftKey: true });
+  differ.sync(' ㅊ');
+  tracker.record({ code: 'KeyG', key: 'ㅎ', shiftKey: true });
+  differ.sync(' ㅊㅎ');
+  tracker.record({ code: 'KeyL', key: 'ㅣ', shiftKey: false });
+  differ.sync(' ㅊㅎㅣ');
+  assert.deepEqual(typed, ['C', 'G', 'l']);
+});
+
+test('영문 자판 입력은 기록하지 않고, 오래된 Shift 기록은 버린다', () => {
+  let clock = 0;
+  const tracker = createShiftTracker({ now: () => clock });
+  tracker.record({ code: 'KeyC', key: 'C', shiftKey: true });
+  assert.equal(tracker.resolve('c'), 'c');
+  tracker.record({ code: 'KeyC', key: 'Process', shiftKey: true });
+  clock = 5000;
+  assert.equal(tracker.resolve('c'), 'c');
+  tracker.record({ code: 'KeyC', key: 'Process', shiftKey: false, getModifierState: name => name === 'CapsLock' });
+  assert.equal(tracker.resolve('c'), 'C');
 });

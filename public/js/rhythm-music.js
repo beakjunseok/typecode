@@ -57,9 +57,37 @@ function scoreNote(sound, context, { midi, time, seconds, level = 1, destination
   sound.tone(context, { frequency: midiToFrequency(midi), startTime: time, peak: 0.02 * level, attack: 0.004, decay: Math.min(1.4, Math.max(0.1, seconds * 0.95)), waveform: 'triangle', filter: { type: 'lowpass', frequency: 2400 }, destination });
 }
 
+// 리듬 모드 소리 키우기: 반주·키 소리·음원·미리듣기를 모두 증폭 버스(× RHYTHM_BOOST)에 모아 master로 보낸다.
+// master 뒤 압축기가 있어 커져도 찢어지지 않는다. sound를 감싸 tone()의 기본 출력과 master만 바꾼다
+export const RHYTHM_BOOST = 2.6;
+function rhythmBus(sound, context) {
+  if (!sound.master) return undefined;
+  if (sound.rhythmBusNode?.context !== context) {
+    const bus = context.createGain();
+    bus.gain.value = RHYTHM_BOOST;
+    bus.connect(sound.master);
+    sound.rhythmBusNode = bus;
+  }
+  return sound.rhythmBusNode;
+}
+export function boostedSound(sound) {
+  if (!sound || sound.isBoosted) return sound;
+  return new Proxy(sound, {
+    get(target, property) {
+      if (property === 'isBoosted') return true;
+      if (property === 'tone' || property === 'noise') {
+        return (context, options) => target[property](context, { ...options, destination: options.destination ?? rhythmBus(target, context) });
+      }
+      if (property === 'master') return target.context ? rhythmBus(target, target.context) ?? target.master : target.master;
+      const value = target[property];
+      return typeof value === 'function' ? value.bind(target) : value;
+    }
+  });
+}
+
 export class RhythmMusic {
   constructor(sound) {
-    this.sound = sound;
+    this.sound = boostedSound(sound);
     this.reset();
   }
 
@@ -206,7 +234,8 @@ export class RhythmMusic {
 }
 
 // 곡 미리듣기: 선율 첫 몇 초를 출력 하나(gain)에 묶어 재생하고, 다른 곡을 고르면 그 출력을 끊는다
-export function createPreview(sound) {
+export function createPreview(rawSound) {
+  const sound = boostedSound(rawSound);
   let output = null;
   return {
     play(song, seconds = 5) {

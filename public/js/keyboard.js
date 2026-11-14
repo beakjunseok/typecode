@@ -85,11 +85,14 @@ export function createKeyboard(container, { compact = false, interactive = false
       const role = ACCENT_KEYS.has(base) ? ' accent' : base.length > 1 ? ' mod' : '';
       key.className = `key${base.length > 1 ? ' wide' : ''}${role}${HOME_KEYS.has(base) ? ' home' : ''}`;
       key.dataset.key = base;
+      key.dataset.finger = finger;
       key.style.setProperty('--w', width);
       key.style.setProperty('--finger', FINGERS[finger].color);
       key.title = FINGERS[finger].label;
       const glow = document.createElement('span');
       glow.className = 'glow';
+      const zone = document.createElement('span');
+      zone.className = 'zone';
       const legend = document.createElement('span');
       legend.className = 'legend';
       if (shifted && base.length === 1 && shifted.toLowerCase() !== base) {
@@ -102,7 +105,7 @@ export function createKeyboard(container, { compact = false, interactive = false
       main.className = 'base';
       main.textContent = DISPLAY_NAMES[base] ?? (base.length === 1 && /[a-z]/.test(base) ? base.toUpperCase() : base);
       legend.appendChild(main);
-      key.append(glow, legend);
+      key.append(glow, zone, legend);
       rowElement.appendChild(key);
       keyElements.set(base, key);
       // LED 좌표: 키 가운데의 가로 위치(키 단위)와 줄 번호
@@ -321,6 +324,21 @@ export function createKeyboard(container, { compact = false, interactive = false
     }
   }
 
+  // 손가락 묶음(리듬 레인) 하나를 통째로 번쩍인다: 리듬 모드에서 아무 키나 누르면 그 키가 속한 1/4 구역이 빛난다. O(키 수)
+  const ZONE_FLASH_MS = 220;
+  function flashZone(fingers, color) {
+    const wanted = new Set(fingers);
+    for (const key of keyElements.values()) {
+      if (!wanted.has(key.dataset.finger)) continue;
+      key.style.setProperty('--zone-color', color);
+      key.classList.remove('zone-flash');
+      void key.offsetWidth;
+      key.classList.add('zone-flash');
+      clearTimeout(key.zoneTimer);
+      key.zoneTimer = setTimeout(() => key.classList.remove('zone-flash'), ZONE_FLASH_MS);
+    }
+  }
+
   function setVisible(visible) {
     container.hidden = !visible;
     if (visible) startLeds();
@@ -332,9 +350,9 @@ export function createKeyboard(container, { compact = false, interactive = false
   const setAudioSource = source => { audioSource = typeof source === 'function' ? source : null; };
 
   setSkin(null);
-  return { setNext, press, setVisible, setSkin, setEnergy, setAudioSource, element: board };
+  return { setNext, press, flashZone, setVisible, setSkin, setEnergy, setAudioSource, element: board };
 }
 
 function createNullKeyboard() {
-  return { setNext() {}, press() {}, setVisible() {}, setSkin() {}, setEnergy() {}, setAudioSource() {}, element: null };
+  return { setNext() {}, press() {}, flashZone() {}, setVisible() {}, setSkin() {}, setEnergy() {}, setAudioSource() {}, element: null };
 }
