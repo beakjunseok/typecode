@@ -28,6 +28,66 @@ SONGS = [
         'title': 'Compile Rush (Alt Mix)', 'composer': 'FreeMusic AI · 2026', 'bpmHint': 140, 'beatsPerBar': 4,
         'previewAt': 30, 'source': 'https://www.freemusic.ai/', 'license': 'FreeMusic AI 생성곡',
     },
+    {
+        'id': 'rolling-breakbeats', 'file': 'public/audio/rolling-breakbeats.mp3', 'url': '/audio/rolling-breakbeats.mp3',
+        'title': 'Rolling Breakbeats', 'composer': 'Suno AI · 2026', 'bpmHint': 172.3, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'rolling-breakbeats-b', 'file': 'public/audio/rolling-breakbeats-b.mp3', 'url': '/audio/rolling-breakbeats-b.mp3',
+        'title': 'Rolling Breakbeats (Alt Mix)', 'composer': 'Suno AI · 2026', 'bpmHint': 172.3, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'final-countdown', 'file': 'public/audio/final-countdown.mp3', 'url': '/audio/final-countdown.mp3',
+        'title': 'Final Countdown', 'composer': 'Suno AI · 2026', 'bpmHint': 99.4, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'final-countdown-b', 'file': 'public/audio/final-countdown-b.mp3', 'url': '/audio/final-countdown-b.mp3',
+        'title': 'Final Countdown (Alt Mix)', 'composer': 'Suno AI · 2026', 'bpmHint': 99.4, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'rapid-tap', 'file': 'public/audio/rapid-tap.mp3', 'url': '/audio/rapid-tap.mp3',
+        'title': 'Rapid Tap Sequence', 'composer': 'Suno AI · 2026', 'bpmHint': 152.0, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'rapid-tap-b', 'file': 'public/audio/rapid-tap-b.mp3', 'url': '/audio/rapid-tap-b.mp3',
+        'title': 'Rapid Tap Sequence (Alt Mix)', 'composer': 'Suno AI · 2026', 'bpmHint': 99.4, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'neon-rush', 'file': 'public/audio/neon-rush.mp3', 'url': '/audio/neon-rush.mp3',
+        'title': 'Neon Rush', 'composer': 'Suno AI · 2026', 'bpmHint': 143.6, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'neon-rush-b', 'file': 'public/audio/neon-rush-b.mp3', 'url': '/audio/neon-rush-b.mp3',
+        'title': 'Neon Rush (Alt Mix)', 'composer': 'Suno AI · 2026', 'bpmHint': 143.6, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'bounce-glitch', 'file': 'public/audio/bounce-glitch.mp3', 'url': '/audio/bounce-glitch.mp3',
+        'title': 'Bounce & Glitch', 'composer': 'Suno AI · 2026', 'bpmHint': 129.2, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'bounce-glitch-b', 'file': 'public/audio/bounce-glitch-b.mp3', 'url': '/audio/bounce-glitch-b.mp3',
+        'title': 'Bounce & Glitch (Alt Mix)', 'composer': 'Suno AI · 2026', 'bpmHint': 129.2, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'pursuit-mode', 'file': 'public/audio/pursuit-mode.mp3', 'url': '/audio/pursuit-mode.mp3',
+        'title': 'Pursuit Mode', 'composer': 'Suno AI · 2026', 'bpmHint': 112.3, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
+    {
+        'id': 'pursuit-mode-b', 'file': 'public/audio/pursuit-mode-b.mp3', 'url': '/audio/pursuit-mode-b.mp3',
+        'title': 'Pursuit Mode (Alt Mix)', 'composer': 'Suno AI · 2026', 'bpmHint': 123.0, 'beatsPerBar': 4,
+        'previewAt': 40, 'source': 'https://suno.com/s/Z0tklixvb0wgA1nd', 'license': 'Suno AI 생성곡 (무료 플랜 · 비상업)',
+    },
 ]
 
 
