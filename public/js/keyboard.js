@@ -1,6 +1,7 @@
 // 화면 키보드: 다음에 칠 키(주황 점)와 필요한 Shift(반대 손), 손가락 구역, 누름 피드백을 보여준다.
 // 스킨(키캡 3단 배색·케이스·소재)과 LED(평상시 무늬 + 터치 반응)를 입힐 수 있다. 코드 토큰은 ASCII라 US ANSI 배열을 쓴다.
 import { skinArt } from './skin-art.js';
+import { SKIN_BOARDS } from './skin-boards.js';
 import { createLedState } from './keyboard-led.js';
 import { getSkin, MATERIALS } from './keyboard-skins.js';
 
@@ -189,6 +190,32 @@ export function createKeyboard(container, { compact = false, interactive = false
     container.dataset.skin = skin.id;
   }
 
+  // 정면 일러스트가 있는 스킨: 그림 한 장을 판으로 깔고, 키마다 같은 그림에서 제 자리만 잘라 보여 준다.
+  // 그래서 가만히 있을 땐 그림과 똑같고, 누르면 그 키캡만 내려간다. 좌표는 그림 대비 비율. O(키 수)
+  function applyBoardArt(skin) {
+    const art = SKIN_BOARDS[skin.id];
+    board.classList.toggle('art-board', Boolean(art));
+    if (!art) {
+      board.style.removeProperty('--board');
+      board.style.removeProperty('--board-ratio');
+      delete board.dataset.legend;
+      for (const element of keyElements.values()) for (const name of ['--kx', '--ky', '--kw', '--kh']) element.style.removeProperty(name);
+      return;
+    }
+    board.style.setProperty('--board', `url('${art.image}')`);
+    board.style.setProperty('--board-ratio', String(art.ratio));
+    board.dataset.legend = art.legend === 'dark' ? 'dark' : 'light';
+    for (const [keyId, element] of keyElements) {
+      const box = art.keys[keyId];
+      if (!Array.isArray(box) || box.length !== 4) continue;
+      const [x, y, w, h] = box;
+      element.style.setProperty('--kx', String(x));
+      element.style.setProperty('--ky', String(y));
+      element.style.setProperty('--kw', String(w));
+      element.style.setProperty('--kh', String(h));
+    }
+  }
+
   // 스킨(아이디 또는 스킨 객체)을 입힌다. override = { pattern, reactive } 로 LED만 바꿀 수 있다
   function setSkin(skinOrId, override = null) {
     const skin = typeof skinOrId === 'string' || !skinOrId ? getSkin(skinOrId) : skinOrId;
@@ -206,6 +233,7 @@ export function createKeyboard(container, { compact = false, interactive = false
     board.dataset.rarity = skin.rarity;
     board.dataset.skin = skin.id;
     applyStage(skin);
+    applyBoardArt(skin);
     board.classList.toggle('underglow', skin.underglow);
     ledGlow = material.glow;
     shine = Boolean(material.shine);
