@@ -967,9 +967,8 @@ function applyCharacter(character) {
     const result = engine.input(character, now());
     if (result?.accepted) keyboard.press(character, result.correct !== false);
     if (settings.mode === 'rhythm') {
-      // 아무 키나 누르면 그 키가 속한 레인(키보드 1/4)이 레인 색으로 빛난다. 첫 키로 곡이 시작되면 대기 음악을 끈다
-      const lane = RHYTHM_LANES[laneOfCharacter(character)];
-      if (lane) keyboard.flashZone(lane.fingers, lane.color);
+      // 아무 키나 누르면 그 키가 속한 레인(키보드 1/4)이 빛난다: 감점(오타)이면 빨강, 아니면 레인 색. 첫 키로 곡이 시작되면 대기 음악을 끈다
+      flashRhythmZone(character, result?.accepted && result.correct === false);
       if (result?.started) startMusic();
     }
     renderStats();
@@ -1032,6 +1031,20 @@ function releasedCharacters(event) {
   if (digit) candidates.push(digit[1]);
   if (event.code === 'Space') candidates.push(' ');
   return candidates;
+}
+
+const PENALTY_COLOR = '#ff2846';
+function flashRhythmZone(character, penalty = false) {
+  const lane = RHYTHM_LANES[laneOfCharacter(character)];
+  if (lane) keyboard.flashZone(lane.fingers, penalty ? PENALTY_COLOR : lane.color);
+}
+
+// 리듬: 게임 입력칸에 초점이 없을 때(곡 목록을 보는 중 등)도 누른 키의 구역을 빛낸다(입력칸에 있으면 applyCharacter가 한다)
+function handleRhythmZoneKeyDown(event) {
+  if (settings.mode !== 'rhythm' || event.repeat || document.activeElement === ui.elements.hiddenInput) return;
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+  const [character] = releasedCharacters(event);
+  if (character) flashRhythmZone(character);
 }
 
 function handleRhythmKeyUp(event) {
@@ -1692,6 +1705,7 @@ function bindEvents() {
   elements.hiddenInput.addEventListener('keydown', handleKeyDown);
   // 리듬 롱노트: 키를 떼는 순간을 알려 준다(한글 자판이어도 키 자리로 글자를 찾는다)
   document.addEventListener('keyup', handleRhythmKeyUp);
+  document.addEventListener('keydown', handleRhythmZoneKeyDown);
   elements.hiddenInput.addEventListener('input', handleInput);
   elements.hiddenInput.addEventListener('compositionend', handleCompositionEnd);
   elements.hiddenInput.addEventListener('paste', event => event.preventDefault());
