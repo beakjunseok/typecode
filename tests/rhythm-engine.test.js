@@ -279,13 +279,20 @@ test('피버: PERFECT가 이어지면 레벨이 오르고 배율이 붙으며, M
   assert.ok(summary.averageDeltaMs > 0);
 });
 
-test('원이 오기 전(판정 창보다 이르게) 맞는 키를 누르면 GOOD으로 인정, 틀린 키는 무시', () => {
+test('원이 오기 전: 맞는 키는 가까우면 GOOD·너무 이르면 무시, 다른 키는 언제든 오타', () => {
   const engine = create({ songId: 'ode-to-joy', difficulty: 'normal' });
   const state = { ms: 0 };
   engine.input('x', state.ms);
   const note = engine.notes[0];
+  advanceTo(engine, note.hitTime - 1.5, state);
+  assert.equal(engine.input(note.character, state.ms).reason, 'too_early', '너무 이른 맞는 키는 무시');
+  const wrong = engine.input(note.character === 'q' ? 'z' : 'q', state.ms);
+  assert.equal(wrong.correct, false, '멀리 있어도 다른 키는 오타');
+  assert.equal(engine.wrongKeystrokes, 1);
+  assert.equal(note.state, 'pending', '노트는 그대로');
   advanceTo(engine, note.hitTime - 0.45, state);
-  assert.equal(engine.input(note.character === 'q' ? 'z' : 'q', state.ms).reason, 'too_early');
+  assert.equal(engine.input(note.character === 'q' ? 'z' : 'q', state.ms).correct, false);
+  assert.equal(engine.wrongKeystrokes, 2);
   const result = engine.input(note.character, state.ms);
   assert.equal(result.correct, true);
   assert.equal(result.judgement, 'good');
