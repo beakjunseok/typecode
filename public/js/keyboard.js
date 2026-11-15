@@ -339,6 +339,21 @@ export function createKeyboard(container, { compact = false, interactive = false
     }
   }
 
+  // 키보드를 구역별로 계속 칠해 둔다(리듬 시작 전 4등분 안내). zones: [{ fingers, color }] 또는 null(끔).
+  // 같은 값이면 아무것도 하지 않는다(매 프레임 불려도 비용 없음). O(키 수)
+  let steadyZones = null;
+  function showZones(zones) {
+    if (steadyZones === zones) return;
+    steadyZones = zones;
+    const colorOf = new Map();
+    for (const zone of zones ?? []) for (const finger of zone.fingers) colorOf.set(finger, zone.color);
+    for (const key of keyElements.values()) {
+      const color = colorOf.get(key.dataset.finger);
+      key.classList.toggle('zone-steady', Boolean(color));
+      if (color) key.style.setProperty('--zone-color', color);
+    }
+  }
+
   function setVisible(visible) {
     container.hidden = !visible;
     if (visible) startLeds();
@@ -350,9 +365,9 @@ export function createKeyboard(container, { compact = false, interactive = false
   const setAudioSource = source => { audioSource = typeof source === 'function' ? source : null; };
 
   setSkin(null);
-  return { setNext, press, flashZone, setVisible, setSkin, setEnergy, setAudioSource, element: board };
+  return { setNext, press, flashZone, showZones, setVisible, setSkin, setEnergy, setAudioSource, element: board };
 }
 
 function createNullKeyboard() {
-  return { setNext() {}, press() {}, flashZone() {}, setVisible() {}, setSkin() {}, setEnergy() {}, setAudioSource() {}, element: null };
+  return { setNext() {}, press() {}, flashZone() {}, showZones() {}, setVisible() {}, setSkin() {}, setEnergy() {}, setAudioSource() {}, element: null };
 }
