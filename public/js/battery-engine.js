@@ -18,10 +18,10 @@ export const BATTERY_ITEMS = Object.freeze({
 
 export const BATTERY_RULES = Object.freeze({
   goalCells: 8,
-  startCells: 3,
+  startCells: 4,
   stealCells: 0.5,
   drainBounty: 10,
-  baseSinkPerSecond: 0.075,
+  baseSinkPerSecond: 0.05,
   stageSinkStep: 0.1,
   ecoSeconds: 4,
   ecoFactor: 0.35,
@@ -36,10 +36,14 @@ export const BATTERY_RULES = Object.freeze({
   stageClearPause: 1.6,
   winBonus: Object.freeze({ charged: 300, sunk: 150 }),
   winBonusPerCharacterCap: 10,
-  aiCharactersPerSecond: Object.freeze({ 1: 2.0, 2: 2.8, 3: 3.6, 4: 4.6 }),
+  // 방전봇 타자 속도(글자/초, 레벨별). Lv.2 1.8 ≈ 분당 108타(생각하는 시간 포함 실제로는 더 느림)
+  aiCharactersPerSecond: Object.freeze({ 1: 1.3, 2: 1.8, 3: 2.5, 4: 3.3 }),
   aiStageSpeedStep: 0.12,
-  aiThinkSeconds: [0.35, 0.9],
-  aiAttackChance: 0.35
+  aiThinkSeconds: [0.6, 1.4],
+  aiAttackChance: 0.25,
+  // 따라잡기 도움: 내 탑이 mercyCells 이하면 방전봇이 mercyFactor배로 느려진다
+  mercyCells: 2,
+  mercyFactor: 0.65
 });
 
 // 서버 점수 검증용 상한: 글자당 최대 배율 타격 점수 + 최대 아이템 보너스/최소 길이 + 스테이지 보너스 상한
@@ -111,7 +115,8 @@ export class BatteryEngine extends TargetGameEngine {
   }
 
   aiCharactersPerSecond() {
-    return BATTERY_RULES.aiCharactersPerSecond[this.level] * (1 + (this.stage - 1) * BATTERY_RULES.aiStageSpeedStep);
+    const mercy = this.me.cells <= BATTERY_RULES.mercyCells ? BATTERY_RULES.mercyFactor : 1;
+    return BATTERY_RULES.aiCharactersPerSecond[this.level] * (1 + (this.stage - 1) * BATTERY_RULES.aiStageSpeedStep) * mercy;
   }
 
   // ---------- 진행 ----------

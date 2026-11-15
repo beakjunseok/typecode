@@ -37,7 +37,7 @@ test('점수 상한 상수와 시작 상태', () => {
 test('두 탑은 시간이 지나면 방전(침몰)된다', () => {
   const { engine, clock } = setup();
   freezeAi(engine); noSpawns(engine);
-  advance(engine, clock, 5);
+  advance(engine, clock, 12);
   assert.ok(engine.me.cells < BATTERY_RULES.startCells - 0.3);
   assert.ok(Math.abs(engine.me.cells - engine.rival.cells) < 1e-9);
 });
@@ -193,4 +193,12 @@ test('긴 플레이: 점수 상한 유지, 아이템은 겹치지 않는 높이�
   assert.ok(['rescued', 'rival-sunk'].includes(engine.summary().outcome), `결과 ${engine.summary().outcome}`);
   assert.ok(engine.score <= engine.correctKeystrokes * BATTERY_MAX_POINTS_PER_CHARACTER);
   assert.ok(Object.keys(BATTERY_ITEMS).every(key => key in engine.summary().collected));
+});
+
+test('따라잡기 도움: 내 탑이 낮으면 방전봇이 느려진다', () => {
+  const { engine } = setup();
+  engine.me.cells = BATTERY_RULES.mercyCells + 1;
+  const normal = engine.aiCharactersPerSecond();
+  engine.me.cells = BATTERY_RULES.mercyCells;
+  assert.ok(Math.abs(engine.aiCharactersPerSecond() - normal * BATTERY_RULES.mercyFactor) < 1e-9);
 });
