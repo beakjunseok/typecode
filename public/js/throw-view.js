@@ -20,6 +20,40 @@ const ROBOT_STYLE = {
   boss: { name: '보스 서버봇', body: '#3a1020', bodyLight: '#9a2c46', trim: '#ffcf5a', eye: '#ff3355', metal: '#2a2f3d', metalLight: '#4a5266', width: 340, height: 168, stride: 1.4 },
   tank: { name: '헤비봇', body: '#353d49', bodyLight: '#566273', trim: '#8a98aa', eye: '#ff4d6d', width: 60, height: 56, stride: 4 }
 };
+// 난이도 레벨마다 일반 로봇의 색과 표정을 바꾼다(보스는 그대로).
+//  1 입문: 파스텔빛, 웃는 눈(^ ^)과 발그레한 볼  2 보통: 기본
+//  3 숙련: 주황빛으로 달아오르고 화난 눈썹       4 장애 대응: 검붉게 오염, 붉은 눈, 가끔 지직
+const LEVEL_LOOKS = Object.freeze({
+  1: Object.freeze({ tint: '#bfefff', amount: 0.38, eye: '#9dffcf', mood: 'happy' }),
+  2: Object.freeze({ tint: null, amount: 0, eye: null, mood: 'normal' }),
+  3: Object.freeze({ tint: '#ff6a2a', amount: 0.32, eye: '#ffb347', mood: 'angry' }),
+  4: Object.freeze({ tint: '#16061c', amount: 0.58, eye: '#ff2244', mood: 'corrupt' })
+});
+
+// '#rrggbb' 두 색을 amount(0~1)만큼 섞는다
+function mixHex(from, to, amount) {
+  const parse = hex => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16));
+  const [a, b] = [parse(from), parse(to)];
+  return `#${a.map((value, index) => Math.round(value + (b[index] - value) * amount).toString(16).padStart(2, '0')).join('')}`;
+}
+
+// 레벨 색을 입힌 로봇 스타일(레벨·종류별로 한 번만 만든다)
+const levelStyleCache = new Map();
+function levelStyle(type, level) {
+  const look = LEVEL_LOOKS[level] ?? LEVEL_LOOKS[2];
+  const base = ROBOT_STYLE[type];
+  if (type === 'boss' || !look.tint) return base;
+  const key = `${type}:${level}`;
+  if (!levelStyleCache.has(key)) {
+    const tinted = { ...base, eye: look.eye ?? base.eye };
+    for (const field of ['body', 'bodyLight', 'trim', 'shell', 'shellLight']) {
+      if (base[field]) tinted[field] = mixHex(base[field], look.tint, field === 'trim' ? look.amount * 0.6 : look.amount);
+    }
+    levelStyleCache.set(key, Object.freeze(tinted));
+  }
+  return levelStyleCache.get(key);
+}
+
 const ITEM_STYLE = {
   laptop: { color: '#c792ea', fill: '#2a1f3d', label: '노트북 ×2' },
   battery: { color: '#39ff88', fill: '#123321', label: 'HP +1' }
@@ -226,6 +260,7 @@ export class ThrowRenderer {
     this.surface.resize?.();
     this.accent = accent;
     this.lanes = engine.lanes;
+    this.levelLook = LEVEL_LOOKS[engine.level] ?? LEVEL_LOOKS[2];
     const frameSeconds = Math.min(0.1, Math.max(0, engine.gameTime - this.lastGameTime)) || (engine.status === 'running' ? 0 : 1 / 60);
     this.lastGameTime = engine.gameTime;
     this.particles.update(frameSeconds);
@@ -452,8 +487,10 @@ export class ThrowRenderer {
   }
 
   drawRobot(context, robot, engine, labelHidden = false) {
-    const style = ROBOT_STYLE[robot.type];
+    const style = levelStyle(robot.type, engine.level);
     const visual = this.visuals.get(robot.id);
+    // 보스가 아닌 로봇의 표정 분위기(레벨): drawEyes가 읽는다
+    this.robotMood = robot.type === 'boss' ? 'boss' : (this.levelLook?.mood ?? 'normal');
     const age = engine.gameTime - robot.spawnedAt;
     const sinceState = engine.gameTime - robot.stateAt;
     let scale = easeOutBack(Math.min(1, age / 0.35)) * (robot.type === 'boss' ? this.bossScale() : this.depthScale(robot.x));
@@ -546,7 +583,11 @@ export class ThrowRenderer {
 
     context.save();
     context.globalAlpha = alpha;
-    context.translate(x, footY - bob * scale + offsetY);
+    // 장애 대응(Lv.4): 가끔 몸이 옆으로 지직 튄다
+    if (this.robotMood === 'corrupt' && robot.state === 'walking' && Math.sin(engine.gameTime * 5.3 + robot.id * 1.9) > 0.94) {
+      offsetX += Math.sin(engine.gameTime * 80) * 4 * scale;
+    }
+    context.translate(this.columnX(robot.lane) + offsetX, footY - bob * scale + offsetY);
     context.rotate(rotation + tilt);
     context.scale(scale * (1 + squash - stretch), scale * (1 - squash + stretch));
     if (robot.type === 'basic') this.drawBugBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
@@ -558,6 +599,14 @@ export class ThrowRenderer {
   }
 
   drawEyes(context, positions, radius, color, { blink, stunned, angry = false }) {
+    const mood = this.robotMood ?? 'normal';
+    if (mood === 'angry' || mood === 'corrupt') angry = true;
+    if (mood === 'happy') angry = false;
+    if (mood === 'happy' && !stunned && !blink) {
+      this.drawHappyEyes(context, positions, radius, color);
+      return;
+    }
+    if (mood === 'corrupt') radius *= 1.1;
     context.fillStyle = color;
     context.strokeStyle = color;
     context.shadowColor = color;
@@ -592,6 +641,28 @@ export class ThrowRenderer {
       }
     }
     context.shadowBlur = 0;
+  }
+
+  // 입문(Lv.1) 표정: 웃는 눈 ^ ^ 과 발그레한 볼
+  drawHappyEyes(context, positions, radius, color) {
+    context.strokeStyle = color;
+    context.shadowColor = color;
+    context.shadowBlur = 8;
+    context.lineWidth = Math.max(1.6, radius * 0.6);
+    context.lineCap = 'round';
+    for (const [eyeX, eyeY] of positions) {
+      context.beginPath();
+      context.arc(eyeX, eyeY + radius * 0.5, radius, Math.PI * 1.15, Math.PI * 1.85);
+      context.stroke();
+    }
+    context.shadowBlur = 0;
+    if (positions.length < 2) return;
+    context.fillStyle = 'rgba(255, 140, 170, 0.55)';
+    for (const [eyeX, eyeY] of positions) {
+      context.beginPath();
+      context.ellipse(eyeX + Math.sign(eyeX) * radius * 0.8, eyeY + radius * 1.6, radius * 0.9, radius * 0.5, 0, 0, Math.PI * 2);
+      context.fill();
+    }
   }
 
   isBlinking(engine, robot) {
@@ -642,6 +713,7 @@ export class ThrowRenderer {
     context.fillStyle = style.eye;
     if (stunned) context.fillRect(-5, -height * 0.66, 10, 2);
     else if (motion.menace > 0.4) context.fillRect(-4, -height * 0.69, 8, 5);
+    else if (this.robotMood === 'angry' || this.robotMood === 'corrupt') { context.fillRect(-5, -height * 0.65, 2, 2); context.fillRect(-3, -height * 0.67, 6, 2); context.fillRect(3, -height * 0.65, 2, 2); }
     else { context.fillRect(-5, -height * 0.67, 2, 2); context.fillRect(-3, -height * 0.65, 6, 2); context.fillRect(3, -height * 0.67, 2, 2); }
     const sway = Math.sin(phase * 0.5) * 3;
     context.strokeStyle = style.trim;

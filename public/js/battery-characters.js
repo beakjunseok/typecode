@@ -8,7 +8,18 @@ export const MASCOT_PALETTES = Object.freeze({
   me: Object.freeze({ screenTop: '#36e2ff', screenBottom: '#1a7fa0', body: '#1b2430', trim: '#8a98aa', limb: '#c9d4e0', limbShade: '#7d8aa0' }),
   opponent: Object.freeze({ screenTop: '#ffb86c', screenBottom: '#c2563a', body: '#2a1c1c', trim: '#c9a08a', limb: '#e3cbbd', limbShade: '#9c7f72' })
 });
-const DRAIN_BOT = Object.freeze({ body: '#6a3a55', bodyDark: '#3b1f33', trim: '#ff5d73', limb: '#7a4462', limbShade: '#4a2840' });
+// 방전봇은 난이도 레벨마다 다른 캐릭터: 색, 눈, 머리 장식, 몸놀림(motion)이 다르다
+//  1 꾸벅봇: 졸린 하늘색, 반쯤 감긴 눈, 수면 모자, 느릿느릿 흔들리고 가끔 하품
+//  2 방전봇: 자홍색, 화난 사선 눈, 플러그 단자, 기본 몸놀림
+//  3 과열봇: 주황, 불꽃 눈, 머리에서 불꽃, 들썩이고 김이 남
+//  4 블랙아웃봇: 검보라, 깨지는 붉은 눈, 뿔, 다리 대신 떠서 다니며 가끔 지직거림
+export const DRAIN_BOTS = Object.freeze({
+  1: Object.freeze({ name: '꾸벅봇', body: '#3f7396', bodyDark: '#1f3a52', trim: '#7fd8ff', limb: '#5a86a6', limbShade: '#2f5070', glow: '#7fd8ff', eyes: 'sleepy', accessory: 'nightcap', motion: 'sway' }),
+  2: Object.freeze({ name: '방전봇', body: '#6a3a55', bodyDark: '#3b1f33', trim: '#ff5d73', limb: '#7a4462', limbShade: '#4a2840', glow: '#ff5d73', eyes: 'angry', accessory: 'plug', motion: 'normal' }),
+  3: Object.freeze({ name: '과열봇', body: '#a8461c', bodyDark: '#5a1e0c', trim: '#ffb347', limb: '#b85a2e', limbShade: '#6a2a12', glow: '#ffb347', eyes: 'fire', accessory: 'flame', motion: 'jitter' }),
+  4: Object.freeze({ name: '블랙아웃봇', body: '#2a1840', bodyDark: '#08040e', trim: '#c792ea', limb: '#3a2450', limbShade: '#1a0f26', glow: '#ff3355', eyes: 'glitch', accessory: 'horns', motion: 'hover' })
+});
+export const drainBotFor = level => DRAIN_BOTS[level] ?? DRAIN_BOTS[2];
 const FACE_INK = '#05111a';
 const ARM_SEGMENT = 8;
 const MOOD_SECONDS = Object.freeze({ cheer: 0.8, hurt: 0.6, cast: 0.35, oops: 0.4 });
@@ -411,116 +422,222 @@ function drawSweat(context, rig, motion) {
 }
 
 // 방전봇: 플러그 머리 상자 로봇. options: { paused(화면 꺼짐), worried, result }
-export function drawDrainBot(context, rig, { paused = false, worried = false, result = null }) {
+export function drawDrainBot(context, rig, { paused = false, worried = false, result = null, level = 2 }) {
+  const look = drainBotFor(level);
   const time = rig.clock;
   const motion = bodyMotion(rig, { sleeping: paused, worried, result });
-  const airborne = Math.min(0, motion.hop);
+  const calm = !paused && !result && rig.typing < 0.3;
+  // 꾸벅봇은 몇 초마다 하품(눈을 감고 몸을 젖힘)
+  const yawnCycle = (time + rig.seed) % 6.5;
+  const yawn = look.motion === 'sway' && calm && yawnCycle < 1.1 ? Math.sin((yawnCycle / 1.1) * Math.PI) : 0;
+  // 블랙아웃봇은 가끔 지직(몸이 옆으로 튐)
+  const glitch = look.motion === 'hover' && !paused && Math.sin(time * 7.3 + rig.seed) > 0.93 ? Math.sin(time * 90) * 4 : 0;
+  const hover = look.motion === 'hover' && !paused ? -7 - Math.sin(time * 2.2) * 3 : 0;
+  const airborne = Math.min(0, motion.hop) + hover;
   const crouch = Math.min(4, Math.max(0, motion.hop) * 0.5 + Math.max(0, 1 - motion.stretch) * 12);
   const legLength = 6;
   const hipY = airborne - legLength + crouch;
   context.save();
-  context.translate(motion.tremble, 0);
+  context.translate(motion.tremble + glitch + (look.motion === 'jitter' && !paused ? Math.sin(time * 37) * 0.8 : 0), 0);
   applyFacing(context, rig);
-  drawLegs(context, {
-    hipY, spread: 7, feetY: airborne, footLift: motion.footLift, shift: motion.shift,
-    color: DRAIN_BOT.limbShade, shoe: '#1b2430', width: 4.5, length: legLength + 1
-  });
+  if (look.motion === 'hover' && !paused) {
+    // 다리 대신 추진 불꽃
+    for (const side of [-1, 1]) {
+      const flame = 6 + Math.sin(time * 30 + side) * 2;
+      context.fillStyle = 'rgba(199, 146, 234, 0.75)';
+      context.beginPath();
+      context.moveTo(side * 7 - 3, hipY + legLength - 2);
+      context.lineTo(side * 7, hipY + legLength - 2 + flame);
+      context.lineTo(side * 7 + 3, hipY + legLength - 2);
+      context.closePath();
+      context.fill();
+    }
+    context.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    context.beginPath();
+    context.ellipse(0, 0, 12 + hover * 0.4, 2.5, 0, 0, Math.PI * 2);
+    context.fill();
+  } else {
+    drawLegs(context, {
+      hipY, spread: 7, feetY: airborne, footLift: motion.footLift, shift: motion.shift,
+      color: look.limbShade, shoe: '#1b2430', width: 4.5, length: legLength + 1
+    });
+  }
   context.translate(motion.shift * 0.6, hipY);
+  const sway = look.motion === 'sway' ? Math.sin(time * 1.3 + rig.seed) * 0.07 - yawn * 0.15 : 0;
   // 기계라서 기울기가 살짝 끊겨 보이게(작은 계단)
-  context.rotate(Math.round(motion.lean * 40) / 40);
-  context.scale(motion.widen, motion.stretch);
-  const limb = { color: DRAIN_BOT.limb, shade: '#c9d4e0', width: 4, claw: true };
+  context.rotate(Math.round((motion.lean + sway) * 40) / 40);
+  const jitterSquash = look.motion === 'jitter' && !paused ? Math.abs(Math.sin(time * 9)) * 0.04 : 0;
+  context.scale(motion.widen, motion.stretch + jitterSquash);
+  const limb = { color: look.limb, shade: '#c9d4e0', width: 4, claw: true };
   drawArm(context, { x: -16, y: -20 }, rig.arms.back, limb);
 
-  // 플러그 단자 + 단자 사이 전기(발사·조준 중)
-  context.fillStyle = '#c9d4e0';
-  context.fillRect(-8, -45, 4, 11);
-  context.fillRect(4, -45, 4, 11);
   const charge = paused ? 0 : rig.typing * 0.6 + clamp(rig.cast.value, 0, 1);
-  if (charge > 0.15) {
-    context.strokeStyle = '#ff5d73';
-    context.shadowColor = '#ff5d73';
-    context.shadowBlur = 8;
-    context.lineWidth = 1.2;
-    context.globalAlpha = Math.min(1, charge);
-    context.beginPath();
-    context.moveTo(-4, -42);
-    for (let step = 1; step <= 4; step++) context.lineTo(-4 + step * 2, -42 + (step % 2 ? -2 : 2) * Math.sin(time * 41 + step));
-    context.stroke();
-    context.shadowBlur = 0;
-    context.globalAlpha = 1;
-  }
+  drawDrainAccessory(context, look, { time, charge, paused });
   const body = context.createLinearGradient(-16, -35, 16, 0);
-  body.addColorStop(0, DRAIN_BOT.body);
-  body.addColorStop(1, DRAIN_BOT.bodyDark);
+  body.addColorStop(0, look.body);
+  body.addColorStop(1, look.bodyDark);
   context.fillStyle = body;
   roundedRect(context, -17, -35, 34, 35, 9);
   context.fill();
-  context.strokeStyle = DRAIN_BOT.trim;
+  context.strokeStyle = look.trim;
   context.lineWidth = 1.5;
   context.stroke();
-  // 배 쪽 방전 표시등
-  context.fillStyle = paused ? '#3a1a28' : `rgba(255, 93, 115, ${0.5 + 0.4 * Math.sin(time * 5)})`;
+  // 배 쪽 표시등
+  context.fillStyle = paused ? '#1a1420' : look.glow;
+  context.globalAlpha = paused ? 1 : 0.5 + 0.4 * Math.sin(time * (look.motion === 'jitter' ? 11 : 5));
   context.fillRect(-6, -9, 12, 2.5);
+  context.globalAlpha = 1;
 
-  // 얼굴창: 눈이 시선 쪽으로 미끄러지고, 조준 중이면 가늘고 밝게. 맞으면 지직, 잠들면 꺼짐
+  // 얼굴창
   const visorTop = -29;
   context.fillStyle = paused ? '#05080c' : '#0b1017';
   roundedRect(context, -12, visorTop, 24, 14, 4);
   context.fill();
-  if (rig.mood === 'hurt' && !paused) {
+  if ((rig.mood === 'hurt' || glitch) && !paused) {
     context.fillStyle = 'rgba(255, 255, 255, 0.5)';
     for (let line = 0; line < 4; line++) {
       const y = visorTop + 2 + ((time * 120 + line * 3.7) % 10);
       context.fillRect(-11, y, 22, 0.8);
     }
   }
-  if (!paused) {
-    const eyeShift = clamp(rig.look.x, -1, 1) * 2.5;
-    const eyeDrop = clamp(rig.look.y, -1, 1) * 1.5;
-    const squint = rig.typing * 1.4;
-    const happy = rig.mood === 'cheer' || result === 'win';
-    const knocked = result === 'lose';
-    context.strokeStyle = '#ff5d73';
-    context.shadowColor = '#ff5d73';
-    context.shadowBlur = 6 + rig.typing * 6;
-    context.lineWidth = 2;
-    context.lineCap = 'round';
-    context.beginPath();
-    for (const side of [-1, 1]) {
-      const eyeX = side * 5.5 + eyeShift;
-      const eyeY = visorTop + 7 + eyeDrop;
-      if (knocked) {
-        context.moveTo(eyeX - 2, eyeY - 2);
-        context.lineTo(eyeX + 2, eyeY + 2);
-        context.moveTo(eyeX + 2, eyeY - 2);
-        context.lineTo(eyeX - 2, eyeY + 2);
-      } else if (happy) {
-        context.moveTo(eyeX - 2.5, eyeY + 1);
-        context.lineTo(eyeX, eyeY - 1.5);
-        context.lineTo(eyeX + 2.5, eyeY + 1);
-      } else {
-        // 화난 눈: 안쪽이 내려간 사선
-        context.moveTo(eyeX - side * 3, eyeY - 2 + squint * 0.5);
-        context.lineTo(eyeX + side * 2, eyeY + 1.5 - squint * 0.3);
-      }
-    }
-    context.stroke();
-    context.shadowBlur = 0;
-  }
+  if (!paused) drawDrainEyes(context, rig, look, { visorTop, result, yawn, time });
   const front = drawArm(context, { x: 17.6, y: -20 }, rig.arms.front, { ...limb, reach: 1 + clamp(rig.cast.value, 0, 1.2) * 0.22 });
-  if (!result && !paused) drawFingerSpark(context, front, rig.typing * 0.6 + clamp(rig.cast.value, 0, 1), time, '#ff5d73');
+  if (!result && !paused) drawFingerSpark(context, front, rig.typing * 0.6 + clamp(rig.cast.value, 0, 1), time, look.glow);
   context.restore();
-  // 위급하면 단자에서 연기가 피어오른다
-  if (worried && !paused && !result) {
+  // 연기: 위급할 때(모두), 과열봇은 늘 김이 난다
+  const steam = (worried || look.motion === 'jitter') && !paused && !result;
+  if (steam) {
     for (let puff = 0; puff < 3; puff++) {
-      const cycle = (time * 0.7 + puff / 3) % 1;
+      const cycle = (time * (look.motion === 'jitter' ? 1.1 : 0.7) + puff / 3) % 1;
       context.globalAlpha = 0.35 * (1 - cycle);
-      context.fillStyle = '#8a93b8';
+      context.fillStyle = look.motion === 'jitter' && !worried ? '#d8d2cc' : '#8a93b8';
       context.beginPath();
-      context.arc(Math.sin(time * 2 + puff) * 4, -52 + motion.hop - cycle * 18, 2.5 + cycle * 4, 0, Math.PI * 2);
+      context.arc(Math.sin(time * 2 + puff) * 4, -52 + motion.hop + hover - cycle * 18, 2.5 + cycle * 4, 0, Math.PI * 2);
       context.fill();
     }
     context.globalAlpha = 1;
   }
+  // 꾸벅봇 하품: 머리 위 Z
+  if (yawn > 0.2) {
+    context.globalAlpha = yawn;
+    context.fillStyle = look.trim;
+    context.font = '700 9px sans-serif';
+    context.textAlign = 'center';
+    context.fillText('z', 14, -50 - yawn * 6);
+    context.globalAlpha = 1;
+  }
+}
+
+// 머리 장식: 플러그 단자(조준 중 전기) · 수면 모자 · 불꽃 · 뿔
+function drawDrainAccessory(context, look, { time, charge, paused }) {
+  if (look.accessory === 'plug') {
+    context.fillStyle = '#c9d4e0';
+    context.fillRect(-8, -45, 4, 11);
+    context.fillRect(4, -45, 4, 11);
+    if (charge > 0.15) {
+      context.strokeStyle = look.glow;
+      context.shadowColor = look.glow;
+      context.shadowBlur = 8;
+      context.lineWidth = 1.2;
+      context.globalAlpha = Math.min(1, charge);
+      context.beginPath();
+      context.moveTo(-4, -42);
+      for (let step = 1; step <= 4; step++) context.lineTo(-4 + step * 2, -42 + (step % 2 ? -2 : 2) * Math.sin(time * 41 + step));
+      context.stroke();
+      context.shadowBlur = 0;
+      context.globalAlpha = 1;
+    }
+  } else if (look.accessory === 'nightcap') {
+    const droop = Math.sin(time * 1.3) * 2;
+    context.fillStyle = '#5b7fc9';
+    context.beginPath();
+    context.moveTo(-14, -33);
+    context.quadraticCurveTo(-4, -52, 12 + droop, -44);
+    context.lineTo(14, -33);
+    context.closePath();
+    context.fill();
+    context.fillStyle = '#f2f4ff';
+    context.fillRect(-15, -36, 30, 4);
+    context.beginPath();
+    context.arc(13 + droop, -44, 3.2, 0, Math.PI * 2);
+    context.fill();
+  } else if (look.accessory === 'flame') {
+    const flicker = paused ? 0.4 : 1 + Math.sin(time * 23) * 0.15 + charge * 0.4;
+    for (const [color, scale] of [['#ff6b2d', 1], ['#ffd166', 0.55]]) {
+      context.fillStyle = color;
+      context.beginPath();
+      context.moveTo(-7 * scale, -34);
+      context.quadraticCurveTo(-9 * scale, -42 * flicker, Math.sin(time * 9) * 2, -34 - 16 * scale * flicker);
+      context.quadraticCurveTo(9 * scale, -42 * flicker, 7 * scale, -34);
+      context.closePath();
+      context.fill();
+    }
+  } else if (look.accessory === 'horns') {
+    context.fillStyle = '#c9b6e0';
+    for (const side of [-1, 1]) {
+      context.beginPath();
+      context.moveTo(side * 9, -34);
+      context.quadraticCurveTo(side * 18, -42, side * 15, -50);
+      context.quadraticCurveTo(side * 12, -42, side * 4, -35);
+      context.closePath();
+      context.fill();
+    }
+    context.fillStyle = look.glow;
+    context.shadowColor = look.glow;
+    context.shadowBlur = paused ? 0 : 10 + charge * 10;
+    context.beginPath();
+    context.arc(0, -38, 2.5 + charge * 1.5, 0, Math.PI * 2);
+    context.fill();
+    context.shadowBlur = 0;
+  }
+}
+
+// 눈: angry(안쪽이 내려간 사선) · fire(굵고 밝은 사선) · sleepy(반쯤 감긴 눈꺼풀) · glitch(깜빡이는 네모)
+// 공통: 기쁘면 ^ ^, 지면 X X. 시선 쪽으로 미끄러지고 조준 중이면 가늘어진다
+function drawDrainEyes(context, rig, look, { visorTop, result, yawn, time }) {
+  const eyeShift = clamp(rig.look.x, -1, 1) * 2.5;
+  const eyeDrop = clamp(rig.look.y, -1, 1) * 1.5;
+  const squint = rig.typing * 1.4;
+  const happy = rig.mood === 'cheer' || result === 'win';
+  const knocked = result === 'lose';
+  context.strokeStyle = look.glow;
+  context.fillStyle = look.glow;
+  context.shadowColor = look.glow;
+  context.shadowBlur = 6 + rig.typing * 6;
+  context.lineWidth = look.eyes === 'fire' ? 2.6 : 2;
+  context.lineCap = 'round';
+  context.beginPath();
+  for (const side of [-1, 1]) {
+    const eyeX = side * 5.5 + eyeShift;
+    const eyeY = visorTop + 7 + eyeDrop;
+    if (knocked) {
+      context.moveTo(eyeX - 2, eyeY - 2);
+      context.lineTo(eyeX + 2, eyeY + 2);
+      context.moveTo(eyeX + 2, eyeY - 2);
+      context.lineTo(eyeX - 2, eyeY + 2);
+    } else if (happy) {
+      context.moveTo(eyeX - 2.5, eyeY + 1);
+      context.lineTo(eyeX, eyeY - 1.5);
+      context.lineTo(eyeX + 2.5, eyeY + 1);
+    } else if (look.eyes === 'sleepy') {
+      // 반쯤 감긴 눈: 아래 반원 + 눈꺼풀 선. 하품하면 완전히 감김
+      const open = Math.max(0, 1.6 + rig.typing * 1.2 - yawn * 1.6);
+      context.moveTo(eyeX - 3, eyeY);
+      context.lineTo(eyeX + 3, eyeY);
+      if (open > 0.2) {
+        context.moveTo(eyeX + 2, eyeY);
+        context.arc(eyeX, eyeY, 2, 0, Math.PI);
+      }
+    } else if (look.eyes === 'glitch') {
+      if (Math.sin(time * 13 + side * 2) > -0.7) {
+        context.rect(eyeX - 2 + (Math.sin(time * 50 + side) > 0.9 ? side * 2 : 0), eyeY - 2 + squint * 0.3, 4, 4 - squint * 0.6);
+      }
+    } else {
+      context.moveTo(eyeX - side * 3, eyeY - 2 + squint * 0.5);
+      context.lineTo(eyeX + side * 2, eyeY + 1.5 - squint * 0.3);
+    }
+  }
+  if (look.eyes === 'glitch' && !knocked && !happy) context.fill();
+  else context.stroke();
+  context.shadowBlur = 0;
 }
