@@ -27,10 +27,13 @@ export const BOSS_RULES = Object.freeze({
   padSpeed: 0.2,
   padMaxLength: 6,
   padBlockBonus: 30,
-  // 책상 앞(playerX + reachGap)에 닿으면 멈춰 서서 주먹을 날린다: 준비 → impactSeconds에 명중 → endSeconds에 판 종료
+  // 내 앞(playerX + reachGap)에 닿으면 멈춰 서서 주먹을 날린다(이 동안 대포는 쏘지 않는다).
+  // 도착 후 punchFirstDelay 뒤 첫 펀치, 이후 punchDelay마다. 펀치는 punchWindupSeconds 동안 팔을 젖혔다가 명중 → 건전지 1칸.
+  // 그 사이 보스를 맞혀 밀어내면 펀치가 취소된다
   reachGap: 0.13,
-  punchImpactSeconds: 0.55,
-  punchEndSeconds: 1.4
+  punchFirstDelay: 1,
+  punchDelay: 2.4,
+  punchWindupSeconds: 0.75
 });
 
 export const ITEM_TYPES = Object.freeze({
@@ -96,8 +99,6 @@ export class ThrowEngine extends TargetGameEngine {
     this.bossId = null;
     this.pads = [];
     this.nextPadAt = Infinity;
-    this.punchAt = null;
-    this.punchLanded = false;
   }
 
   targetables() {
@@ -139,10 +140,6 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   step(frameSeconds) {
-    if (this.punchAt != null) {
-      this.stepBossPunch();
-      return;
-    }
     if (this.winAt != null && this.gameTime >= this.winAt) {
       this.finish();
       return;
@@ -160,8 +157,45 @@ export class ThrowEngine extends TargetGameEngine {
     if (this.bossPhase !== 'fight') return;
     const boss = this.boss();
     if (!boss || boss.state !== 'walking') return;
-    this.stepCannon(boss);
+    if (boss.x <= this.bossReachX() + 1e-9) this.stepBossMelee(boss);
+    else {
+      // 맞고 밀려나면 펀치는 취소되고 다시 걸어오며 대포를 쓴다
+      if (boss.inMelee) this.emit('boss-pushed', { boss });
+      boss.inMelee = false;
+      boss.punchStartAt = null;
+      this.stepCannon(boss);
+    }
     this.spawnItemsIfDue();
+  }
+
+  bossReachX() {
+    return THROW_RULES.playerX + BOSS_RULES.reachGap;
+  }
+
+  // 근접: 대포 충전은 취소하고, 딜레이 → 팔 젖히기(windup) → 명중(건전지 1칸)을 되풀이한다
+  stepBossMelee(boss) {
+    if (!boss.inMelee) {
+      boss.inMelee = true;
+      boss.chargeUntil = null;
+      boss.punchStartAt = null;
+      boss.nextPunchAt = this.gameTime + BOSS_RULES.punchFirstDelay;
+      this.emit('boss-reached', { boss });
+      return;
+    }
+    if (boss.punchStartAt == null) {
+      if (this.gameTime < boss.nextPunchAt) return;
+      boss.punchStartAt = this.gameTime;
+      boss.punchCount = (boss.punchCount ?? 0) + 1;
+      this.emit('boss-windup', { boss });
+      return;
+    }
+    if (this.gameTime < boss.punchStartAt + BOSS_RULES.punchWindupSeconds) return;
+    boss.punchStartAt = null;
+    boss.punchedAt = this.gameTime;
+    boss.nextPunchAt = this.gameTime + BOSS_RULES.punchDelay;
+    this.emit('boss-punch', { boss });
+    this.loseLife({ robot: boss, punch: true });
+    if (this.status === 'running' && this.nextBatteryAt === Infinity) this.scheduleBattery(THROW_RULES.batteryFirstDelay);
   }
 
   // 패드 대포 스킬: 가슴 대포에 에너지를 모으는(charge) 동안 예고하고, 다 모이면 패드를 쏜다. 한 번에 패드 하나만
@@ -229,22 +263,9 @@ export class ThrowEngine extends TargetGameEngine {
     this.emit('goal', { kills: this.totalKills(), boss: true });
   }
 
-  // 보스 펀치 연출 중에는 세상이 멈춘다: 주먹이 닿는 순간 'boss-punch', 연출이 끝나면 생명과 상관없이 패배
-  stepBossPunch() {
-    const elapsed = this.gameTime - this.punchAt;
-    if (!this.punchLanded && elapsed >= BOSS_RULES.punchImpactSeconds) {
-      this.punchLanded = true;
-      this.emit('boss-punch', { boss: this.boss() });
-    }
-    if (elapsed < BOSS_RULES.punchEndSeconds) return;
-    this.punchAt = null;
-    this.lives = Math.min(this.lives, 1);
-    this.loseLife({ robot: this.boss(), boss: true });
-  }
-
-  // 승리 연출·보스 펀치 중에는 입력도, 로봇이 선을 넘어 생명이 깎이는 것도 막는다
+  // 승리 연출 중에는 입력도, 로봇이 선을 넘어 생명이 깎이는 것도 막는다
   input(character, nowMs) {
-    if (this.winAt != null || this.punchAt != null) return { accepted: false, reason: 'finished' };
+    if (this.winAt != null) return { accepted: false, reason: 'finished' };
     return super.input(character, nowMs);
   }
 
@@ -388,9 +409,10 @@ export class ThrowEngine extends TargetGameEngine {
       if (robot.state !== 'walking') continue;
       const type = ROBOT_TYPES[robot.type];
       robot.x -= type.speed * (type.boss ? this.difficulty.speed : multiplier) * frameSeconds;
-      if (type.boss && robot.x <= THROW_RULES.playerX + BOSS_RULES.reachGap) {
-        this.startBossPunch(robot);
-        return;
+      // 보스는 내 앞에서 멈춰 선다(펀치는 stepBossMelee)
+      if (type.boss) {
+        robot.x = Math.max(this.bossReachX(), robot.x);
+        continue;
       }
       if (robot.x <= THROW_RULES.playerX) this.robotReachedPlayer(robot);
       if (this.status !== 'running') return;
@@ -420,19 +442,6 @@ export class ThrowEngine extends TargetGameEngine {
     if (this.status === 'running' && this.nextBatteryAt === Infinity) this.scheduleBattery(THROW_RULES.batteryFirstDelay);
   }
 
-  // 보스가 내 앞에 멈춰 서서 주먹을 날린다(조준·입력·패드 모두 정리)
-  startBossPunch(boss) {
-    boss.state = 'punching';
-    boss.stateAt = this.gameTime;
-    boss.chargeUntil = null;
-    this.punchAt = this.gameTime;
-    this.punchLanded = false;
-    this.releaseTargetIf(boss.id, 'boss-reached');
-    this.clearBuffer();
-    for (const pad of this.pads) pad.consumed = true;
-    this.emit('boss-reached', { boss });
-  }
-
   // 막지 못한 패드는 건전지 1칸을 깎는다
   padReachedPlayer(pad) {
     pad.consumed = true;
@@ -445,7 +454,7 @@ export class ThrowEngine extends TargetGameEngine {
 
   removeFinished() {
     this.robots = this.robots.filter(robot =>
-      robot.state === 'walking' || robot.state === 'punching' || this.gameTime - robot.stateAt < THROW_RULES.dyingSeconds);
+      robot.state === 'walking' || this.gameTime - robot.stateAt < THROW_RULES.dyingSeconds);
     const inFlight = entity => this.projectiles.some(projectile => projectile.targetId === entity.id);
     this.items = this.items.filter(item => !item.consumed || inFlight(item));
     this.pads = this.pads.filter(pad => !pad.consumed || inFlight(pad));

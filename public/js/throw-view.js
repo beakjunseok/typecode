@@ -168,15 +168,18 @@ export class ThrowRenderer {
       this.particles.burst(x, y - 60, { color: '#ff3355', count: 40, speed: 320, life: 0.9, size: 4 });
     } else if (type === 'boss-reached') {
       this.juice.shake(0.4);
+      this.juice.popup(this.surface.width / 2, this.dangerY - 70, '⚠ 보스 근접!', { color: '#ff5d73', size: 22, life: 1 });
+    } else if (type === 'boss-windup') {
+      this.juice.popup(this.surface.width / 2, this.dangerY - 70, '펀치 온다! 맞혀서 밀어내!', { color: '#ffcf5a', size: 18, life: BOSS_RULES.punchWindupSeconds });
+    } else if (type === 'boss-pushed') {
+      this.juice.popup(this.surface.width / 2, this.dangerY - 70, '밀어냈다!', { color: '#4df0a6', size: 20, life: 0.8 });
     } else if (type === 'boss-punch') {
       const { x, y } = this.playerPosition();
-      this.player.hurt.kick(40);
-      this.juice.shake(1);
-      this.juice.flash('#ffffff', 0.6, 0.18);
-      this.juice.flash('#ff2846', 0.4, 0.7);
-      this.juice.ring(x, y - 40, { color: '#ffcf5a', radius: 260, life: 0.5, width: 10 });
-      this.juice.popup(x, y - 120, 'K.O.', { color: '#ff3355', size: 44, rise: 20, life: 1.2 });
-      this.particles.burst(x, y - 40, { color: '#ffcf5a', count: 50, speed: 420, life: 0.8, size: 4, gravity: 500 });
+      this.juice.shake(0.9);
+      this.juice.flash('#ffffff', 0.4, 0.15);
+      this.juice.ring(x, y - 40, { color: '#ffcf5a', radius: 200, life: 0.45, width: 9 });
+      this.juice.popup(x, y - 110, 'PUNCH!', { color: '#ffcf5a', size: 32, rise: 20, life: 0.9 });
+      this.particles.burst(x, y - 40, { color: '#ffcf5a', count: 36, speed: 380, life: 0.7, size: 4, gravity: 500 });
     } else if (type === 'boss-charge') {
       const cannon = this.bossCannonPoint(payload.boss);
       this.juice.popup(cannon.x, cannon.y - 96 * this.bossScale(), '⚡ 대포 충전!', { color: '#36e2ff', size: 20, life: 1 });
@@ -811,12 +814,18 @@ export class ThrowRenderer {
     const flinch = sinceHit < 0.3 ? Math.sin((sinceHit / 0.3) * Math.PI) : 0;
     const enraged = robot.hp <= 3;
     const pulse = 0.5 + 0.5 * Math.sin(time * (enraged ? 9 : 4));
-    // 펀치: 0~1 준비(오른팔을 뒤로 젖힘) → 1~2 내지름(주먹이 화면 앞으로 커지며 다가옴) → 2 이후 뻗은 채 멈춤
-    const punchTime = robot.state === 'punching' ? time - robot.stateAt : -1;
-    const windup = punchTime < 0 ? 0 : Math.min(1, punchTime / (BOSS_RULES.punchImpactSeconds * 0.75));
-    const strike = punchTime < BOSS_RULES.punchImpactSeconds * 0.75 ? 0
-      : easeOutCubic(Math.min(1, (punchTime - BOSS_RULES.punchImpactSeconds * 0.75) / (BOSS_RULES.punchImpactSeconds * 0.25)));
-    const walk = robot.state === 'punching' ? 0 : Math.sin(phase);
+    // 펀치(근접): windup 0→1 팔을 어깨 뒤로 당겨 주먹을 쥠 → strike 0→1 곧게 내지름(명중 순간 1) → 맞힌 뒤 retract 0→1 거둠.
+    // 팔은 펀치마다 번갈아 쓴다
+    const punchSide = (robot.punchCount ?? 1) % 2 === 1 ? 1 : -1;
+    const windupTime = robot.punchStartAt != null ? time - robot.punchStartAt : -1;
+    const pullSeconds = BOSS_RULES.punchWindupSeconds * 0.82;
+    const windup = windupTime < 0 ? 0 : easeOutCubic(Math.min(1, windupTime / pullSeconds));
+    const strike = windupTime < pullSeconds ? 0
+      : Math.min(1, (windupTime - pullSeconds) / (BOSS_RULES.punchWindupSeconds - pullSeconds)) ** 2;
+    const sincePunch = time - (robot.punchedAt ?? -Infinity);
+    const retract = sincePunch < 0.45 ? sincePunch / 0.45 : -1;
+    const punching = windupTime >= 0 || retract >= 0;
+    const walk = robot.inMelee ? Math.sin(time * 2) * 0.25 : Math.sin(phase);
     const paint = color => (hitFlash ? '#ffffff' : color);
     const podX = 104 * spread;
 
@@ -859,13 +868,14 @@ export class ThrowRenderer {
 
     // 위몸: 걸음 흔들림 + 발사 반동 + 맞으면 뒤로 젖혀짐
     context.save();
-    context.translate(0, -Math.abs(walk) * 2.5 - recoil * 6 - windup * 6 + strike * 10);
-    context.rotate(walk * 0.012 - flinch * 0.05 - windup * 0.06 * (1 - strike) + strike * 0.05);
+    // 몸도 펀치를 따라 뒤로 젖혔다가(windup) 앞으로 쏠린다(strike·retract 초반)
+    const lunge = retract >= 0 ? 1 - retract : strike;
+    context.translate(0, -Math.abs(walk) * 2.5 - recoil * 6 - windup * (1 - strike) * 8 + lunge * 12);
+    context.rotate(walk * 0.012 - flinch * 0.05 - punchSide * windup * (1 - strike) * 0.07 + punchSide * lunge * 0.06);
 
     // 팔(어깨 포드에서 동그란 손까지) — 몸통보다 먼저 그려 뒤에 오게. 펀치하는 오른팔은 맨 앞에 따로 그린다
-    const punching = punchTime >= 0;
     for (const side of [-1, 1]) {
-      if (side > 0 && punching) continue;
+      if (side === punchSide && punching) continue;
       const swing = side * walk * 7;
       const brace = charge * 16 + recoil * 12;
       const elbow = { x: side * (podX + 22 + brace * 0.6), y: -74 };
@@ -1012,24 +1022,39 @@ export class ThrowRenderer {
       context.arc(gemX, crownY - 4, 2.4, 0, Math.PI * 2);
       context.fill();
     }
-    // 펀치하는 오른팔(맨 앞): 준비 땐 위·뒤로 젖혔다가, 내지르면 손이 가운데 아래(플레이어 쪽)로 뻗으며 커진다
+    // 펀치하는 팔(맨 앞): 쉬는 자리 → 어깨 옆 뒤로 당김 → 가운데 아래(플레이어)로 곧게 내지름 → 다시 쉬는 자리.
+    // 손은 당길 때 조금, 내지를 때 화면 앞으로 다가오듯 크게 커진다
     if (punching) {
-      const rest = { x: podX + 34, y: -36 };
-      const back = { x: podX + 40, y: -150 };
-      const out = { x: 10, y: 40 };
-      const ready = { x: rest.x + (back.x - rest.x) * windup, y: rest.y + (back.y - rest.y) * windup };
-      const hand = { x: ready.x + (out.x - ready.x) * strike, y: ready.y + (out.y - ready.y) * strike };
-      const elbow = { x: podX + 30 - strike * (podX - 10), y: -84 - windup * 30 + strike * 90 };
-      if (strike > 0.05 && strike < 1) {
+      const mix = (from, to, amount) => ({ x: from.x + (to.x - from.x) * amount, y: from.y + (to.y - from.y) * amount });
+      const rest = { x: punchSide * (podX + 34), y: -36 };
+      const back = { x: punchSide * (podX + 46), y: -112 };
+      const out = { x: punchSide * 6, y: 36 };
+      let hand;
+      let grow;
+      if (retract >= 0) {
+        const eased = easeOutCubic(retract);
+        hand = mix(out, rest, eased);
+        grow = 3.2 - 2.2 * eased;
+      } else {
+        hand = mix(mix(rest, back, windup), out, strike);
+        grow = 1 + windup * 0.35 + strike * 1.85;
+      }
+      const shoulder = { x: punchSide * podX, y: -92 };
+      // 팔꿈치: 당길 땐 바깥으로 접히고, 뻗을수록 어깨–손 직선에 가까워진다
+      const middle = mix(shoulder, hand, 0.5);
+      const bend = (retract >= 0 ? retract : 1 - strike) * 22;
+      const elbow = { x: middle.x + punchSide * bend, y: middle.y - bend * 0.4 };
+      if (strike > 0.05 && retract < 0) {
+        const tail = mix(back, out, Math.max(0, strike - 0.4));
         context.strokeStyle = 'rgba(255, 207, 90, 0.3)';
-        context.lineWidth = 30 + strike * 30;
+        context.lineWidth = 14 * grow * 1.5;
         context.lineCap = 'round';
         context.beginPath();
-        context.moveTo(ready.x + (out.x - ready.x) * Math.max(0, strike - 0.35), ready.y + (out.y - ready.y) * Math.max(0, strike - 0.35));
+        context.moveTo(tail.x, tail.y);
         context.lineTo(hand.x, hand.y);
         context.stroke();
       }
-      this.drawBossArm(context, style, { x: podX, y: -92 }, elbow, hand, 14 * (1 + windup * 0.3 + strike * 2.4), paint);
+      this.drawBossArm(context, style, shoulder, elbow, hand, 14 * grow, paint);
     }
     context.restore();
   }
