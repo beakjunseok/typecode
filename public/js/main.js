@@ -247,6 +247,24 @@ function handleArcadeEvent(type, payload) {
       pulseClass(ui.elements.arcadeStage, 'shake', 400);
       ui.log('err', '👑 보스 서버봇 등장! 책상에 닿으면 바로 끝나요');
       break;
+    case 'boss-charge':
+      sound.play('powerUp');
+      ui.log('warn', '⚡ 보스가 대포를 충전해요 — 패드 낱말을 쳐서 막으세요');
+      break;
+    case 'boss-fire':
+      sound.play('explode');
+      break;
+    case 'pad-blocked':
+      sound.play('glassCrack');
+      ui.log('ok', `🛡 패드 막음 (+${payload.bonus})`);
+      break;
+    case 'pad-hit':
+      ui.log('err', '📱 패드에 맞았어요');
+      break;
+    case 'heal':
+      sound.play('powerUp');
+      ui.log('ok', `🔋 보스 타격 — 건전지 회복 (${payload.lives}칸)`);
+      break;
     case 'boss-reached':
       ui.log('err', '👑 보스가 책상에 닿았어요');
       break;

@@ -342,7 +342,7 @@ test('게임 모드도 타수를 계산한다(스냅샷·요약)', async () => {
   assert.equal(typeof engine.summary().charactersPerMinute, 'number');
 });
 
-test('목표 수를 채우면 보스전: 경고 뒤 보스 등장, 졸개 소환, 맞으면 밀려나고 쓰러뜨리면 승리', () => {
+test('목표 수를 채우면 보스전: 경고 뒤 보스 등장, 이후 로봇은 안 나옴, 맞으면 밀려나고 쓰러뜨리면 승리', () => {
   const { engine } = createEngine();
   const clock = { now: 0 };
   engine.start(0);
@@ -355,14 +355,16 @@ test('목표 수를 채우면 보스전: 경고 뒤 보스 등장, 졸개 소환
   const boss = engine.boss();
   assert.ok(boss, '보스 등장');
   assert.equal(boss.hp, ROBOT_TYPES.boss.hp);
-  const before = engine.robots.length;
-  advance(engine, clock, BOSS_RULES.minionInterval[1] + 0.3);
-  const minions = engine.robots.filter(robot => robot.type !== 'boss' && robot.spawnedAt > boss.spawnedAt);
-  assert.ok(minions.length >= 1 && engine.robots.length > before, '졸개 소환');
-  assert.ok(minions.every(minion => minion.lane !== boss.lane), '졸개는 보스 줄을 피한다');
+  assert.equal(boss.lane, (engine.lanes - 1) / 2, '보스는 화면 가운데');
+  boss.x = 50;
+  advance(engine, clock, 12);
+  assert.equal(engine.robots.filter(robot => robot.spawnedAt > boss.spawnedAt).length, 0, '보스 뒤로 새 로봇 없음');
+  boss.x = BOSS_RULES.spawnX - 0.1;
   const x = boss.x;
+  engine.lives = 1;
   engine.damageRobot(boss, { damage: 1, weapon: 'phone' });
   assert.ok(boss.x > x, '맞으면 밀려남');
+  assert.equal(engine.lives, 2, '보스를 때리면 건전지 1칸 회복');
   engine.damageRobot(boss, { damage: ROBOT_TYPES.boss.hp, weapon: 'laptop' });
   assert.equal(engine.outcome, 'cleared');
   assert.equal(engine.input('a', clock.now).accepted, false);
@@ -383,4 +385,34 @@ test('보스가 책상에 닿으면 생명이 남아 있어도 즉시 패배', (
   advance(engine, clock, 0.3);
   assert.equal(engine.status, 'finished');
   assert.equal(engine.summary().outcome, 'overrun');
+});
+
+test('보스 대포: 충전 뒤 패드 발사, 짧은 낱말을 쳐서 막으면 보너스, 못 막으면 건전지 1칸', () => {
+  const { engine, events } = createEngine();
+  const clock = { now: 0 };
+  engine.start(0);
+  engine.bossPhase = 'warning';
+  engine.bossAt = 0;
+  advance(engine, clock, 0.1);
+  const boss = engine.boss();
+  for (const robot of engine.robots) if (robot !== boss) robot.x = 2;
+  advance(engine, clock, BOSS_RULES.padFirstDelay + BOSS_RULES.cannonChargeSeconds + 0.2);
+  assert.ok(events.some(event => event.type === 'boss-charge'));
+  const pad = engine.pads[0];
+  assert.ok(pad && pad.token.text.length <= BOSS_RULES.padMaxLength, '패드 발사');
+  const score = engine.score;
+  for (const character of pad.token.text) engine.input(character, clock.now);
+  advance(engine, clock, ARCADE_RULES.projectileSeconds + 0.1);
+  assert.ok(pad.blocked, '막음');
+  assert.ok(engine.score >= score + BOSS_RULES.padBlockBonus);
+
+  engine.nextPadAt = engine.gameTime;
+  advance(engine, clock, BOSS_RULES.cannonChargeSeconds + 0.1);
+  const second = engine.pads.find(entity => !entity.consumed);
+  assert.ok(second);
+  const lives = engine.lives;
+  second.x = THROW_RULES.playerX + 0.001;
+  advance(engine, clock, 0.1);
+  assert.ok(second.hitPlayer);
+  assert.equal(engine.lives, lives - 1, '못 막으면 건전지 1칸');
 });

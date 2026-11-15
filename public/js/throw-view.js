@@ -16,7 +16,8 @@ const ROBOT_STYLE = {
   basic: { name: '버그봇', body: '#2f5d72', bodyLight: '#4b8aa6', trim: '#7fdbca', eye: '#36e2ff', width: 40, height: 46, stride: 7 },
   fast: { name: '스피드봇', body: '#b14a2c', bodyLight: '#e0703f', trim: '#ffcb6b', eye: '#ffe08a', width: 32, height: 40, stride: 14 },
   slow: { name: '달팽봇', body: '#3f6b3a', bodyLight: '#6fae5c', trim: '#c9f29b', eye: '#b6ff6b', shell: '#c7834a', shellLight: '#f0b878', width: 54, height: 44, stride: 3 },
-  boss: { name: '보스 서버봇', body: '#4a1424', bodyLight: '#a8304a', trim: '#ffcf5a', eye: '#ff3355', width: 112, height: 100, stride: 1.6 },
+  // 보스는 로컬 좌표 160×104 크기로 그리고 bossScale로 화면 가운데 줄 4칸 너비에 맞춘다
+  boss: { name: '보스 서버봇', body: '#3a1020', bodyLight: '#8e2840', trim: '#ffcf5a', eye: '#ff3355', metal: '#2a2f3d', width: 160, height: 104, stride: 1.4 },
   tank: { name: '헤비봇', body: '#353d49', bodyLight: '#566273', trim: '#8a98aa', eye: '#ff4d6d', width: 60, height: 56, stride: 4 }
 };
 const ITEM_STYLE = {
@@ -82,6 +83,27 @@ export class ThrowRenderer {
     return top + progress * (this.dangerY - top);
   }
 
+  // 보스 크기: 키는 화면의 27%까지. 대신 몸통을 옆으로 넓혀(bossSpread) 팔 끝까지 화면 너비의 76% → 88%(줄 4칸 대부분)를 덮는다
+  bossProgress(distance) {
+    return Math.min(1, Math.max(0, (THROW_RULES.spawnX - distance) / (THROW_RULES.spawnX - THROW_RULES.playerX)));
+  }
+
+  bossScale(distance) {
+    const style = ROBOT_STYLE.boss;
+    return Math.min((this.surface.width * 0.88) / (style.width * 1.4), (this.surface.height * 0.27) / style.height);
+  }
+
+  // 1이면 기본 몸통(로컬 너비 160), 클수록 몸통·어깨·궤도가 옆으로 벌어진다(높이는 그대로). 최대 2.6
+  bossSpread(distance) {
+    const targetWidth = this.surface.width * (0.76 + 0.12 * this.bossProgress(distance));
+    return Math.max(1, Math.min(2.6, targetWidth / (this.bossScale(distance) * ROBOT_STYLE.boss.width * 1.25)));
+  }
+
+  // 보스 가슴 대포의 화면 위치(패드가 나오는 곳, 충전·발사 연출 기준점)
+  bossCannonPoint(boss) {
+    return { x: this.columnX(boss.lane), y: this.toY(boss.x) - 52 * this.bossScale(boss.x) };
+  }
+
   depthScale(distance) {
     const progress = Math.min(1, Math.max(0, (THROW_RULES.spawnX - distance) / (THROW_RULES.spawnX - THROW_RULES.playerX)));
     const columnFit = Math.min(1, (this.surface.width / this.lanes) / 100);
@@ -145,10 +167,29 @@ export class ThrowRenderer {
       const y = this.toY(payload.boss.x);
       this.juice.shake(0.9);
       this.juice.flash('#ffffff', 0.35, 0.3);
-      this.juice.ring(x, y - 40, { color: '#ff3355', radius: 220, life: 0.7, width: 8 });
-      this.particles.burst(x, y - 40, { color: '#ff3355', count: 40, speed: 320, life: 0.9, size: 4 });
-    } else if (type === 'boss-summon') {
-      if (payload.boss) this.juice.popup(this.columnX(payload.boss.lane), this.toY(payload.boss.x) - 120, '졸개 소환!', { color: '#ff8fa3', size: 16, life: 0.8 });
+      this.juice.ring(x, y - 60, { color: '#ff3355', radius: 260, life: 0.7, width: 8 });
+      this.particles.burst(x, y - 60, { color: '#ff3355', count: 40, speed: 320, life: 0.9, size: 4 });
+    } else if (type === 'boss-charge') {
+      const cannon = this.bossCannonPoint(payload.boss);
+      this.juice.popup(cannon.x, cannon.y - 70 * this.bossScale(payload.boss.x), '⚡ 대포 충전!', { color: '#36e2ff', size: 20, life: 1 });
+      this.juice.shake(0.12);
+    } else if (type === 'boss-fire') {
+      const cannon = this.bossCannonPoint(payload.boss);
+      this.juice.shake(0.55);
+      this.juice.flash('#36e2ff', 0.18, 0.2);
+      this.juice.ring(cannon.x, cannon.y, { color: '#36e2ff', radius: 90, life: 0.35, width: 7 });
+      this.particles.burst(cannon.x, cannon.y, { color: '#9aa6b8', count: 22, speed: 180, life: 0.7, size: 4, gravity: -60 });
+      this.particles.burst(cannon.x, cannon.y, { color: '#36e2ff', count: 16, speed: 300, life: 0.35 });
+    } else if (type === 'pad-blocked') {
+      const x = this.columnX(payload.pad.lane);
+      const y = this.toY(payload.pad.x) - 30;
+      this.juice.shake(0.25);
+      this.juice.ring(x, y, { color: '#36e2ff', radius: 70, life: 0.35, width: 5 });
+      this.juice.popup(x, y - 20, `BLOCK! +${payload.bonus}`, { color: '#36e2ff', size: 20 });
+      this.particles.burst(x, y, { color: '#36e2ff', count: 26, speed: 260, life: 0.6, gravity: 300 });
+    } else if (type === 'heal') {
+      this.juice.popup(70, HUD_HEIGHT + 22, '+1 🔋', { color: '#4df0a6', size: 18, rise: 24, life: 0.9 });
+      this.juice.ring(40, HUD_HEIGHT / 2, { color: '#4df0a6', radius: 46, life: 0.4, width: 4 });
     } else if (type === 'goal') {
       this.juice.flash('#ffffff', 0.55, 0.5);
       this.juice.shake(0.6);
@@ -162,8 +203,9 @@ export class ThrowRenderer {
       this.player.hurt.kick(30);
       this.juice.shake(0.75);
       this.juice.flash('#ff2846', 0.32, 0.35);
-      this.juice.popup(this.columnX(payload.cause.robot.lane), this.dangerY - 18, '-1 🔋', { color: '#ff5d73', size: 22 });
-      this.particles.burst(this.columnX(payload.cause.robot.lane), this.dangerY, { color: '#ff4d6d', count: 26, speed: 200, life: 0.6, gravity: 300 });
+      const hitX = this.columnX((payload.cause.robot ?? payload.cause.pad).lane);
+      this.juice.popup(hitX, this.dangerY - 18, '-1 🔋', { color: '#ff5d73', size: 22 });
+      this.particles.burst(hitX, this.dangerY, { color: '#ff4d6d', count: 26, speed: 200, life: 0.6, gravity: 300 });
     }
   }
 
@@ -193,6 +235,7 @@ export class ThrowRenderer {
     for (const item of engine.items) if (!item.consumed || engine.projectiles.some(projectile => projectile.targetId === item.id)) this.drawItem(context, item, engine);
     const hidden = this.hiddenRobotIds(engine.robots, engine.targetId);
     for (const robot of sorted) this.drawRobot(context, robot, engine, hidden.has(robot.id));
+    for (const pad of engine.pads) if (!pad.consumed || engine.projectiles.some(projectile => projectile.targetId === pad.id)) this.drawPad(context, pad, engine);
     this.drawDangerLine(context, width, engine);
     this.drawPlayer(context, engine);
     for (const projectile of engine.projectiles) this.drawProjectile(context, projectile, engine);
@@ -402,7 +445,7 @@ export class ThrowRenderer {
     const visual = this.visuals.get(robot.id);
     const age = engine.gameTime - robot.spawnedAt;
     const sinceState = engine.gameTime - robot.stateAt;
-    let scale = easeOutBack(Math.min(1, age / 0.35)) * this.depthScale(robot.x) * (robot.type === 'boss' ? 1.15 : 1);
+    let scale = easeOutBack(Math.min(1, age / 0.35)) * (robot.type === 'boss' ? this.bossScale(robot.x) : this.depthScale(robot.x));
     let rotation = 0;
     let alpha = Math.min(1, age / 0.2);
     if (robot.state === 'dying') {
@@ -449,7 +492,7 @@ export class ThrowRenderer {
     if (robot.type === 'basic') this.drawBugBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
     else if (robot.type === 'fast') this.drawSpeedBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
     else if (robot.type === 'slow') this.drawSnailBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
-    else if (robot.type === 'boss') this.drawBossBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
+    else if (robot.type === 'boss') this.drawBossBot(context, style, walkPhase, engine, robot, hitFlash, stunned, this.bossSpread(robot.x));
     else this.drawHeavyBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
     context.restore();
   }
@@ -747,44 +790,201 @@ export class ThrowRenderer {
     }
   }
 
-  // 보스 '서버봇': 헤비봇 몸을 크게 키우고 붉은 기운·왕관·양어깨 경고등을 더한다. 체력은 화면 위 막대로 따로 보여 준다
-  drawBossBot(context, style, phase, engine, robot, hitFlash, stunned) {
-    const { width, height } = style;
-    const glow = 0.5 + 0.5 * Math.sin(engine.gameTime * 4);
-    const aura = context.createRadialGradient(0, -height * 0.5, 10, 0, -height * 0.5, width);
-    aura.addColorStop(0, `rgba(255, 51, 85, ${0.28 + glow * 0.15})`);
+  // 보스 '서버봇'(정면, 로컬 160×104): 무한궤도 위의 넓은 서버랙 몸통, 가슴 대포, 양팔, 왕관 쓴 머리.
+  // 움직임: 쿵쿵 걷는 흔들림, 팔 흔들기, 대포 충전(팔을 벌려 버티고 포구에 빛이 모임), 발사 반동, 맞으면 뒤로 젖혀짐,
+  // 체력 3 이하면 붉게 달아오른다
+  drawBossBot(context, style, phase, engine, robot, hitFlash, stunned, spread = 1) {
+    const time = engine.gameTime;
+    const charge = robot.chargeUntil != null
+      ? 1 - Math.max(0, robot.chargeUntil - time) / BOSS_RULES.cannonChargeSeconds : 0;
+    const sinceFire = time - (robot.firedAt ?? -Infinity);
+    const recoil = sinceFire < 0.35 ? Math.sin((sinceFire / 0.35) * Math.PI) : 0;
+    const sinceHit = time - robot.hitAt;
+    const flinch = sinceHit < 0.3 ? Math.sin((sinceHit / 0.3) * Math.PI) : 0;
+    const enraged = robot.hp <= 3;
+    const pulse = 0.5 + 0.5 * Math.sin(time * (enraged ? 9 : 4));
+    const walk = Math.sin(phase);
+
+    // 붉은 기운
+    // 옆으로 늘린 원(타원)으로 칠해 네모난 경계가 보이지 않게
+    context.save();
+    context.scale(spread, 1);
+    const aura = context.createRadialGradient(0, -56, 10, 0, -56, 120);
+    aura.addColorStop(0, `rgba(255, 51, 85, ${(enraged ? 0.35 : 0.2) + pulse * 0.15 + charge * 0.2})`);
     aura.addColorStop(1, 'rgba(255, 51, 85, 0)');
     context.fillStyle = aura;
-    context.fillRect(-width, -height * 1.6, width * 2, height * 1.8);
-    this.drawHeavyBot(context, style, phase, engine, robot, hitFlash, stunned);
-    // 어깨 경고등
+    context.beginPath();
+    context.arc(0, -56, 120, 0, Math.PI * 2);
+    context.fill();
+    context.restore();
+
+    // 무한궤도(흔들리지 않는 바닥)
     for (const side of [-1, 1]) {
-      context.fillStyle = glow > 0.5 ? '#ff3355' : '#5a1020';
-      context.shadowColor = '#ff3355';
-      context.shadowBlur = glow * 14;
+      context.fillStyle = '#141820';
+      roundedRect(context, side * 56 * spread - 18 * spread, -18, 36 * spread, 18, 7);
+      context.fill();
+      context.fillStyle = '#3c4454';
+      const shift = (phase * 4) % 8;
+      for (let tread = -16 * spread; tread < 16 * spread; tread += 8) {
+        context.fillRect(side * 56 * spread + tread + shift - 2, -16, 3, 14);
+      }
+    }
+
+    // 위몸: 걸음 흔들림 + 발사 반동(위로) + 맞으면 뒤로 젖혀짐
+    context.save();
+    context.translate(0, -Math.abs(walk) * 2 - recoil * 5);
+    context.rotate(walk * 0.015 - flinch * 0.06);
+    context.scale(1 + recoil * 0.03, 1 - recoil * 0.03);
+
+    // 양팔: 어깨에서 주먹까지. 평소엔 걸음에 맞춰 흔들고, 충전 중엔 벌려서 버틴다
+    for (const side of [-1, 1]) {
+      const swing = side * walk * 6;
+      const brace = charge * 14 + recoil * 10;
+      const shoulder = { x: side * 66 * spread, y: -74 };
+      const fist = { x: side * (84 * spread + brace), y: -34 + swing - brace * 0.6 };
+      context.strokeStyle = style.metal;
+      context.lineWidth = 12;
+      context.lineCap = 'round';
       context.beginPath();
-      context.arc(side * width * 0.46, -height * 0.78, 6, 0, Math.PI * 2);
+      context.moveTo(shoulder.x, shoulder.y);
+      context.lineTo(fist.x, fist.y);
+      context.stroke();
+      context.fillStyle = hitFlash ? '#ffffff' : style.trim;
+      context.beginPath();
+      context.arc(fist.x, fist.y, 10, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = hitFlash ? '#ffffff' : style.bodyLight;
+      context.beginPath();
+      context.arc(shoulder.x, shoulder.y, 13, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = pulse > 0.5 ? '#ff3355' : '#5a1020';
+      context.beginPath();
+      context.arc(shoulder.x, shoulder.y - 2, 4, 0, Math.PI * 2);
       context.fill();
     }
-    context.shadowBlur = 0;
-    // 왕관
-    const crownY = -height - 6;
+
+    // 몸통(서버랙)
+    const torso = context.createLinearGradient(0, -86, 0, -20);
+    torso.addColorStop(0, enraged ? `rgb(${150 + pulse * 60}, 40, 64)` : style.bodyLight);
+    torso.addColorStop(1, style.body);
+    context.fillStyle = hitFlash ? '#ffffff' : torso;
+    roundedRect(context, -64 * spread, -88, 128 * spread, 68, 12);
+    context.fill();
+    context.strokeStyle = style.trim;
+    context.lineWidth = 2.5;
+    context.stroke();
+    // 랙 칸과 깜빡이는 LED(양옆)
+    for (const side of [-1, 1]) {
+      for (let row = 0; row < 4; row++) {
+        const slotY = -80 + row * 14;
+        context.fillStyle = 'rgba(8, 10, 18, 0.7)';
+        const panelWidth = 64 * spread - 34;
+        const panelLeft = side > 0 ? 28 : -28 - panelWidth;
+        roundedRect(context, panelLeft, slotY, panelWidth, 9, 2);
+        context.fill();
+        for (let led = 0; led < Math.floor((panelWidth - 6) / 8); led++) {
+          const on = Math.sin(time * (3 + row) + led * 1.7 + side) > 0.2;
+          context.fillStyle = on ? (row % 2 ? '#4df0a6' : '#ffb547') : '#22283a';
+          context.fillRect(panelLeft + 4 + led * 8, slotY + 3, 4, 3);
+        }
+      }
+    }
+    // 가슴 대포: 포신 고리 + 충전되면 포구에 빛이 모인다
+    context.fillStyle = '#10131c';
+    context.beginPath();
+    context.arc(0, -52, 20, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = style.trim;
+    context.lineWidth = 4;
+    context.stroke();
+    context.strokeStyle = '#555f73';
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(0, -52, 13, 0, Math.PI * 2);
+    context.stroke();
+    const glow = Math.max(charge, recoil);
+    if (glow > 0) {
+      context.shadowColor = '#36e2ff';
+      context.shadowBlur = 10 + glow * 30;
+      context.fillStyle = `rgba(160, 240, 255, ${0.35 + glow * 0.65})`;
+      context.beginPath();
+      context.arc(0, -52, 4 + glow * 9, 0, Math.PI * 2);
+      context.fill();
+      context.shadowBlur = 0;
+    }
+
+    // 머리: 바이저와 화난 눈, 안테나, 왕관
+    context.fillStyle = hitFlash ? '#ffffff' : style.metal;
+    roundedRect(context, -26, -112, 52, 26, 9);
+    context.fill();
+    context.fillStyle = '#0b0e16';
+    roundedRect(context, -20, -106, 40, 13, 5);
+    context.fill();
+    this.drawEyes(context, [[-9, -100], [9, -100]], 4.5, style.eye, { blink: false, stunned, angry: true });
+    const crownY = -112;
     context.fillStyle = hitFlash ? '#ffffff' : style.trim;
     context.beginPath();
-    context.moveTo(-22, crownY);
-    context.lineTo(-22, crownY - 14);
-    context.lineTo(-11, crownY - 6);
-    context.lineTo(0, crownY - 20);
-    context.lineTo(11, crownY - 6);
-    context.lineTo(22, crownY - 14);
-    context.lineTo(22, crownY);
+    context.moveTo(-20, crownY);
+    context.lineTo(-20, crownY - 13);
+    context.lineTo(-10, crownY - 5);
+    context.lineTo(0, crownY - 18);
+    context.lineTo(10, crownY - 5);
+    context.lineTo(20, crownY - 13);
+    context.lineTo(20, crownY);
     context.closePath();
     context.fill();
     context.fillStyle = '#ff3355';
-    for (const gemX of [-11, 0, 11]) {
+    for (const gemX of [-10, 0, 10]) {
       context.beginPath();
-      context.arc(gemX, crownY - 4, 2.5, 0, Math.PI * 2);
+      context.arc(gemX, crownY - 3, 2.2, 0, Math.PI * 2);
       context.fill();
+    }
+    context.restore();
+  }
+
+  // 보스가 쏜 패드: 빙글 돌며 대포에서 곧장 날아오고, 뒤로 빛줄기가 남는다. 아래에 막을 낱말
+  drawPad(context, pad, engine) {
+    const x = this.columnX(pad.lane);
+    const y = this.toY(pad.x) - 30 * this.depthScale(pad.x);
+    const scale = this.depthScale(pad.x) * 1.15;
+    const boss = engine.boss();
+    if (!pad.consumed && boss) {
+      const from = this.bossCannonPoint(boss);
+      const streak = context.createLinearGradient(x, y, x, Math.min(from.y, y - 10));
+      streak.addColorStop(0, 'rgba(54, 226, 255, 0.55)');
+      streak.addColorStop(1, 'rgba(54, 226, 255, 0)');
+      context.strokeStyle = streak;
+      context.lineWidth = 10 * scale;
+      context.lineCap = 'round';
+      context.beginPath();
+      context.moveTo(x, y);
+      context.lineTo(x, Math.max(from.y, y - 120));
+      context.stroke();
+    }
+    context.save();
+    context.translate(x, y);
+    context.scale(scale, scale);
+    context.rotate((engine.gameTime - pad.firedAt) * 9);
+    context.shadowColor = '#36e2ff';
+    context.shadowBlur = 16;
+    context.fillStyle = '#1b2233';
+    roundedRect(context, -18, -13, 36, 26, 5);
+    context.fill();
+    context.shadowBlur = 0;
+    context.strokeStyle = '#9aa6b8';
+    context.lineWidth = 2;
+    context.stroke();
+    const screen = context.createLinearGradient(-14, -10, 14, 10);
+    screen.addColorStop(0, '#36e2ff');
+    screen.addColorStop(1, '#c792ea');
+    context.fillStyle = screen;
+    roundedRect(context, -14, -9, 28, 18, 3);
+    context.fill();
+    context.restore();
+    if (!pad.consumed) {
+      drawTokenLabel(context, x, y + 34 * scale, pad, engine.getCharacterStates(pad), {
+        active: pad.id === engine.targetId, accent: '#ff5d73', compact: this.surface.width < 520
+      });
     }
   }
 
@@ -1087,7 +1287,8 @@ export class ThrowRenderer {
     }
     const start = this.projectileStarts.get(projectile);
     const endX = this.columnX(target.lane);
-    const endY = this.toY(target.x) - (target.kind === 'item' ? 18 : 30 * this.depthScale(target.x));
+    const endY = target.type === 'boss' ? this.toY(target.x) - 60 * this.bossScale(target.x)
+      : this.toY(target.x) - (target.kind === 'item' ? 18 : 30 * this.depthScale(target.x));
     const pointAt = progress => {
       const eased = easeOutCubic(progress);
       return {
