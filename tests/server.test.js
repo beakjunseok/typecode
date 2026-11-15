@@ -140,3 +140,12 @@ test('난이도별 랭킹: throw·battery만 레벨을 받고, Lv.2는 예전 �
   const bad = await sessionRoute.POST(post({ mode: 'throw', language: 'go', level: 9 }));
   assert.equal(bad.status, 422);
 });
+
+test('언어별 랭킹: 언어 값 검증과 언어로 거르기(예전 기록도 language로 나뉜다)', () => {
+  assert.equal(lib.resolveLanguage(undefined), null);
+  assert.equal(lib.resolveLanguage('python'), 'python');
+  assert.throws(() => lib.resolveLanguage('cobol'), error => error.code === 'invalid_language');
+  const entries = [{ sid: 'a', language: 'python', score: 5 }, { sid: 'b', language: 'go', score: 9 }, { sid: 'c', language: 'python', score: 7 }];
+  assert.deepEqual(lib.filterByLanguage(entries, 'python').map(entry => entry.sid), ['a', 'c']);
+  assert.equal(lib.filterByLanguage(entries, null).length, 3);
+});
