@@ -450,6 +450,14 @@ function endSound(summary, newBest) {
   return isArcade() ? 'defeat' : 'finish';
 }
 
+// 결과창 그림 고르기: 대결은 승패, 리듬은 클리어 여부, 아케이드는 목숨이 다해 끝나니 항상 패배 그림.
+// 최고 기록 여부는 그림이 아니라 부제(🏆)로만 알린다. 연습처럼 끝까지 친 판은 승리 그림
+function resultMood(summary) {
+  if (isPvp()) return summary.outcome === 'win' ? 'win' : 'lose';
+  if (summary.mode === 'rhythm') return summary.outcome === 'cleared' ? 'win' : 'lose';
+  return isArcade() ? 'lose' : 'win';
+}
+
 function handleFinish(summary) {
   if (isPvp()) {
     pvp.phase = 'ended';
@@ -462,8 +470,7 @@ function handleFinish(summary) {
     recordRhythmBest(summary);
     rememberRhythmTiming(summary);
   }
-  const ending = endSound(summary, newBest);
-  sound.play(ending);
+  sound.play(endSound(summary, newBest));
   bgm.duck(true);
   ui.elements.hiddenInput.blur();
   renderStats();
@@ -498,7 +505,7 @@ function handleFinish(summary) {
       languageKey: settings.languageKey,
       playerName: preferences.get('name', ''),
       ...heading,
-      mood: ending === 'defeat' ? 'lose' : 'win',
+      mood: resultMood(summary),
       ...(newBest ? { subtitle: `🏆 개인 최고 기록${heading.subtitle ? ` · ${heading.subtitle}` : ''}` } : {})
     }
   };
