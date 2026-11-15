@@ -4,7 +4,7 @@ import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
 import { BATTERY_RULES } from './battery-engine.js';
 import { MASCOT_PALETTES, createRig, reactRig, updateRig, drawPhoneMascot, drawDrainBot } from './battery-characters.js';
-import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady } from './game-view.js';
+import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
 
 const BEAM_SECONDS = 0.35;
 const isPvp = engine => engine.mode === 'battery-pvp';
@@ -39,6 +39,8 @@ export class BatteryRenderer {
   constructor(canvas) {
     this.surface = setupCanvas(canvas);
     this.particles = new ParticleSystem();
+    this.juice = new Juice();
+    this.lastWallSeconds = null;
     this.lastGameTime = 0;
     this.accent = '#36e2ff';
     // 빔·배너는 연출이라 게임 시계(gameTime)가 아닌 실제 시계로 잰다: 게임이 끝나 시계가 멈추거나 재시작해 0으로 돌아가도 반드시 사라진다
@@ -101,6 +103,7 @@ export class BatteryRenderer {
 
     if (!this.context) return;
     const now = wallSeconds();
+    this.juiceEvent(type, payload);
     if (type === 'rival-take') {
       const { x, y } = this.itemPosition(payload.item);
       this.beams.push({ from: this.characterPosition('rival'), to: { x, y }, color: '#ff5d73', at: now });
@@ -122,6 +125,39 @@ export class BatteryRenderer {
     }
   }
 
+  // 배터리 모드 손맛: 내 공격은 상대 탑에 고리·점수, 맞으면 붉은 번쩍임과 흔들림
+  juiceEvent(type, payload) {
+    const juice = this.juice;
+    if (type === 'drain') {
+      const rival = this.characterPosition('rival');
+      juice.shake(0.22);
+      juice.ring(rival.x, rival.y, { color: '#ffe08a', radius: 70, width: 4 });
+      juice.popup(rival.x, rival.y - 34, '-0.5', { color: '#ffe08a', size: 20 });
+    } else if (type === 'rival-attack') {
+      const me = this.characterPosition('me');
+      juice.shake(0.5);
+      juice.flash('#ff2846', 0.25, 0.3);
+      juice.popup(me.x, me.y - 34, '-0.5', { color: '#ff5d73', size: 22 });
+    } else if (type === 'item') {
+      const { x, y } = this.itemPosition(payload.item);
+      juice.ring(x, y, { color: ITEM_STYLE[payload.item.item].color, radius: 100, life: 0.5, width: 6 });
+      juice.flash(ITEM_STYLE[payload.item.item].color, 0.15, 0.3);
+    } else if (type === 'rival-take') {
+      juice.shake(0.2);
+    } else if (type === 'stage-clear' || (type === 'round-end' && payload.mine)) {
+      juice.flash('#ffffff', 0.5, 0.5);
+      juice.shake(0.5);
+    } else if (type === 'damage' || (type === 'round-end' && !payload.mine)) {
+      juice.flash('#ff2846', 0.4, 0.5);
+      juice.shake(0.8);
+    } else if (type === 'mistake') {
+      juice.shake(0.12);
+    } else if (type === 'throw' && payload.combo > 0 && payload.combo % 10 === 0) {
+      const me = this.characterPosition('me');
+      juice.popup(me.x, me.y - 60, `${payload.combo} COMBO!`, { color: this.accent, size: 22, life: 1.1 });
+    }
+  }
+
   // 수명이 끝난 빔을 지운다(실제 시계 기준). 빔 수 k에 대해 O(k)
   pruneEffects() {
     const wallNow = wallSeconds();
@@ -139,6 +175,11 @@ export class BatteryRenderer {
     this.particles.update(frameSeconds);
     this.visuals.step(frameSeconds, new Set([...engine.items.map(item => item.id), engine.rivalWord.id, engine.myWord.id]));
     this.updateCharacters(engine);
+    const wallNow = wallSeconds();
+    this.juice.step(this.lastWallSeconds == null ? 0 : wallNow - this.lastWallSeconds);
+    this.lastWallSeconds = wallNow;
+    // 내 탑이 2칸 이하로 내려가면 화면 가장자리가 붉게 맥박친다
+    this.juice.setDanger(engine.status === 'running' && engine.me.cells <= 2 ? (3 - Math.max(0, engine.me.cells)) / 3 : 0);
     // 탑 높이는 부드럽게 따라간다(셀이 쑥 늘거나 깎일 때 출렁임)
     for (const side of ['me', 'rival']) {
       const target = Math.max(0, engine[side].cells);
@@ -147,6 +188,7 @@ export class BatteryRenderer {
 
     const { width, height } = this.surface;
     context.clearRect(0, 0, width, height);
+    this.juice.beginShake(context);
     this.drawSky(context, width, engine);
     this.drawChargingDrone(context, engine);
     this.drawGoalLine(context, width, engine);
@@ -161,6 +203,8 @@ export class BatteryRenderer {
     for (const projectile of engine.projectiles) this.drawBolt(context, projectile, engine);
     for (const beam of this.beams) this.drawBeam(context, beam, engine);
     this.particles.draw(context);
+    this.juice.endShake(context);
+    this.juice.drawOverlay(context, width, height);
     this.drawHud(context, width, engine);
     this.drawBlackout(context, width, engine);
     this.drawBanner(context, width, engine);

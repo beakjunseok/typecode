@@ -183,6 +183,114 @@ export class ParticleSystem {
   }
 }
 
+// 동작 줄이기 설정이면 흔들림·번쩍임을 크게 줄인다(브라우저가 아니면 그대로)
+const REDUCED_MOTION = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+const JUICE_LIMITS = Object.freeze({ popups: 24, rings: 16, maxShake: 14 });
+
+// 게임 손맛(게임 주스) 효과 묶음: 트라우마 방식 화면 흔들림, 떠오르는 점수 글씨, 퍼지는 충격파 고리,
+// 화면 번쩍임, 위기 때 붉은 가장자리. 시간은 실제 초(hit-stop 중에도 연출은 흘러가게)를 쓴다. 효과 수 k에 대해 O(k)
+export class Juice {
+  constructor() {
+    this.trauma = 0;
+    this.popups = [];
+    this.rings = [];
+    this.flashes = [];
+    this.danger = 0;
+    this.time = 0;
+  }
+
+  // amount(0~1)만큼 흔들림을 더한다. 흔들림 크기는 trauma²에 비례해 큰 사건만 확 흔들린다
+  shake(amount) {
+    this.trauma = Math.min(1, this.trauma + amount * (REDUCED_MOTION ? 0.25 : 1));
+  }
+
+  popup(x, y, text, { color = '#ffe08a', size = 18, rise = 46, life = 0.9 } = {}) {
+    this.popups.push({ x, y, text, color, size, rise, life, age: 0 });
+    if (this.popups.length > JUICE_LIMITS.popups) this.popups.shift();
+  }
+
+  ring(x, y, { color = '#ffffff', radius = 60, life = 0.4, width = 4 } = {}) {
+    this.rings.push({ x, y, color, radius, life, width, age: 0 });
+    if (this.rings.length > JUICE_LIMITS.rings) this.rings.shift();
+  }
+
+  flash(color, strength = 0.35, life = 0.25) {
+    if (REDUCED_MOTION) strength *= 0.3;
+    this.flashes.push({ color, strength, life, age: 0 });
+  }
+
+  // 0~1: 클수록 화면 가장자리가 붉게 맥박친다(생명이 1칸 남았을 때 등)
+  setDanger(level) {
+    this.danger = Math.max(0, Math.min(1, level));
+  }
+
+  step(seconds) {
+    const frame = Math.max(0, Math.min(0.1, seconds || 0));
+    this.time += frame;
+    this.trauma = Math.max(0, this.trauma - frame * 1.6);
+    const age = list => list.filter(effect => (effect.age += frame) < effect.life);
+    this.popups = age(this.popups);
+    this.rings = age(this.rings);
+    this.flashes = age(this.flashes);
+  }
+
+  // 그리기 전에 부른다: 흔들린 만큼 옮겨 둔다. 짝이 되는 context.restore()는 endShake가 한다
+  beginShake(context) {
+    context.save();
+    const power = this.trauma * this.trauma * JUICE_LIMITS.maxShake;
+    if (power < 0.05) return;
+    const wobble = seed => Math.sin(this.time * 61 + seed) * Math.cos(this.time * 37 + seed * 2.3);
+    context.translate(wobble(1) * power, wobble(4) * power);
+    context.rotate(wobble(7) * power * 0.002);
+  }
+
+  endShake(context) {
+    context.restore();
+  }
+
+  // 흔들리지 않는 맨 위 층: 고리 → 글씨 → 번쩍임 → 위기 가장자리
+  drawOverlay(context, width, height) {
+    for (const ring of this.rings) {
+      const progress = ring.age / ring.life;
+      context.globalAlpha = 1 - progress;
+      context.strokeStyle = ring.color;
+      context.lineWidth = ring.width * (1 - progress) + 0.5;
+      context.beginPath();
+      context.arc(ring.x, ring.y, ring.radius * easeOutCubic(progress), 0, Math.PI * 2);
+      context.stroke();
+    }
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    for (const popup of this.popups) {
+      const progress = popup.age / popup.life;
+      const pop = progress < 0.15 ? easeOutBack(progress / 0.15) : 1;
+      context.globalAlpha = progress < 0.7 ? 1 : 1 - (progress - 0.7) / 0.3;
+      context.font = canvasFont(Math.round(popup.size * (0.6 + 0.4 * pop)), 'display', 700);
+      context.lineWidth = 4;
+      context.strokeStyle = 'rgba(5, 7, 15, 0.85)';
+      const y = popup.y - popup.rise * easeOutCubic(progress);
+      context.strokeText(popup.text, popup.x, y);
+      context.fillStyle = popup.color;
+      context.fillText(popup.text, popup.x, y);
+    }
+    for (const flash of this.flashes) {
+      context.globalAlpha = flash.strength * (1 - flash.age / flash.life);
+      context.fillStyle = flash.color;
+      context.fillRect(0, 0, width, height);
+    }
+    if (this.danger > 0) {
+      const pulse = 0.55 + 0.45 * Math.sin(this.time * 6);
+      const edge = context.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.35, width / 2, height / 2, Math.max(width, height) * 0.75);
+      edge.addColorStop(0, 'rgba(255, 40, 70, 0)');
+      edge.addColorStop(1, `rgba(255, 40, 70, ${0.32 * this.danger * pulse})`);
+      context.globalAlpha = 1;
+      context.fillStyle = edge;
+      context.fillRect(0, 0, width, height);
+    }
+    context.globalAlpha = 1;
+  }
+}
+
 // 좌상단 HUD: 생명(♥/SLA)과 아이템 남은 시간 게이지
 export function drawHud(context, { lives, maxLives, livesLabel, powerLabel, powerRemaining, powerSeconds, accent }) {
   context.font = "600 13px 'JetBrains Mono', ui-monospace, monospace";

@@ -104,8 +104,18 @@ export class TargetGameEngine {
   }
 
   // 실제 경과 시간을 게임 시간으로 옮긴다. 탭 전환 등으로 프레임이 멈췄다 돌아와도 한 번에 0.25초만 진행.
+  // 타격 정지(hit-stop): 실제 시간 seconds 동안 게임 시간을 멈춰 한 방의 무게를 느끼게 한다. 연출용이라 최대 0.25초
+  hitStop(seconds) {
+    const until = this.lastRealMs + Math.min(0.25, Math.max(0, seconds)) * 1000;
+    this.freezeUntilMs = Math.max(this.freezeUntilMs ?? 0, until);
+  }
+
   update(nowMs) {
     if (this.status !== 'running') return;
+    if (nowMs < (this.freezeUntilMs ?? 0)) {
+      this.lastRealMs = nowMs;
+      return;
+    }
     const frameSeconds = Math.min(Math.max((nowMs - this.lastRealMs) / 1000, 0), ARCADE_RULES.maxFrameSeconds);
     this.lastRealMs = nowMs;
     if (frameSeconds === 0) return;
