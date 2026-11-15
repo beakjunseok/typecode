@@ -535,6 +535,8 @@ function resultMood(summary) {
 }
 
 function handleFinish(summary) {
+  // 판이 끝나면 숨겼던 메뉴를 다시 보여 준다(결과창·랭킹)
+  queueMicrotask(updateMobilePlay);
   if (isPvp()) {
     pvp.phase = 'ended';
     pvp.lastOutcome = summary.outcome;
@@ -1099,17 +1101,42 @@ function showInputNotice(message) {
   run.inputNoticeTimer = setTimeout(renderInputBar, INPUT_NOTICE_MS + 50);
 }
 
+// 터치 화면(휴대폰·태블릿)인가. 화면 키보드가 게임을 가리는 기기
+const isTouchDevice = () => window.matchMedia?.('(pointer: coarse)').matches ?? false;
+// 휴대폰으로 아케이드·리듬을 치는 중: 위쪽 메뉴·화면 키보드 그림 등을 숨기고 게임 화면만 남긴다(body.mobile-play)
+const isMobilePlay = () => document.body.classList.contains('mobile-play');
+
+function updateMobilePlay() {
+  const playing = isTouchDevice() && isArcade() && document.activeElement === ui.elements.hiddenInput
+    && run.engine?.status !== 'finished';
+  if (playing === isMobilePlay()) return;
+  document.body.classList.toggle('mobile-play', playing);
+  fitArcadeCanvas();
+  if (playing) requestAnimationFrame(pinArcadeStage);
+}
+
+// 게임 화면 윗변을 보이는 영역 맨 위에 맞춘다
+function pinArcadeStage() {
+  const stage = ui.elements.arcadeStage;
+  const viewportTop = window.visualViewport?.offsetTop ?? 0;
+  const target = window.scrollY + stage.getBoundingClientRect().top - viewportTop - 4;
+  window.scrollTo({ top: Math.max(0, target), behavior: 'auto' });
+  fitArcadeCanvas();
+}
+
 // 게임 화면 높이: 모바일 키보드가 올라오면(visualViewport 축소) 그만큼 줄여서 입력창이 키보드 바로 위에 오게 한다.
+// 보이는 영역 = [offsetTop, offsetTop + height] (레이아웃 뷰포트 기준)
 function fitArcadeCanvas() {
   if (!isArcade()) return;
   const canvas = ui.elements.arcadeCanvas;
   const viewport = window.visualViewport;
-  const viewportHeight = viewport ? viewport.height : window.innerHeight;
-  const top = canvas.getBoundingClientRect().top + (viewport ? 0 : 0);
-  const reserved = (ui.elements.inputBar?.offsetHeight || 40) + 12;
-  const available = Math.round(viewportHeight - Math.max(0, top) - reserved);
+  const visibleBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+  const top = isMobilePlay() ? Math.max(viewport?.offsetTop ?? 0, canvas.getBoundingClientRect().top) : canvas.getBoundingClientRect().top;
+  const reserved = (ui.elements.inputBar?.offsetHeight || 40) + (isMobilePlay() ? 6 : 12);
+  const available = Math.round(visibleBottom - Math.max(0, top) - reserved);
   const narrow = window.innerWidth < NARROW_WIDTH;
-  const height = Math.max(narrow ? 300 : 360, Math.min(narrow ? 640 : 560, available));
+  const minimum = isMobilePlay() ? 200 : narrow ? 300 : 360;
+  const height = Math.max(minimum, Math.min(narrow ? 640 : 560, available));
   if (Math.abs(canvas.clientHeight - height) > 2) canvas.style.height = `${height}px`;
 }
 
@@ -1125,12 +1152,17 @@ function focusTypingArea() {
   if (document.activeElement === ui.elements.hiddenInput) return;
   resetInputBuffer();
   ui.elements.hiddenInput.focus({ preventScroll: true });
-  // 모바일: 키보드가 올라온 뒤 게임 화면이 보이도록 스크롤하고 높이를 다시 맞춘다
+  // 모바일: 키보드가 올라온 뒤 게임 화면이 보이도록 맞추고 높이를 다시 잰다(키보드 애니메이션이 끝날 즈음 한 번 더)
   if (isArcade()) {
-    setTimeout(() => {
-      ui.elements.arcadeStage.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
-      fitArcadeCanvas();
-    }, 350);
+    for (const delay of [350, 700]) {
+      setTimeout(() => {
+        if (isMobilePlay()) pinArcadeStage();
+        else {
+          ui.elements.arcadeStage.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+          fitArcadeCanvas();
+        }
+      }, delay);
+    }
   }
 }
 
@@ -1140,6 +1172,7 @@ function updateFocusState() {
     finished: run.engine.status === 'finished',
     arcade: isArcade()
   });
+  updateMobilePlay();
   // 리듬은 시작 전 안내를 곡 선택 화면이 대신한다
   if (settings.mode === 'rhythm' && run.engine.status === 'ready') ui.elements.arcadeOverlay.hidden = true;
   updateSongSelect();
@@ -1639,7 +1672,10 @@ function bindEvents() {
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && document.activeElement !== elements.hiddenInput && !isPvp()) restart();
   });
-  window.visualViewport?.addEventListener('resize', fitArcadeCanvas);
+  window.visualViewport?.addEventListener('resize', () => {
+    fitArcadeCanvas();
+    if (isMobilePlay()) requestAnimationFrame(pinArcadeStage);
+  });
   window.addEventListener('resize', fitArcadeCanvas);
   elements.inputBar?.addEventListener('click', focusTypingArea);
 }
