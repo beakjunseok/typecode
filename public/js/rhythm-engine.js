@@ -6,7 +6,7 @@
 import { TargetGameEngine } from './target-game.js';
 import { getMultiplier, getTierProgress } from './engine.js';
 import { describeKey } from './keyboard.js';
-import { getSong, RHYTHM_DIFFICULTIES, CHORD_ACCENT_SONGS } from './rhythm-songs.js';
+import { getSong, RHYTHM_DIFFICULTIES, CHORD_ACCENT_SONGS, audioTimeAtBeat } from './rhythm-songs.js';
 
 export const RHYTHM_RULES = Object.freeze({
   // 기본 곡(beat-compiler.wav)의 템포. 곡마다 bpm·박자가 다르다(rhythm-songs.js)
@@ -211,7 +211,7 @@ export class RhythmEngine extends TargetGameEngine {
       .filter(note => Number.isFinite(note.midi))
       .sort((first, second) => first.time - second.time);
     this.lastHitTime = notes.at(-1)?.hitTime ?? 0;
-    this.endTime = (this.leadInBeats + song.totalBeats) * this.beatSeconds + RHYTHM_RULES.outroSeconds;
+    this.endTime = this.timeOfSongBeat(song.totalBeats) + RHYTHM_RULES.outroSeconds;
     // 판정 수 = 노트 + 롱노트 꼬리. 그루브 게이지 회복량·EX 만점의 기준
     this.judgedTotal = Math.max(1, notes.length + this.holdCount);
     this.exMax = this.judgedTotal * EX_POINTS.perfect;
@@ -230,7 +230,7 @@ export class RhythmEngine extends TargetGameEngine {
     let previousText = null;
     for (const event of this.song.melody) {
       const beat = event.beat + this.leadInBeats;
-      const time = beat * this.beatSeconds;
+      const time = this.timeOfSongBeat(event.beat) + (event.nudge ?? 0);
       const onGrid = Math.abs(event.beat / grid - Math.round(event.beat / grid)) < 1e-6;
       if (!word) {
         if (onGrid && time - lastKeyed >= (words.length ? Math.max(minGap, wordRest) : 0)) {
@@ -281,6 +281,27 @@ export class RhythmEngine extends TargetGameEngine {
     }
     this.markHolds(notes);
     return { words, notes, autoNotes };
+  }
+
+  // 곡 박(리드인 제외, 소수 가능) → 게임 시각(초). 음원 곡은 템포 지도를 따라가므로 곡 중간에 템포가 바뀌어도 밀리지 않는다. O(1)
+  timeOfSongBeat(songBeat) {
+    const leadInSeconds = this.leadInBeats * this.beatSeconds;
+    const beatTimes = this.song.audio?.beatTimes;
+    if (!beatTimes?.length) return leadInSeconds + songBeat * this.beatSeconds;
+    return leadInSeconds + audioTimeAtBeat(beatTimes, songBeat) - beatTimes[0];
+  }
+
+  // 화면의 박·마디 선 시각들(from~to초). 리드인은 고정 박, 곡은 timeOfSongBeat. O(선 수)
+  beatLines(fromSeconds, toSeconds) {
+    const lines = [];
+    const leadInSeconds = this.leadInBeats * this.beatSeconds;
+    let songBeat = Math.floor((fromSeconds - leadInSeconds) / this.beatSeconds) - 2;
+    for (let guard = 0; guard < 400; guard++, songBeat++) {
+      const time = this.timeOfSongBeat(songBeat);
+      if (time > toSeconds) break;
+      if (time >= fromSeconds) lines.push({ time, bar: ((songBeat % this.beatsPerBar) + this.beatsPerBar) % this.beatsPerBar === 0 });
+    }
+    return lines;
   }
 
   // 동시 노트를 놓을 박인가: 마디 첫 박(강세 곡은 반 마디 강박도) + 난이도별 확률

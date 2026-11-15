@@ -193,13 +193,25 @@ function buildMidiSong(data) {
   });
   return Object.freeze({ ...meta, melody: decodeNotes(melody, steps), accompaniment: decodeNotes(accompaniment, steps), chords: Object.freeze(chordEntries), totalBeats: beats });
 }
-// AI 음원 곡: 분석한 온셋이 선율, 화음·반주 없음. audio = { url, firstBeat(첫 박의 음원 시각, 초), previewAt }
+// AI 음원 곡: 분석한 온셋이 선율, 화음·반주 없음. audio = { url, firstBeat(첫 박의 음원 시각, 초), previewAt, beatTimes(템포 지도) }
+// 음마다 nudge(초) = 실제 소리 시각 - 격자 시각: 글자는 들리는 소리 위에 놓는다
 function buildAudioSong(data) {
-  const { melody, steps, beats, firstBeat, url, previewAt, audioSeconds, ...meta } = data;
+  const { melody, nudges = [], beatTimes = [], steps, beats, firstBeat, url, previewAt, audioSeconds, ...meta } = data;
+  const notes = decodeNotes(melody, steps).map((note, index) => Object.freeze({ ...note, nudge: Number.isFinite(nudges[index]) ? nudges[index] / 1000 : 0 }));
   return Object.freeze({
-    ...meta, ai: true, style: 'audio', melody: decodeNotes(melody, steps), accompaniment: Object.freeze([]), chords: Object.freeze([]), totalBeats: beats,
-    audio: Object.freeze({ url, firstBeat, previewAt, seconds: audioSeconds })
+    ...meta, ai: true, style: 'audio', melody: Object.freeze(notes), accompaniment: Object.freeze([]), chords: Object.freeze([]), totalBeats: beats,
+    audio: Object.freeze({ url, firstBeat: beatTimes.length ? beatTimes[0] : firstBeat, previewAt, seconds: audioSeconds, beatTimes: Object.freeze([...beatTimes]) })
   });
+}
+
+// 템포 지도에서 박(소수 가능) → 음원 시각(초). 지도 밖은 끝 박 간격으로 외삽. O(1)
+export function audioTimeAtBeat(beatTimes, beat) {
+  const last = beatTimes.length - 1;
+  if (last < 1) return (beatTimes[0] ?? 0) + beat * 0.5;
+  if (beat <= 0) return beatTimes[0] + beat * (beatTimes[1] - beatTimes[0]);
+  if (beat >= last) return beatTimes[last] + (beat - last) * (beatTimes[last] - beatTimes[last - 1]);
+  const index = Math.floor(beat);
+  return beatTimes[index] + (beat - index) * (beatTimes[index + 1] - beatTimes[index]);
 }
 const MIDI_SONGS = new Map(MIDI_SONG_DATA.map(data => [data.id, buildMidiSong(data)]));
 const midiSong = id => {
