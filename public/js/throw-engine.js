@@ -10,17 +10,23 @@ export const ROBOT_TYPES = Object.freeze({
   // 느린 로봇: 휴대폰은 낱말 두 개(두 방), 노트북(피해 3)은 한 방
   slow: Object.freeze({ label: '달팽봇', hp: 2, speed: 0.036, bounty: 100, unlockAt: 8, weight: 0.4 }),
   // 마지막 웨이브 보스: 무작위로는 안 나오고(weight 0) 목표 처치 수를 채우면 한 번 등장. 속도는 시간 가속을 받지 않는다
-  boss: Object.freeze({ label: '보스 서버봇', hp: 10, speed: 0.024, bounty: 1000, unlockAt: Infinity, weight: 0, boss: true })
+  boss: Object.freeze({ label: '보스 서버봇', hp: 10, speed: 0.02, bounty: 1000, unlockAt: Infinity, weight: 0, boss: true })
 });
 
-// 보스전: 경고 뒤 등장, 맞으면 조금 밀려나고, 졸개(기본·빠른 로봇)를 주기적으로 부른다. 책상에 닿으면 즉시 패배
+// 보스전: 경고 뒤 화면 가운데(줄 4칸 너비)로 내려온다. 맞으면 조금 밀려나고 내 건전지가 1칸 찬다.
+// 보스가 나온 뒤로는 다른 로봇이 나오지 않고, 보스는 주기적으로 가슴 대포로 패드를 쏜다(패드 낱말을 쳐서 맞히면 막고, 못 막으면 건전지 1칸). 책상에 닿으면 즉시 패배
 export const BOSS_RULES = Object.freeze({
   warningSeconds: 2.5,
   // 몸집이 커서 문 앞이 아니라 조금 앞(아래)에서 나타난다. 밀려나도 이 지점보다 뒤로는 안 간다
-  spawnX: 0.8,
-  knockback: 0.035,
-  minionInterval: [3.2, 4.4],
-  minionTypes: Object.freeze(['basic', 'basic', 'fast', 'slow'])
+  spawnX: 0.6,
+  knockback: 0.03,
+  healPerHit: 1,
+  padFirstDelay: 3,
+  padInterval: [5.5, 7.5],
+  cannonChargeSeconds: 1.1,
+  padSpeed: 0.2,
+  padMaxLength: 6,
+  padBlockBonus: 30
 });
 
 export const ITEM_TYPES = Object.freeze({
@@ -80,22 +86,25 @@ export class ThrowEngine extends TargetGameEngine {
     this.kills = Object.fromEntries(Object.keys(ROBOT_TYPES).map(type => [type, 0]));
     this.outcome = null;
     this.winAt = null;
-    // 보스전 상태: null → 'warning'(경고 중) → 'fight'(보스 등장) → 'defeated'
+    // 보스전 상태(패드·스킬 포함): null → 'warning'(경고 중) → 'fight'(보스 등장) → 'defeated'
     this.bossPhase = null;
     this.bossAt = Infinity;
-    this.nextMinionAt = Infinity;
     this.bossId = null;
+    this.pads = [];
+    this.nextPadAt = Infinity;
   }
 
   targetables() {
     return [
       ...this.robots.filter(robot => robot.state === 'walking' && !robot.doomed),
-      ...this.items.filter(item => !item.consumed)
+      ...this.items.filter(item => !item.consumed),
+      ...this.pads.filter(pad => !pad.consumed)
     ];
   }
 
   findEntity(id) {
-    return this.robots.find(robot => robot.id === id) ?? this.items.find(item => item.id === id) ?? null;
+    return this.robots.find(robot => robot.id === id) ?? this.items.find(item => item.id === id)
+      ?? this.pads.find(pad => pad.id === id) ?? null;
   }
 
   // 책상에 가까운(x가 작은) 목표부터 조준
@@ -135,31 +144,57 @@ export class ThrowEngine extends TargetGameEngine {
     else this.spawnIfDue();
   }
 
-  // 보스전 동안에는 일반 로봇 대신: 경고가 끝나면 보스 등장, 이후 졸개를 간격마다 부르고 아이템은 계속 나온다
+  // 보스전 동안에는 로봇이 더 나오지 않는다: 경고가 끝나면 보스 등장, 이후 대포 스킬과 아이템만
   stepBossWave() {
     if (this.bossPhase === 'warning' && this.gameTime >= this.bossAt) this.spawnBoss();
     if (this.bossPhase !== 'fight') return;
-    if (this.gameTime >= this.nextMinionAt) {
-      const crowded = this.robots.filter(robot => robot.state === 'walking').length >= THROW_RULES.maxRobots;
-      const typeKey = BOSS_RULES.minionTypes[Math.floor(this.random() * BOSS_RULES.minionTypes.length)];
-      const lane = crowded ? null : this.chooseLane(ROBOT_TYPES[typeKey].speed, true, this.boss()?.lane);
-      if (lane !== null) {
-        this.spawnRobot(typeKey, lane);
-        this.emit('boss-summon', { boss: this.boss() });
-      }
-      this.nextMinionAt = this.gameTime + (lane === null ? THROW_RULES.spawnRetrySeconds : randomBetween(this.random, BOSS_RULES.minionInterval));
-    }
+    const boss = this.boss();
+    if (!boss || boss.state !== 'walking') return;
+    this.stepCannon(boss);
     this.spawnItemsIfDue();
+  }
+
+  // 패드 대포 스킬: 가슴 대포에 에너지를 모으는(charge) 동안 예고하고, 다 모이면 패드를 쏜다. 한 번에 패드 하나만
+  stepCannon(boss) {
+    if (boss.chargeUntil != null) {
+      if (this.gameTime >= boss.chargeUntil) this.firePad(boss);
+      return;
+    }
+    if (this.gameTime < this.nextPadAt || this.pads.some(pad => !pad.consumed)) return;
+    boss.chargeUntil = this.gameTime + BOSS_RULES.cannonChargeSeconds;
+    this.emit('boss-charge', { boss });
+  }
+
+  firePad(boss) {
+    boss.chargeUntil = null;
+    boss.firedAt = this.gameTime;
+    const pad = { id: this.nextId++, kind: 'pad', lane: boss.lane, x: boss.x - 0.03, consumed: false, firedAt: this.gameTime, token: null };
+    pad.token = this.pickShortToken(pad.id);
+    this.pads.push(pad);
+    this.nextPadAt = this.gameTime + randomBetween(this.random, BOSS_RULES.padInterval);
+    this.emit('boss-fire', { boss, pad });
+  }
+
+  // 패드는 빨리 날아오므로 짧은 낱말(첫 글자가 다른 목표와 겹치지 않게). 못 찾으면 보통 낱말
+  pickShortToken(excludeId) {
+    const used = new Set(this.targetables().filter(entity => entity.id !== excludeId).map(entity => entity.token.text[0]));
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const token = this.drawWeightedToken();
+      if (token.text.length <= BOSS_RULES.padMaxLength && !used.has(token.text[0])) return token;
+    }
+    return this.pickToken(excludeId);
   }
 
   // 보스는 가운데 쪽 줄에서 나온다(줄이 짝수면 가운데 둘 중 하나)
   spawnBoss() {
-    const middle = this.lanes % 2 === 0 ? this.lanes / 2 - 1 + Math.floor(this.random() * 2) : (this.lanes - 1) / 2;
-    const boss = this.spawnRobot('boss', middle);
+    // lane은 줄 번호가 아니라 화면 가운데((줄 수 - 1) / 2, 4줄이면 1.5) — 어느 줄에도 속하지 않아 일반 줄 계산에서 빠진다
+    const boss = this.spawnRobot('boss', (this.lanes - 1) / 2);
     boss.x = BOSS_RULES.spawnX;
+    boss.chargeUntil = null;
+    boss.firedAt = -Infinity;
+    this.nextPadAt = this.gameTime + BOSS_RULES.padFirstDelay;
     this.bossId = boss.id;
     this.bossPhase = 'fight';
-    this.nextMinionAt = this.gameTime + randomBetween(this.random, BOSS_RULES.minionInterval);
     this.emit('boss-appear', { boss });
   }
 
@@ -239,9 +274,8 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   // 겹치지 않는 줄 가운데 무작위. 그런 줄이 없으면 null(조금 뒤 다시 시도)
-  // excludedLane: 보스가 있는 줄(졸개가 보스 몸에 가려지지 않게)
-  chooseLane(speed = ROBOT_TYPES.basic.speed, isRobot = true, excludedLane = null) {
-    const lanes = [...Array(this.lanes).keys()].filter(lane => lane !== excludedLane && this.laneFits(lane, speed, isRobot));
+  chooseLane(speed = ROBOT_TYPES.basic.speed, isRobot = true) {
+    const lanes = [...Array(this.lanes).keys()].filter(lane => this.laneFits(lane, speed, isRobot));
     if (!lanes.length) return null;
     return lanes[Math.floor(this.random() * lanes.length)];
   }
@@ -334,6 +368,12 @@ export class ThrowEngine extends TargetGameEngine {
       if (robot.x <= THROW_RULES.playerX) this.robotReachedPlayer(robot);
       if (this.status !== 'running') return;
     }
+    for (const pad of this.pads) {
+      if (pad.consumed) continue;
+      pad.x -= BOSS_RULES.padSpeed * this.difficulty.speed * frameSeconds;
+      if (pad.x <= THROW_RULES.playerX) this.padReachedPlayer(pad);
+      if (this.status !== 'running') return;
+    }
     for (const item of this.items) {
       if (item.consumed) continue;
       item.x -= THROW_RULES.itemSpeed * frameSeconds;
@@ -360,17 +400,29 @@ export class ThrowEngine extends TargetGameEngine {
     if (this.status === 'running' && this.nextBatteryAt === Infinity) this.scheduleBattery(THROW_RULES.batteryFirstDelay);
   }
 
+  // 막지 못한 패드는 건전지 1칸을 깎는다
+  padReachedPlayer(pad) {
+    pad.consumed = true;
+    pad.hitPlayer = true;
+    this.releaseTargetIf(pad.id, 'pad-hit');
+    this.emit('pad-hit', { pad });
+    this.loseLife({ pad });
+    if (this.status === 'running' && this.nextBatteryAt === Infinity) this.scheduleBattery(THROW_RULES.batteryFirstDelay);
+  }
+
   removeFinished() {
     this.robots = this.robots.filter(robot =>
       robot.state === 'walking' || this.gameTime - robot.stateAt < THROW_RULES.dyingSeconds);
-    this.items = this.items.filter(item => !item.consumed || this.projectiles.some(projectile => projectile.targetId === item.id));
+    const inFlight = entity => this.projectiles.some(projectile => projectile.targetId === entity.id);
+    this.items = this.items.filter(item => !item.consumed || inFlight(item));
+    this.pads = this.pads.filter(pad => !pad.consumed || inFlight(pad));
   }
 
   // ---------- 발사·명중 ----------
   onFire(target, projectile) {
     projectile.damage = WEAPONS[projectile.weapon].damage;
     projectile.lane = target.lane;
-    if (target.kind === 'item') {
+    if (target.kind === 'item' || target.kind === 'pad') {
       target.consumed = true;
       return;
     }
@@ -381,7 +433,22 @@ export class ThrowEngine extends TargetGameEngine {
 
   onProjectileLanded(entity, projectile) {
     if (entity.kind === 'item') this.activateItem(entity);
+    else if (entity.kind === 'pad') this.blockPad(entity);
     else this.damageRobot(entity, projectile);
+  }
+
+  // 보스를 때릴 때마다 건전지(생명) 1칸 회복(가득이면 그대로)
+  healFromBossHit() {
+    if (this.lives >= ARCADE_RULES.startLives) return;
+    this.lives = Math.min(ARCADE_RULES.startLives, this.lives + BOSS_RULES.healPerHit);
+    if (!this.isDamaged()) this.nextBatteryAt = Infinity;
+    this.emit('heal', { lives: this.lives });
+  }
+
+  blockPad(pad) {
+    pad.blocked = true;
+    this.score += BOSS_RULES.padBlockBonus;
+    this.emit('pad-blocked', { pad, bonus: BOSS_RULES.padBlockBonus });
   }
 
   activateItem(item) {
@@ -402,6 +469,7 @@ export class ThrowEngine extends TargetGameEngine {
     robot.incomingDamage = Math.max(0, robot.incomingDamage - projectile.damage);
     robot.hitAt = this.gameTime;
     this.emit('hit', { robot, weapon: projectile.weapon, damage: projectile.damage });
+    if (ROBOT_TYPES[robot.type].boss) this.healFromBossHit();
     if (robot.hp > 0) {
       // 보스는 맞을 때마다 뒤로 조금 밀려난다(출현 지점은 넘지 않게)
       if (ROBOT_TYPES[robot.type].boss) robot.x = Math.min(BOSS_RULES.spawnX, robot.x + BOSS_RULES.knockback * projectile.damage);
