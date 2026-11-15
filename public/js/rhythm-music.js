@@ -171,8 +171,8 @@ export class RhythmMusic {
       this.safely(() => this.pumpAudio(engine, context, offset));
       return;
     }
-    // 글자를 얹지 않은 선율 음
-    const notes = engine.autoNotes;
+    // 선율 전체(글자를 얹은 음 포함). 맞혀서 나는 소리(rhythmHit)는 그 위에 작게 겹친다
+    const notes = engine.melodyNotes ?? engine.autoNotes;
     while (this.nextAuto < notes.length && notes[this.nextAuto].time < engine.gameTime - 0.01) this.nextAuto++;
     while (this.nextAuto < notes.length && notes[this.nextAuto].time < horizon) {
       const note = notes[this.nextAuto];

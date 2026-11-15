@@ -908,7 +908,7 @@ function updateRhythmZones() {
     else {
       const head = engine.headNote?.();
       waiting = Boolean(head) && head === engine.notes?.[0]
-        && head.hitTime - (engine.gameTime - (engine.offset ?? 0)) > RHYTHM_RULES.earlyAccept;
+        && head.hitTime - (engine.gameTime - (engine.offset ?? 0)) > RHYTHM_RULES.startGrace;
     }
   }
   keyboard.showZones(waiting ? RHYTHM_LANES : null);

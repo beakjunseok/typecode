@@ -681,13 +681,14 @@ const SOUNDS = {
   },
   // ---------- 리듬 모드 ----------
   // 판정음: 그 박 화음의 레인 음(frequency). PERFECT는 밝은 두 겹, GREAT 한 겹, GOOD 작게, BAD는 살짝 어긋난 짧은 음
+  // 맞힌 음을 한 번 더 작게(곡 선율은 반주가 따로 연주한다). 판정이 좋을수록 또렷하게
   rhythmHit(engine, context, time, { frequency = 880, judgement = 'great' } = {}) {
     const lead = { type: 'lowpass', frequency: 4200 };
     if (judgement === 'bad') {
-      engine.tone(context, { frequency: frequency * 0.97, startTime: time, peak: 0.035, decay: 0.07, waveform: 'square', filter: { type: 'lowpass', frequency: 1600 } });
+      engine.tone(context, { frequency: frequency * 0.97, startTime: time, peak: 0.02, decay: 0.07, waveform: 'square', filter: { type: 'lowpass', frequency: 1600 } });
       return;
     }
-    const level = judgement === 'perfect' ? 1 : judgement === 'great' ? 0.8 : 0.55;
+    const level = (judgement === 'perfect' ? 1 : judgement === 'great' ? 0.8 : 0.55) * 0.5;
     engine.tone(context, { frequency, startTime: time, peak: 0.06 * level, decay: 0.16 + level * 0.1, waveform: 'triangle' });
     if (judgement !== 'good') engine.tone(context, { frequency, startTime: time, peak: 0.022 * level, decay: 0.1, waveform: 'square', filter: lead });
     if (judgement === 'perfect') engine.tone(context, { frequency: frequency * 2, startTime: time + 0.01, peak: 0.018, decay: 0.18 });
