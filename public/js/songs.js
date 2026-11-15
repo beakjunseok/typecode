@@ -173,6 +173,47 @@ export const SONGS = {
     form: ['intro', 'loop', 'loop', 'dream', 'loop'],
     loopFrom: 1
   },
+  // 휴대폰 던지기 보스전: E단조, 빠르고 무거운 칩튠 메탈. 반음 내려찍는 리프(bII)와 사이렌으로 시작해 계속 몰아친다.
+  // 인트로 2마디(약 2.8초)가 보스 경고 시간과 맞물리고, 이후 리프→돌격→후렴→숨 고르기를 되풀이한다
+  boss: {
+    title: 'Kernel Panic',
+    tempo: 172, key: 52, scale: 'minor', swing: 0,
+    kits: {
+      siren: { kick: 'x...x...x...x...', snare: '........x.x.xxxx' },
+      stomp: { kick: 'x..x..x.x..x..x.', snare: '....x.......x...', hat: 'x.x.x.x.x.x.x.x.' },
+      gallop: { kick: 'x.xxx.xxx.xxx.xx', snare: '....x.......x...', hat: 'xxxxxxxxxxxxxxxx', clap: '....x.......x...' },
+      blast: { kick: 'x.x.x.x.x.x.x.x.', snare: '..x...x...x...x.', hat: 'xxxxxxxxxxxxxxxx', clap: '....x.......x...' },
+      half: { kick: 'x.........x.....', snare: '........x.......', hat: 'x...x...x...x...' }
+    },
+    fill: { snare: 'x.x.x.xxxxxxxxxx', kick: 'x...x...x...x...' },
+    sections: {
+      intro: { bars: 2, chords: ['i', 'bII'], drums: 'siren', bass: 'R-------R-------', comp: 'pad', alarm: true, crash: true },
+      riff: {
+        bars: 8, chords: ['i', 'i', 'bII', 'i', 'i', 'i', 'bVI', 'V'], drums: 'stomp', bass: 'R.RR.R.RR.R.O.R.',
+        comp: { instrument: 'chipStab', pattern: 'x..x..x.x..x..x.' }, lead: 'saw', crash: true, fill: true,
+        melody: ['1-1-3-1-5---4-3-', '1-1-3-1-7---5---', '2-2-4-2-6---5-4-', '1-----q-1-------',
+          '1-1-3-1-5---4-3-', '1-1-3-5-8---7-5-', '6---8---a---8---', '7-------5---7---']
+      },
+      charge: {
+        bars: 8, chords: ['iv', 'i', 'bII', 'i', 'iv', 'i', 'bVI', 'V'], drums: 'gallop', bass: 'RRORRRORRRORRROR',
+        comp: 'arp', lead: 'chipBright', alarm: true, fill: true,
+        melody: ['4.6.8.6.4.6.8.b.', '5.3.1.3.5.8.5.3.', '2.4.6.4.9.6.4.2.', '1.3.5.8.5.3.1...',
+          '4.6.8.b.d.b.8.6.', '5.8.a.8.c.a.8.5.', '6.8.a.d.a.8.6.8.', '7.9.b.9.7.5.7.9.']
+      },
+      chorus: {
+        bars: 8, chords: ['i', 'bVI', 'bVII', 'V', 'i', 'bVI', 'bII', 'V'], drums: 'blast', bass: 'RORORORORORORORO',
+        comp: 'pad', lead: 'sawBright', crash: true, fill: true,
+        melody: ['8---a-8-7---5---', '6---8-6-5---3---', '7---9-7-b---9---', '9-------7---5-7-',
+          '8---a-8-c---a---', '6---8-a-d---c---', '9---8---6---4---', '7-----9-b-------']
+      },
+      breath: {
+        bars: 4, chords: ['i', 'bII', 'i', 'V'], drums: 'half', bass: 'R-------5---R---', comp: 'arp', lead: 'bell', alarm: true, fill: true,
+        melody: ['5-------3-------', '6-------4-------', '5---3---1-------', '7---7---7-7-7777']
+      }
+    },
+    form: ['intro', 'riff', 'charge', 'chorus', 'breath', 'riff', 'charge', { section: 'chorus', transpose: 2 }],
+    loopFrom: 1
+  },
 };
 
 const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10] };

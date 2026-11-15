@@ -101,7 +101,7 @@ test('BGM 3곡(모드별): 모두 2분 넘는 곡 구성, 곡 전체를 오류 �
     const sound = new SoundEngine();
     const bgm = new BgmEngine(sound);
     const tempos = new Set();
-    for (const [name, song] of Object.entries(SONGS).filter(([name]) => name !== 'lobby')) {
+    for (const [name, song] of Object.entries(SONGS).filter(([name]) => !['lobby', 'boss'].includes(name))) {
       tempos.add(song.tempo);
       assert.ok(songSeconds(song) >= 130, `${name}: ${songSeconds(song).toFixed(0)}초`);
       const sectionNames = new Set(expandForm(song).map(bar => bar.name));
@@ -231,6 +231,35 @@ test('스프라이트 오프셋은 겹치지 않고 그룹마다 클립이 있�
   const all = Object.values(LINEAR_SPRITE).flat().sort((a, b) => a[0] - b[0]);
   for (let index = 1; index < all.length; index++) assert.ok(all[index][0] >= all[index - 1][0] + all[index - 1][1]);
   for (const group of ['down', 'up', 'eraseDown', 'eraseUp']) assert.ok(LINEAR_SPRITE[group].length >= 3, group);
+});
+
+test('보스전 음악(boss): 인트로가 보스 경고 시간과 비슷하고, 모든 섹션을 오류 없이 연주한 뒤 인트로를 건너뛰어 루프한다', () => {
+  const { FakeContext, stats } = createFakeAudio();
+  globalThis.AudioContext = FakeContext;
+  const originalSetInterval = globalThis.setInterval;
+  globalThis.setInterval = () => 1;
+  try {
+    const sound = new SoundEngine();
+    const bgm = new BgmEngine(sound);
+    const song = SONGS.boss;
+    const introSeconds = (song.sections.intro.bars * 4 * 60) / song.tempo;
+    assert.ok(Math.abs(introSeconds - 2.5) < 0.6, `인트로 ${introSeconds.toFixed(2)}초`);
+    assert.ok(song.tempo > SONGS.throw.tempo, '평소 곡보다 빠르다');
+    bgm.play('boss', { force: true });
+    const visited = new Set();
+    const seconds = songSeconds(song) + 6;
+    for (let tick = 0; tick < seconds / 0.025; tick++) {
+      sound.context.currentTime += 0.025;
+      bgm.schedule();
+      visited.add(bgm.position().section);
+    }
+    assert.deepEqual([...visited].sort(), Object.keys(song.sections).sort());
+    assert.notEqual(bgm.position().section, 'intro', '루프는 인트로 다음부터');
+    assert.ok(stats.oscillators + stats.noises > 1500);
+    assert.deepEqual(stats.errors, []);
+  } finally {
+    globalThis.setInterval = originalSetInterval;
+  }
 });
 
 test('리듬 곡 선택 대기 음악(lobby): 오류 없이 연주하고 루프한다', () => {
