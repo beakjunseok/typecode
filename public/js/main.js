@@ -10,7 +10,7 @@ import { createPvpLobby } from './pvp-lobby.js';
 import { DIFFICULTY_LEVELS } from './target-game.js';
 import { ThrowRenderer } from './throw-view.js';
 import { BatteryRenderer } from './battery-view.js';
-import { RhythmEngine, normalizeRhythmOptions, RHYTHM_LANES, laneOfCharacter } from './rhythm-engine.js';
+import { RhythmEngine, normalizeRhythmOptions, RHYTHM_LANES, RHYTHM_RULES, laneOfCharacter } from './rhythm-engine.js';
 import { RhythmRenderer } from './rhythm-view.js';
 import { RhythmMusic, midiToFrequency, createPreview } from './rhythm-music.js';
 import { RHYTHM_DIFFICULTIES, SONG_BY_ID, DEFAULT_SONG_ID, getSong } from './rhythm-songs.js';
@@ -643,6 +643,7 @@ function startFrameLoop() {
     const snapshot = engine.snapshot();
     if (settings.mode === 'rhythm') rhythmMusic.pump(engine, snapshot.tierProgress.index);
     renderers[settings.mode]?.render(engine, { accent: TIER_COLORS[snapshot.tierProgress.index] });
+    if (settings.mode === 'rhythm') updateRhythmZones();
     if (engine.status === 'running') {
       renderStats();
       updateArcadeMusic(snapshot);
@@ -886,6 +887,7 @@ const keyboardShown = () => (settings.mode === 'rhythm' ? settings.keyboardInRhy
   : isArcade() ? settings.keyboardInGame : settings.keyboardVisible);
 
 function applyKeyboardVisibility() {
+  updateRhythmZones();
   const shown = keyboardShown();
   keyboard.setVisible(shown);
   ui.elements.keyboardToggle.hidden = false;
@@ -897,7 +899,23 @@ function applyKeyboardVisibility() {
 }
 
 // 게임 화면 키보드: 잡고 있는 낱말의 다음 글자(오타가 있으면 Backspace)를 표시한다
+// 리듬 시작 전(곡 선택~첫 원이 오기 직전)에는 키보드를 레인 4구역 색으로 칠해 둔다. 그 밖에는 끈다
+function updateRhythmZones() {
+  const engine = run.engine;
+  let waiting = false;
+  if (settings.mode === 'rhythm' && engine && engine.status !== 'finished') {
+    if (engine.status === 'ready') waiting = true;
+    else {
+      const head = engine.headNote?.();
+      waiting = Boolean(head) && head === engine.notes?.[0]
+        && head.hitTime - (engine.gameTime - (engine.offset ?? 0)) > RHYTHM_RULES.earlyAccept;
+    }
+  }
+  keyboard.showZones(waiting ? RHYTHM_LANES : null);
+}
+
 function updateArcadeKeyboardHint() {
+  updateRhythmZones();
   if (!isArcade() || !keyboardShown()) return;
   const engine = run.engine;
   if (settings.mode === 'rhythm') {

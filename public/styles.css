@@ -1158,6 +1158,10 @@ body[data-mode='battery'] #arcadeOverlay { --mode-art: url('/art/mode-battery.we
 }
 .key .legend { position: relative; z-index: 3; }
 .key.zone-flash .zone { animation: zone-flash 0.32s ease-out; }
+/* 리듬 시작 전: 키보드를 레인 4구역 색으로 칠해 두고 천천히 숨 쉬게 한다 */
+.key.zone-steady .zone { animation: zone-steady 1.6s ease-in-out infinite; }
+@keyframes zone-steady { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.8; } }
+.key.zone-steady.zone-flash .zone { animation: zone-flash 0.32s ease-out; }
 @keyframes zone-flash { 0% { opacity: 1; } 35% { opacity: 0.85; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .key.zone-flash .zone { animation-duration: 0.12s; } }
 
