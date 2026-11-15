@@ -284,19 +284,26 @@ test('원이 오기 전: 맞는 키는 가까우면 GOOD·너무 이르면 무�
   const state = { ms: 0 };
   engine.input('x', state.ms);
   const note = engine.notes[0];
+  const other = character => (character === 'q' ? 'z' : 'q');
   advanceTo(engine, note.hitTime - 1.5, state);
   assert.equal(engine.input(note.character, state.ms).reason, 'too_early', '너무 이른 맞는 키는 무시');
-  const wrong = engine.input(note.character === 'q' ? 'z' : 'q', state.ms);
-  assert.equal(wrong.correct, false, '멀리 있어도 다른 키는 오타');
+  assert.equal(engine.input(other(note.character), state.ms).reason, 'too_early', '곡 시작 전에는 다른 키도 감점 없음');
+  assert.equal(engine.wrongKeystrokes, 0);
+  advanceTo(engine, note.hitTime - 0.45, state);
+  assert.equal(engine.input(other(note.character), state.ms).correct, false, '첫 원이 가까워지면 다른 키는 오타');
   assert.equal(engine.wrongKeystrokes, 1);
   assert.equal(note.state, 'pending', '노트는 그대로');
-  advanceTo(engine, note.hitTime - 0.45, state);
-  assert.equal(engine.input(note.character === 'q' ? 'z' : 'q', state.ms).correct, false);
-  assert.equal(engine.wrongKeystrokes, 2);
   const result = engine.input(note.character, state.ms);
   assert.equal(result.correct, true);
   assert.equal(result.judgement, 'good');
   assert.equal(engine.combo, 1);
+  // 곡 중간: 다음 원이 멀어도 다른 키는 오타
+  const next = engine.headNote();
+  advanceTo(engine, next.hitTime - 1.2, state);
+  if (next.hitTime - (engine.gameTime - engine.offset) > RHYTHM_RULES.earlyAccept) {
+    assert.equal(engine.input(other(next.character), state.ms).correct, false);
+    assert.equal(engine.wrongKeystrokes, 2);
+  }
 });
 
 test('롱노트: 길게 끄는 음은 막대가 되고, 꼬리까지 누르면 성공·일찍 떼면 끊김·떼는 신호가 없으면 자동 성공', () => {

@@ -433,6 +433,9 @@ export class RhythmEngine extends TargetGameEngine {
     if (this.activeHold && matchesNote(character, this.activeHold.character)) return { accepted: false, reason: 'holding' };
     if (!head) return { accepted: false, reason: 'too_early' };
     const ahead = head.hitTime - (this.gameTime - this.offset);
+    // 곡 시작 전(첫 원이 아직 멀 때)에는 어떤 키도 감점하지 않는다
+    const beforeFirstNote = head === this.notes[0] && ahead > RHYTHM_RULES.earlyAccept;
+    if (beforeFirstNote) return { accepted: false, reason: 'too_early' };
     // 다음 글자가 아닌 키: 원이 오기 전이든 판정선에 있든 오타
     if (!matchesNote(character, head.character)) return this.wrongKey(head, character);
     if (ahead > RHYTHM_RULES.missAfter) {
