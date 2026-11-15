@@ -6,7 +6,7 @@
 import { TargetGameEngine } from './target-game.js';
 import { getMultiplier, getTierProgress } from './engine.js';
 import { describeKey } from './keyboard.js';
-import { getSong, RHYTHM_DIFFICULTIES } from './rhythm-songs.js';
+import { getSong, RHYTHM_DIFFICULTIES, CHORD_ACCENT_SONGS } from './rhythm-songs.js';
 
 export const RHYTHM_RULES = Object.freeze({
   // 기본 곡(beat-compiler.wav)의 템포. 곡마다 bpm·박자가 다르다(rhythm-songs.js)
@@ -19,16 +19,13 @@ export const RHYTHM_RULES = Object.freeze({
   // 글자 하나의 점수(× 콤보 배율). 낱말의 모든 글자를 GOOD 이상으로, 오타 없이 치면 글자당 wordBonus 추가
   points: Object.freeze({ perfect: 100, great: 70, good: 40, bad: 10 }),
   wordBonus: 30,
-  // 체력 0~100: 0이 되면 스테이지 실패
-  // 오타(wrong)는 콤보·피버만 끊고 체력은 깎지 않는다: 틀려도 곡이 멈추지 않게. 체력은 BAD·MISS로만 준다
-  health: Object.freeze({ start: 100, perfect: 1, great: 0.8, good: 0.3, bad: -3, miss: -8, wrong: 0 }),
   // 노트가 끝나고 이만큼 지나면 스테이지 클리어
   outroSeconds: 1.6,
   // 피버(DJMAX식 자동 피버): GOOD 이상으로 게이지가 차고, 가득 차면 피버 레벨이 1 오른다(최대 5).
   // 피버 중 점수 × (1 + 0.1 × 레벨). BAD·MISS·오타가 나면 피버가 끝나고 레벨이 0으로
   fever: Object.freeze({ gain: Object.freeze({ perfect: 5, great: 3.5, good: 1.5 }), maxLevel: 5, bonusPerLevel: 0.1 }),
   // 롱노트(막대): 선율에서 길게 끄는 음(minBeats박 이상)이고 다음 노트까지 여유가 있으면 막대로 만든다.
-  // 머리에서 키를 누르고 꼬리까지 떼지 않으면 성공(콤보 +1). releaseGrace초보다 일찍 떼면 끊김(콤보 끊김).
+  // 머리에서 키를 누르고 꼬리 근처까지 누르고 있으면 성공(콤보 +1, 꼬리 판정은 HOLD_RELEASE_WINDOWS). 너무 일찍 떼면 끊김.
   // 키를 떼는 신호가 없는 기기(휴대폰 화면 자판)는 꼬리에서 자동 성공
   hold: Object.freeze({ minBeats: 1.5, minSeconds: 0.45, maxSeconds: 2.4, gapAfter: 0.22, releaseGrace: 0.12, maxShare: 0.25 }),
   // 탭 전환·멈춤으로 시계가 크게 건너뛰면 한 프레임에 이만큼만 진행(그 사이는 멈춘 것으로 본다)
@@ -36,15 +33,43 @@ export const RHYTHM_RULES = Object.freeze({
 });
 
 export const JUDGEMENTS = Object.freeze(['perfect', 'great', 'good', 'bad', 'miss']);
+
+// 게이지(IIDX 그루브 게이지 참고). 0~100
+// easy·normal: start에서 시작해 중간에 떨어져도 끝까지 간다(최저 floor). 곡이 끝날 때 clearAt 이상이면 클리어.
+//   PERFECT·GREAT 하나가 recoveryTotal ÷ 판정 수만큼 채운다(GOOD은 절반) → 노트 수와 상관없이 다 맞히면 같은 양이 찬다
+// hard: 100에서 시작해 0이 되면 바로 실패(회복은 작고 고정). 노페일이면 0이어도 계속
+// empty: 공POOR(원이 오기 전·다른 글자) — 콤보는 그대로, 게이지만 조금
+export const RHYTHM_GAUGES = Object.freeze({
+  easy: Object.freeze({ label: 'EASY', color: '#39ff88', start: 22, floor: 2, clearAt: 60, survival: false, recoveryTotal: 200, bad: -1.2, miss: -3.6, empty: -0.6 }),
+  normal: Object.freeze({ label: 'NORMAL', color: '#36e2ff', start: 22, floor: 2, clearAt: 75, survival: false, recoveryTotal: 160, bad: -2, miss: -6, empty: -1 }),
+  hard: Object.freeze({ label: 'HARD', color: '#ff4d6d', start: 100, floor: 0, clearAt: 0, survival: true, perfect: 0.16, great: 0.16, good: 0, bad: -5, miss: -9, empty: -2 })
+});
+export const GAUGE_ORDER = Object.freeze(Object.keys(RHYTHM_GAUGES));
+
+// 난이도별 판정 창 배율(쉬울수록 넓게). missAfter도 같이 늘고 준다
+export const RHYTHM_WINDOW_SCALES = Object.freeze({ easy: 1.25, normal: 1, hard: 0.9, expert: 0.8 });
+// 롱노트 꼬리(떼는 순간) 판정: 꼬리보다 이만큼 일찍 떼도 그 판정. 그보다 일찍이면 끊김. 끝까지 누르고 있으면 PERFECT
+export const HOLD_RELEASE_WINDOWS = Object.freeze({ perfect: 0.1, great: 0.18, good: 0.26 });
+
+// 클리어 램프(곡·난이도별로 가장 좋은 것을 남긴다). ASSIST = 노페일로 끝까지
+export const CLEAR_LAMPS = Object.freeze(['FAILED', 'ASSIST', 'EASY', 'CLEAR', 'HARD', 'FC', 'AP']);
+export const lampOrder = lamp => CLEAR_LAMPS.indexOf(lamp);
+
+// EX 점수(IIDX식): PERFECT 2, GREAT 1. 롱노트 꼬리도 하나로 센다. 랭크는 EX 비율로(9등분: 8/9 이상 S …)
+export const EX_POINTS = Object.freeze({ perfect: 2, great: 1 });
+export const RANK_THRESHOLDS = Object.freeze([['S', 8 / 9], ['A', 7 / 9], ['B', 6 / 9], ['C', 5 / 9], ['D', 0]]);
+export function rankFromExRate(rate) {
+  return RANK_THRESHOLDS.find(([, minimum]) => rate >= minimum * 100 - 1e-9)?.[0] ?? 'D';
+}
 // 점수 상한 검증용(서버): 글자 하나 최고점 = (PERFECT + 낱말 보너스) × 최대 배율 2
 // 점수 상한 검증용(서버): 글자 하나 최고점 = (PERFECT + 낱말 보너스) × 최대 콤보 배율 2 × 최대 피버 배율
 export const RHYTHM_MAX_POINTS_PER_CHARACTER = Math.ceil((RHYTHM_RULES.points.perfect + RHYTHM_RULES.wordBonus) * 2 * (1 + RHYTHM_RULES.fever.maxLevel * RHYTHM_RULES.fever.bonusPerLevel));
 
 // 게임 옵션(osu! 모드·DJMAX 옵션 참고). speed: 낙하 속도 배율, offsetMs: 입력 보정(+면 늦게 쳐도 맞게)
-// noFail: 체력 0이어도 계속(점수 ×0.5) · suddenDeath: MISS·BAD·오타 하나면 실패 · perfectOnly: PERFECT가 아니면 실패
+// gauge: easy|normal|hard(RHYTHM_GAUGES) · noFail: 게이지와 상관없이 끝까지(어시스트 클리어, 점수 ×0.5) · suddenDeath: MISS·BAD 하나면 실패 · perfectOnly: PERFECT가 아니면 실패
 // hidden: 판정선 가까이에서 노트가 사라짐 · fadeIn: 판정선 가까이에서 나타남 · mirror: 레인 좌우 반전(화면만)
 // autoPlay: 자동 연주(기록·포인트 없음)
-export const RHYTHM_OPTION_DEFAULTS = Object.freeze({ speed: 1, offsetMs: 0, noFail: false, suddenDeath: false, perfectOnly: false, hidden: false, fadeIn: false, mirror: false, autoPlay: false });
+export const RHYTHM_OPTION_DEFAULTS = Object.freeze({ speed: 1, offsetMs: 0, gauge: 'normal', noFail: false, suddenDeath: false, perfectOnly: false, hidden: false, fadeIn: false, mirror: false, autoPlay: false });
 export const RHYTHM_SPEEDS = Object.freeze([0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3]);
 export const NO_FAIL_SCORE_FACTOR = 0.5;
 
@@ -54,6 +79,7 @@ export function normalizeRhythmOptions(raw) {
   const options = { ...RHYTHM_OPTION_DEFAULTS };
   for (const key of ['noFail', 'suddenDeath', 'perfectOnly', 'hidden', 'fadeIn', 'mirror', 'autoPlay']) options[key] = source[key] === true;
   options.speed = RHYTHM_SPEEDS.includes(source.speed) ? source.speed : 1;
+  options.gauge = RHYTHM_GAUGES[source.gauge] ? source.gauge : 'normal';
   options.offsetMs = Number.isFinite(source.offsetMs) ? Math.max(-200, Math.min(200, Math.round(source.offsetMs / 5) * 5)) : 0;
   if (options.noFail) {
     options.suddenDeath = false;
@@ -83,13 +109,24 @@ export const matchesNote = (typed, expected) => typed === expected
   || (expected !== expected.toLowerCase() && typed === expected.toLowerCase())
   || SHIFTED_TO_BASE[expected] === typed;
 
-export function judgeTiming(deltaSeconds) {
+// 타이밍 판정. scale = 난이도별 판정 창 배율(RHYTHM_WINDOW_SCALES)
+export function judgeTiming(deltaSeconds, scale = 1) {
   const distance = Math.abs(deltaSeconds);
   const { windows } = RHYTHM_RULES;
-  if (distance <= windows.perfect) return 'perfect';
-  if (distance <= windows.great) return 'great';
-  if (distance <= windows.good) return 'good';
+  const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  if (distance <= windows.perfect * safeScale) return 'perfect';
+  if (distance <= windows.great * safeScale) return 'great';
+  if (distance <= windows.good * safeScale) return 'good';
   return 'bad';
+}
+
+// 롱노트를 꼬리보다 earlySeconds 일찍 뗐을 때의 판정. 너무 일찍이면 null(끊김)
+export function judgeRelease(earlySeconds) {
+  const early = Math.max(0, earlySeconds);
+  if (early <= HOLD_RELEASE_WINDOWS.perfect) return 'perfect';
+  if (early <= HOLD_RELEASE_WINDOWS.great) return 'great';
+  if (early <= HOLD_RELEASE_WINDOWS.good) return 'good';
+  return null;
 }
 
 // 박자 시계: 오디오가 돌고 있으면 오디오 시계로, 아니면(무음·자동재생 차단·미지원) 성능 시계로 진행한다.
@@ -152,24 +189,32 @@ export class RhythmEngine extends TargetGameEngine {
     this.fallSeconds = chart.fallSeconds / this.options.speed;
     this.fever = { gauge: 0, level: 0 };
     this.fastLate = { fast: 0, late: 0, deltaSum: 0, hits: 0 };
-    this.health = RHYTHM_RULES.health.start;
+    this.windowScale = RHYTHM_WINDOW_SCALES[difficultyKey] ?? 1;
+    this.missAfter = RHYTHM_RULES.missAfter * this.windowScale;
+    this.gauge = RHYTHM_GAUGES[this.options.gauge];
+    this.health = this.gauge.start;
+    this.emptyPoors = 0;
+    this.exScore = 0;
     this.counts = Object.fromEntries(JUDGEMENTS.map(name => [name, 0]));
     this.outcome = null;
     this.wordsCompleted = 0;
     this.cleanWords = 0;
     this.headIndex = 0;
     this.activeHold = null;
-    this.holdStats = { done: 0, broken: 0 };
+    this.holdStats = { done: 0, broken: 0, perfect: 0, great: 0, good: 0 };
     const { words, notes, autoNotes } = this.buildChart();
     this.words = words;
     this.notes = notes;
     this.autoNotes = autoNotes;
     // 반주가 연주하는 선율 전체: 글자를 얹은 음도 포함한다(곡은 그대로 흐르고, 맞히면 그 음이 작게 한 번 더 난다)
-    this.melodyNotes = [...autoNotes, ...notes.map(note => ({ time: note.hitTime, dur: note.dur * this.beatSeconds, midi: note.midi }))]
+    this.melodyNotes = [...autoNotes, ...notes.filter(note => !note.chordPartner).map(note => ({ time: note.hitTime, dur: note.dur * this.beatSeconds, midi: note.midi }))]
       .filter(note => Number.isFinite(note.midi))
       .sort((first, second) => first.time - second.time);
     this.lastHitTime = notes.at(-1)?.hitTime ?? 0;
     this.endTime = (this.leadInBeats + song.totalBeats) * this.beatSeconds + RHYTHM_RULES.outroSeconds;
+    // 판정 수 = 노트 + 롱노트 꼬리. 그루브 게이지 회복량·EX 만점의 기준
+    this.judgedTotal = Math.max(1, notes.length + this.holdCount);
+    this.exMax = this.judgedTotal * EX_POINTS.perfect;
   }
 
   // 악보: 곡 선율의 음 중 난이도 격자(정박·반 박…)에 있고 앞 노트와 minGap초 이상 떨어진 음에 글자를 하나씩 얹는다.
@@ -206,6 +251,19 @@ export class RhythmEngine extends TargetGameEngine {
         notes.push(note);
         word.noteIds.push(note.id);
         lastKeyed = time;
+        // 동시 입력: 강박이면 다음 글자를 같은 박에 붙인다(다음 글자가 오른쪽 레인일 때만 → 왼쪽부터 낱말 순서대로 읽힌다)
+        const nextCharacter = characters[charIndex + 1];
+        if (nextCharacter !== undefined && this.isChordBeat(event.beat) && this.canChord(character, nextCharacter)) {
+          const partner = {
+            id: this.nextId++, word, charIndex: charIndex + 1, character: nextCharacter, lane: laneOfCharacter(nextCharacter), midi: event.midi - 12, dur: event.dur,
+            beat, hitTime: time, state: 'pending', judgement: null, delta: 0, resolvedAt: null, chord: true, chordPartner: true
+          };
+          note.chord = true;
+          note.chordWith = partner;
+          partner.chordWith = note;
+          notes.push(partner);
+          word.noteIds.push(partner.id);
+        }
         if (word.noteIds.length === characters.length) {
           words.push(word);
           word = null;
@@ -217,12 +275,27 @@ export class RhythmEngine extends TargetGameEngine {
     // 곡이 끝나 다 못 놓은 낱말은 버리고 그 음은 반주가 연주한다
     if (word) {
       const unfinished = new Set(word.noteIds);
-      for (const note of notes.filter(entry => unfinished.has(entry.id))) autoNotes.push({ time: note.hitTime, dur: note.dur * this.beatSeconds, midi: note.midi });
+      for (const note of notes.filter(entry => unfinished.has(entry.id) && !entry.chordPartner)) autoNotes.push({ time: note.hitTime, dur: note.dur * this.beatSeconds, midi: note.midi });
       notes.splice(notes.length - word.noteIds.length);
       autoNotes.sort((first, second) => first.time - second.time);
     }
     this.markHolds(notes);
     return { words, notes, autoNotes };
+  }
+
+  // 동시 노트를 놓을 박인가: 마디 첫 박(강세 곡은 반 마디 강박도) + 난이도별 확률
+  isChordBeat(songBeat) {
+    const accent = CHORD_ACCENT_SONGS.has(this.song.id);
+    const unit = accent && this.beatsPerBar % 2 === 0 ? this.beatsPerBar / 2 : this.beatsPerBar;
+    const onAccent = Math.abs(songBeat / unit - Math.round(songBeat / unit)) < 1e-6;
+    const chance = Math.min(0.95, (this.chart.chordChance ?? 0) * (accent ? 1.4 : 1));
+    return onAccent && chance > 0 && this.random() < chance;
+  }
+
+  // 두 글자를 동시에 칠 수 있나: 공백이 아니고, 뒤 글자가 앞 글자보다 오른쪽 레인
+  canChord(leftCharacter, rightCharacter) {
+    if (leftCharacter === ' ' || rightCharacter === ' ') return false;
+    return laneOfCharacter(rightCharacter) > laneOfCharacter(leftCharacter);
   }
 
   // 길게 끄는 음을 롱노트로: 꼬리 = min(음 길이, 다음 노트 - gapAfter, maxSeconds). minSeconds보다 짧으면 일반 노트. O(노트 수)
@@ -232,7 +305,7 @@ export class RhythmEngine extends TargetGameEngine {
       const note = notes[index];
       note.holdEnd = null;
       note.holdState = null;
-      if (!(note.dur >= minBeats) || note.character === ' ') continue;
+      if (!(note.dur >= minBeats) || note.character === ' ' || note.chord) continue;
       const next = notes[index + 1];
       const room = (next ? next.hitTime : Infinity) - gapAfter;
       const end = Math.min(note.hitTime + note.dur * this.beatSeconds, room, note.hitTime + maxSeconds);
@@ -283,7 +356,7 @@ export class RhythmEngine extends TargetGameEngine {
 
   // 놓친 노트 처리 + 끝 판정
   step() {
-    if (this.activeHold && this.gameTime - this.offset >= this.activeHold.holdEnd) this.finishHold(true);
+    if (this.activeHold && this.gameTime - this.offset >= this.activeHold.holdEnd) this.finishHold('perfect');
     let head = this.headNote();
     if (this.options.autoPlay) {
       while (head && this.gameTime >= head.hitTime) {
@@ -292,12 +365,18 @@ export class RhythmEngine extends TargetGameEngine {
         head = this.headNote();
       }
     }
-    while (head && this.gameTime - this.offset - head.hitTime > RHYTHM_RULES.missAfter) {
+    while (head && this.gameTime - this.offset - head.hitTime > this.missAfter) {
       this.resolveMiss(head);
       if (this.status !== 'running') return;
       head = this.headNote();
     }
-    if (this.gameTime >= this.endTime) this.finish('cleared');
+    if (this.gameTime >= this.endTime) this.finishSong();
+  }
+
+  // 곡 끝: 하드는 살아남았으면 클리어, 그루브 게이지는 기준선 이상이어야 클리어. 노페일은 무조건 끝까지(어시스트)
+  finishSong() {
+    const passed = this.gauge.survival || this.health >= this.gauge.clearAt || this.options.noFail;
+    this.finish(passed ? 'cleared' : 'failed');
   }
 
   // 다음에 칠 노트(시각순 첫 미판정). O(1) 분할상환
@@ -325,7 +404,7 @@ export class RhythmEngine extends TargetGameEngine {
     this.combo = 0;
     this.breakFever();
     this.noteWeak(note.word);
-    this.changeHealth(RHYTHM_RULES.health.miss);
+    this.changeHealth(this.gaugeDelta('miss'));
     this.emit('miss', { note });
     this.checkStrict('miss');
     if (this.status !== 'running') return;
@@ -338,14 +417,24 @@ export class RhythmEngine extends TargetGameEngine {
     this.weakTokens.set(word.token.text, entry);
   }
 
-  changeHealth(amount) {
-    this.health = Math.max(0, Math.min(100, this.health + amount));
-    if (this.health === 0 && !this.options.noFail) this.finish('failed');
+  // 판정 하나가 게이지에 주는 양. 그루브 게이지의 회복은 판정 수로 나눠 곡 길이와 상관없게 한다
+  gaugeDelta(judgement) {
+    const gauge = this.gauge;
+    if (gauge.survival) return gauge[judgement] ?? 0;
+    if (judgement === 'perfect' || judgement === 'great') return gauge.recoveryTotal / this.judgedTotal;
+    if (judgement === 'good') return gauge.recoveryTotal / this.judgedTotal / 2;
+    return gauge[judgement] ?? 0;
   }
 
-  // 서든데스·퍼펙트 온리: 조건을 어기면 바로 실패
+  changeHealth(amount) {
+    if (!Number.isFinite(amount) || amount === 0) return;
+    this.health = Math.max(this.gauge.floor, Math.min(100, this.health + amount));
+    if (this.gauge.survival && this.health <= 0 && !this.options.noFail) this.finish('failed');
+  }
+
+  // 서든데스·퍼펙트 온리: 조건을 어기면 바로 실패(공POOR는 해당 없음)
   checkStrict(judgement) {
-    if (this.options.suddenDeath && (judgement === 'miss' || judgement === 'bad' || judgement === 'wrong')) this.finish('failed');
+    if (this.options.suddenDeath && (judgement === 'miss' || judgement === 'bad')) this.finish('failed');
     else if (this.options.perfectOnly && judgement !== 'perfect') this.finish('failed');
   }
 
@@ -400,7 +489,8 @@ export class RhythmEngine extends TargetGameEngine {
   // ---------- 목표 ----------
   targetables() {
     const head = this.headNote();
-    return head && head.hitTime - this.fallSeconds <= this.gameTime ? [head] : [];
+    if (!head || head.hitTime - this.fallSeconds > this.gameTime) return [];
+    return head.chordWith?.state === 'pending' ? [head, head.chordWith] : [head];
   }
 
   findEntity(id) {
@@ -441,29 +531,27 @@ export class RhythmEngine extends TargetGameEngine {
     // 곡 시작 전(첫 원이 아직 멀 때)에는 어떤 키도 감점하지 않는다
     const beforeFirstNote = head === this.notes[0] && ahead > RHYTHM_RULES.startGrace;
     if (beforeFirstNote) return { accepted: false, reason: 'too_early' };
-    // 원이 판정 범위(±missAfter) 밖에 있을 때 누르면, 다음 글자든 아니든 오타. 범위 안에서는 다음 글자만 맞다
-    if (ahead > RHYTHM_RULES.missAfter || !matchesNote(character, head.character)) return this.wrongKey(head, character);
-    return this.hit(head);
+    // 원이 판정 범위(±missAfter) 밖에 있을 때 누르면, 다음 글자든 아니든 공POOR. 범위 안에서는 다음 글자만 맞다
+    // 동시 노트는 두 글자 중 아무거나 먼저 쳐도 된다
+    const target = [head, head.chordWith].find(note => note && note.state === 'pending' && matchesNote(character, note.character));
+    if (ahead > this.missAfter || !target) return this.wrongKey(head, character);
+    return this.hit(target);
   }
 
-  // 오타: 콤보·피버가 끊기고 체력이 깎인다. 노트는 그대로 남는다(제때 다시 치면 된다)
+  // 공POOR(IIDX): 원이 오기 전에 누르거나 다른 글자. 콤보·피버·점수·풀콤보는 그대로, 게이지만 조금 준다.
+  // 노트는 그대로 남는다(제때 치면 된다)
   wrongKey(head, character) {
-    head.word.mistakes++;
     this.wrongKeystrokes++;
-    const comboLost = this.combo;
-    this.combo = 0;
-    this.breakFever();
-    this.noteWeak(head.word);
-    const payload = { typed: character, expected: head.character, target: head.word, note: head, comboLost, position: head.charIndex };
+    this.emptyPoors++;
+    const payload = { typed: character, expected: head.character, target: head.word, note: head, comboLost: 0, position: head.charIndex, emptyPoor: true };
     this.emit('mistake', payload);
-    this.changeHealth(RHYTHM_RULES.health.wrong);
-    this.checkStrict('wrong');
+    this.changeHealth(this.gaugeDelta('empty'));
     return { accepted: true, correct: false, ...payload };
   }
 
   hit(note, fixedDelta = null, forcedJudgement = null) {
     const delta = fixedDelta ?? this.gameTime - this.offset - note.hitTime;
-    const judgement = forcedJudgement ?? judgeTiming(delta);
+    const judgement = forcedJudgement ?? judgeTiming(delta, this.windowScale);
     this.fastLate.hits++;
     this.fastLate.deltaSum += delta;
     if (judgement !== 'perfect') this.fastLate[delta < 0 ? 'fast' : 'late']++;
@@ -481,17 +569,18 @@ export class RhythmEngine extends TargetGameEngine {
     }
     this.score += Math.round(RHYTHM_RULES.points[judgement] * this.scoreFactor());
     this.counts[judgement]++;
+    this.exScore += EX_POINTS[judgement] ?? 0;
     note.state = 'hit';
     note.judgement = judgement;
     note.delta = delta;
     note.resolvedAt = this.gameTime;
     if (note.holdEnd !== null && note.holdEnd !== undefined) {
       // 막대 머리를 쳤으면 꼬리까지 누르고 있어야 한다(이전 막대는 이 시점에 끝난 것으로 본다)
-      if (this.activeHold) this.finishHold(true);
+      if (this.activeHold) this.finishHold('perfect');
       note.holdState = 'holding';
       this.activeHold = note;
     }
-    this.changeHealth(RHYTHM_RULES.health[judgement]);
+    this.changeHealth(this.gaugeDelta(judgement));
     const payload = { note, judgement, delta, combo: this.combo, lane: note.lane, beat: note.beat, character: note.character, tier: getTierProgress(this.combo).index };
     this.emit('judge', payload);
     this.checkStrict(judgement);
@@ -508,30 +597,37 @@ export class RhythmEngine extends TargetGameEngine {
     if (!note || !characters.some(character => matchesNote(character, note.character) || character.toLowerCase() === note.character.toLowerCase())) {
       return { accepted: false, reason: 'other_key' };
     }
-    const early = note.holdEnd - (this.gameTime - this.offset) > RHYTHM_RULES.hold.releaseGrace;
-    this.finishHold(!early);
-    return { accepted: true, held: !early };
+    const tail = judgeRelease(note.holdEnd - (this.gameTime - this.offset));
+    this.finishHold(tail);
+    return { accepted: true, held: tail !== null, judgement: tail };
   }
 
-  // 막대 끝: 성공이면 콤보 +1(점수는 머리에서만), 끊기면 콤보·피버가 끊긴다
-  finishHold(success) {
+  // 막대 끝: tailJudgement(perfect|great|good)면 콤보 +1·EX·게이지(점수는 머리에서만), null이면 끊김 = 콤보·피버가 끊긴다
+  finishHold(tailJudgement) {
     const note = this.activeHold;
     if (!note) return;
     this.activeHold = null;
+    const success = typeof tailJudgement === 'string' && tailJudgement in HOLD_RELEASE_WINDOWS;
     note.holdState = success ? 'done' : 'broken';
+    note.holdJudgement = success ? tailJudgement : null;
     note.holdResolvedAt = this.gameTime;
     if (success) {
       this.holdStats.done++;
+      this.holdStats[tailJudgement]++;
+      this.exScore += EX_POINTS[tailJudgement] ?? 0;
       this.combo++;
       this.maxCombo = Math.max(this.maxCombo, this.combo);
-      this.emit('hold', { note, success: true, lane: note.lane, combo: this.combo });
+      this.changeHealth(this.gaugeDelta(tailJudgement));
+      this.emit('hold', { note, success: true, judgement: tailJudgement, lane: note.lane, combo: this.combo });
+      if (this.options.perfectOnly && tailJudgement !== 'perfect') this.finish('failed');
       return;
     }
     this.holdStats.broken++;
     if (this.combo >= 5) this.emit('combo-lost', { combo: this.combo });
     this.combo = 0;
     this.breakFever();
-    this.emit('hold', { note, success: false, lane: note.lane, combo: 0 });
+    this.changeHealth(this.gaugeDelta('bad'));
+    this.emit('hold', { note, success: false, judgement: null, lane: note.lane, combo: 0 });
     this.checkStrict('bad');
   }
 
@@ -558,11 +654,25 @@ export class RhythmEngine extends TargetGameEngine {
     return Math.round(weighted / judged * 1000) / 10;
   }
 
-  // 풀 콤보: 클리어 + MISS·BAD·오타 없음 / 올 퍼펙트: 풀 콤보 + 전부 PERFECT
+  // 풀 콤보: 클리어 + MISS·BAD·끊긴 막대 없음(공POOR는 상관없음) / 올 퍼펙트: 풀 콤보 + 머리·꼬리 전부 PERFECT
   clearMark() {
-    if (this.outcome !== 'cleared' || this.options.autoPlay) return null;
-    if (this.counts.miss || this.counts.bad || this.wrongKeystrokes || this.holdStats.broken) return null;
-    return this.counts.great || this.counts.good ? 'FC' : 'AP';
+    if (this.outcome !== 'cleared' || this.options.autoPlay || this.options.noFail) return null;
+    if (this.counts.miss || this.counts.bad || this.holdStats.broken) return null;
+    const imperfect = this.counts.great + this.counts.good + this.holdStats.great + this.holdStats.good;
+    return imperfect ? 'FC' : 'AP';
+  }
+
+  // 클리어 램프: FAILED < ASSIST(노페일) < EASY < CLEAR < HARD < FC < AP. 자동 연주는 없음
+  clearLamp() {
+    if (this.options.autoPlay || !this.outcome) return null;
+    if (this.outcome !== 'cleared') return 'FAILED';
+    if (this.options.noFail) return 'ASSIST';
+    return this.clearMark() ?? { easy: 'EASY', normal: 'CLEAR', hard: 'HARD' }[this.options.gauge];
+  }
+
+  // EX 비율(%): 지금까지의 EX 점수 ÷ 곡 전체 만점
+  exRate() {
+    return Math.round(this.exScore / this.exMax * 10000) / 100;
   }
 
   // 평균 타이밍(ms, +면 늦게 침). 오프셋 보정 추천값 = 지금 오프셋 + 평균
@@ -572,18 +682,17 @@ export class RhythmEngine extends TargetGameEngine {
 
   rank() {
     if (this.outcome === 'failed') return 'F';
-    const accuracy = this.timingAccuracy();
-    if (accuracy >= 95 && this.counts.miss === 0) return 'S';
-    if (accuracy >= 90) return 'A';
-    if (accuracy >= 80) return 'B';
-    if (accuracy >= 65) return 'C';
-    return 'D';
+    return rankFromExRate(this.exRate());
   }
 
   snapshotExtras() {
     return {
       health: this.health,
       lives: this.health <= 25 ? 1 : 3,
+      gauge: this.options.gauge,
+      exScore: this.exScore,
+      exRate: this.exRate(),
+      emptyPoors: this.emptyPoors,
       progress: Math.min(1, this.gameTime / this.endTime),
       counts: { ...this.counts },
       timingAccuracy: this.timingAccuracy(),
@@ -608,6 +717,13 @@ export class RhythmEngine extends TargetGameEngine {
       songTitle: this.song.title,
       difficulty: this.difficultyKey,
       clearMark: this.clearMark(),
+      clearLamp: this.clearLamp(),
+      gauge: this.options.gauge,
+      gaugeEnd: Math.round(this.health * 10) / 10,
+      exScore: this.exScore,
+      exMax: this.exMax,
+      exRate: this.exRate(),
+      emptyPoors: this.emptyPoors,
       fast: this.fastLate.fast,
       late: this.fastLate.late,
       averageDeltaMs: this.averageDeltaMs(),
@@ -615,7 +731,8 @@ export class RhythmEngine extends TargetGameEngine {
       modifiers: Object.entries(this.options).filter(([key, value]) => value === true).map(([key]) => key),
       speed: this.options.speed,
       autoPlay: this.options.autoPlay,
-      holds: { ...this.holdStats, total: this.holdCount }
+      holds: { ...this.holdStats, total: this.holdCount },
+      chords: this.notes.filter(note => note.chordPartner).length
     };
   }
 }

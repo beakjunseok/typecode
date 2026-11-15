@@ -112,7 +112,7 @@ export class RhythmRenderer {
       const color = payload.success ? RHYTHM_LANES[payload.lane].color : JUDGEMENT_STYLE.miss.color;
       flash.amount = 1;
       flash.color = color;
-      this.popup = { label: payload.success ? 'HOLD' : 'BREAK', color, at: performance.now(), combo: payload.combo, delta: null };
+      this.popup = { label: payload.success ? `HOLD ${(payload.judgement ?? 'perfect').toUpperCase()}` : 'BREAK', color, at: performance.now(), combo: payload.combo, delta: null };
       if (payload.success) this.particles.burst(this.laneCenter(payload.lane, layout), layout.judgeY, { color, count: 20, speed: 240, life: 0.5, gravity: 260 });
     } else if (type === 'word') {
       this.wordFlash = { word: payload.word, clean: payload.clean, bonus: payload.bonus, at: performance.now() };
@@ -246,6 +246,7 @@ export class RhythmRenderer {
     // 롱노트 막대: 머리 노트보다 먼저(뒤에) 그린다
     for (const note of notes) {
       if (note.holdEnd) this.drawHoldBody(context, note, engine, layout);
+      if (note.chordPartner && note.state === 'pending' && note.chordWith.state === 'pending') this.drawChordLink(context, note, engine, layout, radius);
     }
     for (const note of notes) {
       const x = this.laneCenter(note.lane, layout);
@@ -279,6 +280,24 @@ export class RhythmRenderer {
   }
 
   // 큰 원 노트: 레인 색 테두리, 글자는 낱말 종류 색. 다음에 칠 노트는 밝게 빛난다
+  // 동시 노트: 두 원을 잇는 밝은 막대(한 박에 같이 치라는 표시)
+  drawChordLink(context, note, engine, layout, radius) {
+    const y = this.noteY(note.hitTime, engine, layout);
+    const alpha = this.noteAlpha(y, layout, engine.options ?? {});
+    if (alpha <= 0) return;
+    const from = this.laneCenter(note.chordWith.lane, layout);
+    const to = this.laneCenter(note.lane, layout);
+    context.save();
+    context.globalAlpha = alpha * 0.85;
+    const gradient = context.createLinearGradient(from, y, to, y);
+    gradient.addColorStop(0, RHYTHM_LANES[note.chordWith.lane].color);
+    gradient.addColorStop(1, RHYTHM_LANES[note.lane].color);
+    context.fillStyle = gradient;
+    roundedRect(context, Math.min(from, to), y - radius * 0.22, Math.abs(to - from), radius * 0.44, radius * 0.22);
+    context.fill();
+    context.restore();
+  }
+
   drawNote(context, note, x, y, radius, isHead, accent) {
     const laneColor = RHYTHM_LANES[note.lane].color;
     context.save();
@@ -382,11 +401,14 @@ export class RhythmRenderer {
       context.shadowColor = flash.clean ? '#ffe066' : '#ff4d6d';
       context.shadowBlur = 18;
     }
+    // 지금 칠 글자(동시 노트면 두 글자)에 밑줄
+    const head = engine.headNote();
+    const current = new Set([head, head?.chordWith].filter(Boolean));
     notes.forEach((note, index) => {
       const x = start + index * characterWidth;
       if (note.state === 'pending') {
-        context.fillStyle = note === engine.headNote() ? '#ffffff' : 'rgba(201, 212, 224, 0.4)';
-        if (note === engine.headNote()) context.fillRect(x, centerY + size * 0.55, characterWidth - 2, 3);
+        context.fillStyle = current.has(note) ? '#ffffff' : 'rgba(201, 212, 224, 0.4)';
+        if (current.has(note)) context.fillRect(x, centerY + size * 0.55, characterWidth - 2, 3);
       } else {
         context.fillStyle = note.judgement === 'miss' ? JUDGEMENT_STYLE.miss.color : note.judgement === 'bad' ? JUDGEMENT_STYLE.bad.color : kindColor;
       }
@@ -413,15 +435,22 @@ export class RhythmRenderer {
     context.fillStyle = 'rgba(255, 255, 255, 0.08)';
     roundedRect(context, 12, 10, barWidth, 9, 4.5);
     context.fill();
+    // 게이지: 하드는 빨강, 그루브 게이지는 기준선(clearAt) 위면 게이지 색, 아래면 회색 + 기준선 표시
+    const gauge = engine.gauge;
     const health = snapshot.health / 100;
-    context.fillStyle = health > 0.5 ? '#39ff88' : health > 0.25 ? '#ffcb6b' : '#ff4d6d';
+    const passing = gauge.survival ? health > 0.25 : snapshot.health >= gauge.clearAt;
+    context.fillStyle = passing ? gauge.color : gauge.survival ? '#ff4d6d' : '#5d6b7d';
     roundedRect(context, 12, 10, Math.max(5, barWidth * health), 9, 4.5);
     context.fill();
+    if (!gauge.survival) {
+      context.fillStyle = '#ffffff';
+      context.fillRect(12 + barWidth * gauge.clearAt / 100 - 1, 7, 2, 15);
+    }
     context.font = canvasFont(10, 'ui', 600);
     context.fillStyle = '#8a98aa';
     context.textBaseline = 'top';
     context.textAlign = 'left';
-    context.fillText(`HP ${Math.round(snapshot.health)} · 낱말 ${snapshot.wordsCompleted}/${engine.words.length}`, 12, 22);
+    context.fillText(`${gauge.label} ${Math.floor(snapshot.health)}% · EX ${snapshot.exRate.toFixed(2)}% · 낱말 ${snapshot.wordsCompleted}/${engine.words.length}`, 12, 22);
     context.textAlign = 'right';
     const chart = engine.chart;
     context.fillText(`${engine.song.title} · ${Math.round(snapshot.progress * 100)}%`, width - 12, 22);

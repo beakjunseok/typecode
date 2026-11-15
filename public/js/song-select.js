@@ -1,12 +1,12 @@
 // 리듬 모드 곡 선택 화면(DOM). 왼쪽 곡 목록, 오른쪽 고른 곡의 정보·난이도 칩·최고 기록.
 // 상태는 main.js가 들고 있고, 이 모듈은 받은 상태를 그리기만 한다. 클릭은 data-song / data-difficulty로 위임 처리.
-import { RHYTHM_SONGS, RHYTHM_DIFFICULTIES, DIFFICULTY_ORDER, getSong } from './rhythm-songs.js';
-import { RHYTHM_SPEEDS } from './rhythm-engine.js';
+import { RHYTHM_SONGS, RHYTHM_DIFFICULTIES, DIFFICULTY_ORDER, CHORD_ACCENT_SONGS, getSong } from './rhythm-songs.js';
+import { RHYTHM_SPEEDS, RHYTHM_GAUGES, GAUGE_ORDER } from './rhythm-engine.js';
 
 // 게임 옵션 토글(버튼 이름 · 짧은 설명). osu! 모드·DJMAX 옵션 참고
 export const OPTION_TOGGLES = Object.freeze([
-  Object.freeze({ key: 'noFail', label: '노페일', hint: 'HP가 0이어도 끝까지 · 점수 절반' }),
-  Object.freeze({ key: 'suddenDeath', label: '서든데스', hint: 'MISS·BAD·오타 하나면 실패' }),
+  Object.freeze({ key: 'noFail', label: '노페일', hint: '게이지와 상관없이 끝까지(어시스트 클리어) · 점수 절반' }),
+  Object.freeze({ key: 'suddenDeath', label: '서든데스', hint: 'MISS·BAD 하나면 실패' }),
   Object.freeze({ key: 'perfectOnly', label: '퍼펙트', hint: 'PERFECT가 아니면 실패' }),
   Object.freeze({ key: 'hidden', label: '히든', hint: '판정선 가까이에서 노트가 사라짐' }),
   Object.freeze({ key: 'fadeIn', label: '페이드인', hint: '판정선 가까이에서 노트가 나타남' }),
@@ -21,6 +21,20 @@ export function stepSpeed(speed, delta) {
 }
 
 const RANK_ORDER = Object.freeze(['S', 'A', 'B', 'C', 'D', 'F']);
+
+// 클리어 램프 이름(목록 배지 · 자세히). 예전 기록은 mark(FC/AP)만 있으므로 그것을 램프로 쓴다
+export const LAMP_LABELS = Object.freeze({ FAILED: 'FAILED', ASSIST: 'ASSIST', EASY: 'EASY CLEAR', CLEAR: 'CLEAR', HARD: 'HARD CLEAR', FC: 'FULL COMBO', AP: 'ALL PERFECT' });
+const GAUGE_HINTS = Object.freeze({
+  easy: '끝까지 가고, 끝날 때 60% 이상이면 클리어 · 덜 깎임',
+  normal: '22%에서 시작해 끝까지 가고, 끝날 때 75% 이상이면 클리어',
+  hard: '100%에서 시작, 0이 되면 바로 실패 · 회복이 적음'
+});
+export const lampOfRecord = record => record?.lamp ?? record?.mark ?? null;
+function lampBadge(lamp, short) {
+  const badge = element('span', `clear-lamp${lamp ? ` lamp-${lamp}` : ''}`, lamp ? (short ? lamp : LAMP_LABELS[lamp] ?? lamp) : '');
+  if (lamp) badge.title = LAMP_LABELS[lamp] ?? lamp;
+  return badge;
+}
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -69,13 +83,11 @@ function renderList(list, { songId, difficulty, levelOf, bestOf }) {
     level.style.color = RHYTHM_DIFFICULTIES[difficulty].color;
     level.title = `${RHYTHM_DIFFICULTIES[difficulty].label} 레벨`;
     if (song.ai) text.querySelector('.song-title').append(element('span', 'ai-badge', 'AI'));
+    if (CHORD_ACCENT_SONGS.has(song.id)) text.querySelector('.song-title').append(element('span', 'ai-badge chord-badge', '동시'));
     const rank = bestRankOfSong(song.id, bestOf);
     const badge = element('span', `song-rank${rank ? ` rank-${rank}` : ''}`, rank ?? '–');
     badge.title = rank ? '이 곡 최고 랭크' : '아직 기록 없음';
-    const mark = bestOf(song.id, difficulty)?.mark;
-    const markBadge = element('span', `clear-mark${mark ? ` mark-${mark}` : ''}`, mark ?? '');
-    if (mark) markBadge.title = mark === 'AP' ? `${RHYTHM_DIFFICULTIES[difficulty].label} 올 퍼펙트` : `${RHYTHM_DIFFICULTIES[difficulty].label} 풀 콤보`;
-    row.append(level, text, markBadge, badge);
+    row.append(level, text, lampBadge(lampOfRecord(bestOf(song.id, difficulty)), true), badge);
     return row;
   });
   list.replaceChildren(...rows);
@@ -110,7 +122,9 @@ function renderDetail(detail, { songId, difficulty, focused, levelOf, bestOf, op
   const record = element('p', 'song-record');
   if (best) {
     record.append(element('span', `song-rank rank-${best.rank}`, best.rank), element('span', 'song-record-score', best.score.toLocaleString()));
-    if (best.mark) record.append(element('span', `clear-mark mark-${best.mark}`, best.mark === 'AP' ? 'ALL PERFECT' : 'FULL COMBO'));
+    if (Number.isFinite(best.exRate)) record.append(element('span', 'song-record-ex', `EX ${best.exRate.toFixed(2)}%`));
+    const lamp = lampOfRecord(best);
+    if (lamp) record.append(lampBadge(lamp, false));
   } else {
     record.textContent = '이 난이도는 아직 기록이 없어요';
   }
@@ -128,6 +142,7 @@ function renderDetail(detail, { songId, difficulty, focused, levelOf, bestOf, op
   const start = element('p', 'song-start', focused ? '글자 키를 치면 시작해요' : '여기를 눌러 시작 준비');
   const keys = element('p', 'song-keys', '↑↓ 곡 바꾸기 · ←→ 난이도');
   if (song.ai) title.append(element('span', 'ai-badge', 'AI 생성'));
+  if (CHORD_ACCENT_SONGS.has(song.id)) title.append(element('span', 'ai-badge chord-badge', '동시 입력 많음'));
   detail.replaceChildren(title, meta, facts, chips, record, credit, renderOptions({ options, suggestedOffsetMs }), start, keys);
 }
 
@@ -158,6 +173,20 @@ function renderOptions({ options, suggestedOffsetMs }) {
     offsetRow.append(suggest);
   }
   box.append(offsetRow);
+  const gaugeRow = element('div', 'option-row gauge-row');
+  gaugeRow.append(element('span', 'option-name', '게이지'));
+  for (const key of GAUGE_ORDER) {
+    const gauge = RHYTHM_GAUGES[key];
+    const button = element('button', `option-gauge${options.gauge === key ? ' on' : ''}`, gauge.label);
+    button.type = 'button';
+    button.dataset.option = 'gauge';
+    button.dataset.key = key;
+    button.title = GAUGE_HINTS[key];
+    button.style.setProperty('--gauge', gauge.color);
+    button.setAttribute('aria-pressed', String(options.gauge === key));
+    gaugeRow.append(button);
+  }
+  box.append(gaugeRow);
   const toggles = element('div', 'option-toggles');
   for (const toggle of OPTION_TOGGLES) {
     const button = element('button', `option-toggle${options[toggle.key] ? ' on' : ''}`, toggle.label);

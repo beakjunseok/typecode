@@ -10,11 +10,11 @@ import { createPvpLobby } from './pvp-lobby.js';
 import { DIFFICULTY_LEVELS } from './target-game.js';
 import { ThrowRenderer } from './throw-view.js';
 import { BatteryRenderer } from './battery-view.js';
-import { RhythmEngine, normalizeRhythmOptions, RHYTHM_LANES, RHYTHM_RULES, laneOfCharacter } from './rhythm-engine.js';
+import { RhythmEngine, normalizeRhythmOptions, RHYTHM_LANES, RHYTHM_RULES, RHYTHM_GAUGES, laneOfCharacter, lampOrder } from './rhythm-engine.js';
 import { RhythmRenderer } from './rhythm-view.js';
 import { RhythmMusic, midiToFrequency, createPreview } from './rhythm-music.js';
 import { RHYTHM_DIFFICULTIES, SONG_BY_ID, DEFAULT_SONG_ID, getSong } from './rhythm-songs.js';
-import { renderSongSelect, stepSong, stepDifficulty, stepSpeed } from './song-select.js';
+import { renderSongSelect, stepSong, stepDifficulty, stepSpeed, LAMP_LABELS, lampOfRecord } from './song-select.js';
 import { createInputDiffer, INPUT_SENTINEL, createShiftTracker } from './input.js';
 import { SoundEngine } from './audio.js';
 import { BgmEngine } from './bgm.js';
@@ -211,6 +211,8 @@ function handleArcadeEvent(type, payload) {
       break;
     case 'mistake':
       sound.play('keyWrong', { character: payload.typed });
+      // 리듬 공POOR: 콤보가 안 끊기므로 흔들기·에러음 없이 키 소리와 빨간 구역 빛만
+      if (payload.emptyPoor) break;
       sound.play('error');
       pulseClass(ui.elements.arcadeStage, 'shake', 200);
       ui.log('err', payload.target
@@ -470,7 +472,7 @@ function arcadeSubtitle(summary) {
     const j = summary.judgements;
     const timing = summary.averageDeltaMs === 0 ? '타이밍 딱 맞음' : `평균 ${Math.abs(summary.averageDeltaMs)}ms ${summary.averageDeltaMs > 0 ? '늦게' : '일찍'}`;
     const modifiers = summary.modifiers?.length ? ` · 옵션 ${summary.modifiers.map(key => RHYTHM_MODIFIER_NAMES[key] ?? key).join('·')}` : '';
-    return `${summary.songTitle} · ${RHYTHM_DIFFICULTIES[summary.difficulty]?.label ?? ''} · ${LANGUAGES[settings.languageKey].label} · 랭크 ${summary.rank} · 판정 정확도 ${summary.timingAccuracy}% · 낱말 ${summary.completedTokens}/${summary.totalWords} (깨끗이 ${summary.cleanTokens}) · PERFECT ${j.perfect} · GREAT ${j.great} · GOOD ${j.good} · BAD ${j.bad} · MISS ${j.miss} · FAST ${summary.fast} · LATE ${summary.late} (${timing})${summary.speed !== 1 ? ` · 속도 x${summary.speed}` : ''}${modifiers}`;
+    return `${summary.songTitle} · ${RHYTHM_DIFFICULTIES[summary.difficulty]?.label ?? ''} · ${LANGUAGES[settings.languageKey].label} · 랭크 ${summary.rank} · EX ${summary.exScore}/${summary.exMax} (${summary.exRate.toFixed(2)}%) · ${RHYTHM_GAUGES[summary.gauge]?.label ?? ''} 게이지 ${Math.round(summary.gaugeEnd)}% · 낱말 ${summary.completedTokens}/${summary.totalWords} (깨끗이 ${summary.cleanTokens}) · PERFECT ${j.perfect} · GREAT ${j.great} · GOOD ${j.good} · BAD ${j.bad} · MISS ${j.miss}${summary.emptyPoors ? ` · 공POOR ${summary.emptyPoors}` : ''}${summary.holds?.total ? ` · 롱노트 ${summary.holds.done}/${summary.holds.total}` : ''} · FAST ${summary.fast} · LATE ${summary.late} (${timing})${summary.speed !== 1 ? ` · 속도 x${summary.speed}` : ''}${modifiers}`;
   }
   const base = `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[summary.level].label} · 생존 ${summary.survivedSeconds}s`;
   if (summary.mode === 'battery') {
@@ -504,8 +506,8 @@ function resultHeading(summary) {
   if (summary.mode === 'battery-pvp') return { title: PVP_RESULT_TITLES[summary.outcome] ?? 'PvP', subtitle: pvpSubtitle(summary), saveable: false };
   if (summary.mode === 'timeattack') return { title: 'TIME UP', subtitle: timeAttackSubtitle(summary) };
   if (summary.mode === 'rhythm') {
-    const mark = summary.clearMark === 'AP' ? ' · ALL PERFECT' : summary.clearMark === 'FC' ? ' · FULL COMBO' : '';
-    const title = summary.autoPlay ? 'AUTO PLAY' : summary.outcome === 'cleared' ? `STAGE CLEAR · ${summary.rank}${mark}` : 'STAGE FAILED';
+    const lamp = summary.clearLamp && summary.clearLamp !== 'FAILED' ? ` · ${LAMP_LABELS[summary.clearLamp]}` : '';
+    const title = summary.autoPlay ? 'AUTO PLAY' : summary.outcome === 'cleared' ? `STAGE CLEAR · ${summary.rank}${lamp}` : 'STAGE FAILED';
     return { title, subtitle: arcadeSubtitle(summary), ...(summary.autoPlay ? { saveable: false, unsavedNote: '자동 연주는 랭킹·최고 기록에 남지 않아요.' } : {}) };
   }
   if (isArcade()) return { title: arcadeWon(summary) ? ARCADE_WIN_TITLES[summary.mode] : modeConfig().resultTitle, subtitle: arcadeSubtitle(summary) };
@@ -764,16 +766,24 @@ function rhythmBest(songId, difficulty) {
   const all = preferences.get('rhythmBest', {});
   return all && typeof all === 'object' ? all[`${songId}:${difficulty}`] ?? null : null;
 }
-// 클리어 마크는 점수와 따로 더 좋은 것을 남긴다(AP > FC). 자동 연주는 기록하지 않는다
-const MARK_ORDER = Object.freeze({ AP: 2, FC: 1 });
+// 점수·EX 비율·클리어 램프는 각각 따로 더 좋은 것을 남긴다(램프: FAILED < ASSIST < EASY < CLEAR < HARD < FC < AP).
+// 자동 연주는 기록하지 않는다. 예전 기록의 mark(FC/AP)는 램프로 이어 쓴다
 function recordRhythmBest(summary) {
   if (summary.autoPlay) return;
   const all = { ...(preferences.get('rhythmBest', {}) || {}) };
   const key = `${summary.songId}:${summary.difficulty}`;
   const previous = all[key] ?? null;
-  const mark = (MARK_ORDER[summary.clearMark] ?? 0) >= (MARK_ORDER[previous?.mark] ?? 0) ? summary.clearMark ?? previous?.mark ?? null : previous.mark;
+  const previousLamp = lampOfRecord(previous);
+  const lamp = lampOrder(summary.clearLamp) > lampOrder(previousLamp) ? summary.clearLamp : previousLamp;
   const better = !previous || summary.score > previous.score;
-  all[key] = { score: better ? summary.score : previous.score, rank: better ? summary.rank : previous.rank, ...(mark ? { mark } : {}) };
+  const previousEx = Number.isFinite(previous?.exRate) ? previous.exRate : -1;
+  const exRate = Number.isFinite(summary.exRate) ? Math.max(summary.exRate, previousEx) : previousEx;
+  all[key] = {
+    score: better ? summary.score : previous.score,
+    rank: better ? summary.rank : previous.rank,
+    ...(lamp ? { lamp } : {}),
+    ...(exRate >= 0 ? { exRate } : {})
+  };
   preferences.set('rhythmBest', all);
 }
 
@@ -860,6 +870,7 @@ function bindSongSelect() {
       if (kind === 'speed') changeRhythmOptions({ speed: stepSpeed(settings.rhythmOptions.speed, delta) });
       else if (kind === 'offset') changeRhythmOptions({ offsetMs: settings.rhythmOptions.offsetMs + delta * 5 });
       else if (kind === 'offset-suggest' && Number.isFinite(settings.rhythmLastDeltaMs)) changeRhythmOptions({ offsetMs: settings.rhythmLastDeltaMs });
+      else if (kind === 'gauge' && option.dataset.key) changeRhythmOptions({ gauge: option.dataset.key });
       else if (kind === 'toggle' && option.dataset.key) changeRhythmOptions({ [option.dataset.key]: !settings.rhythmOptions[option.dataset.key] });
       focusTypingArea();
       return;

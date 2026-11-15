@@ -253,9 +253,17 @@ export const getSong = id => SONG_BY_ID.get(id) ?? SONG_BY_ID.get(DEFAULT_SONG_I
 
 // 난이도: 키를 칠 노트 사이 최소 간격(초), 낱말 사이 쉼(초), 낱말 최대 길이, 노트가 떨어지는 시간(초), 칠 수 있는 박 위치(1 = 정박만)
 export const RHYTHM_DIFFICULTIES = Object.freeze({
-  easy: Object.freeze({ label: 'EASY', color: '#39ff88', minGap: 0.8, wordRest: 1.4, maxLength: 4, fallSeconds: 2.6, grid: 1 }),
-  normal: Object.freeze({ label: 'NORMAL', color: '#36e2ff', minGap: 0.5, wordRest: 1.0, maxLength: 6, fallSeconds: 2.2, grid: 0.5 }),
-  hard: Object.freeze({ label: 'HARD', color: '#ffb547', minGap: 0.32, wordRest: 0.7, maxLength: 7, fallSeconds: 1.8, grid: 0.5 }),
-  expert: Object.freeze({ label: 'EXPERT', color: '#ff4d6d', minGap: 0.2, wordRest: 0.5, maxLength: 9, fallSeconds: 1.5, grid: 0.25 })
+  easy: Object.freeze({ label: 'EASY', color: '#39ff88', minGap: 0.8, wordRest: 1.4, maxLength: 4, fallSeconds: 2.6, grid: 1, chordChance: 0 }),
+  normal: Object.freeze({ label: 'NORMAL', color: '#36e2ff', minGap: 0.5, wordRest: 1.0, maxLength: 6, fallSeconds: 2.2, grid: 0.5, chordChance: 0.3 }),
+  hard: Object.freeze({ label: 'HARD', color: '#ffb547', minGap: 0.32, wordRest: 0.7, maxLength: 7, fallSeconds: 1.8, grid: 0.5, chordChance: 0.5 }),
+  expert: Object.freeze({ label: 'EXPERT', color: '#ff4d6d', minGap: 0.2, wordRest: 0.5, maxLength: 9, fallSeconds: 1.5, grid: 0.25, chordChance: 0.7 })
 });
 export const DIFFICULTY_ORDER = Object.freeze(Object.keys(RHYTHM_DIFFICULTIES));
+
+// 동시 입력(두 글자를 한 박에): chordChance = 마디 첫 박에 동시 노트가 나올 확률(EASY는 없음).
+// 강세가 뚜렷한 곡(행진곡·캉캉·드롭이 센 AI 곡 등)은 반 마디마다 강박에도 나오고 확률이 1.4배
+export const CHORD_ACCENT_SONGS = Object.freeze(new Set([
+  'can-can', 'william-tell', 'mountain-king', 'turkish-march', 'toccata-fugue', 'korobeiniki', 'entertainer', 'maple-leaf', 'beat-compiler',
+  'final-countdown', 'final-countdown-b', 'tap-riot', 'tap-riot-b', 'slap-on-the-two', 'slap-on-the-two-b',
+  'wobbling-supersaw', 'wobbling-supersaw-b', 'turbo-sprint', 'turbo-sprint-b', 'compile-rush', 'compile-rush-b'
+]));
