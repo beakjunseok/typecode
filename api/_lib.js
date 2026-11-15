@@ -30,8 +30,9 @@ export const MODES = Object.freeze({
       TIME_ATTACK_RULES.maxSessionSeconds
     ) + TIME_ATTACK_TOLERANCE_SECONDS
   }),
-  throw: Object.freeze({ prefix: 'lb-throw', timed: false, maxPointsPerCharacter: THROW_MAX_POINTS_PER_CHARACTER }),
-  battery: Object.freeze({ prefix: 'lb-battery', timed: false, maxPointsPerCharacter: BATTERY_MAX_POINTS_PER_CHARACTER }),
+  // leveled: 난이도(Lv.1~4)마다 랭킹이 따로다
+  throw: Object.freeze({ prefix: 'lb-throw', timed: false, leveled: true, maxPointsPerCharacter: THROW_MAX_POINTS_PER_CHARACTER }),
+  battery: Object.freeze({ prefix: 'lb-battery', timed: false, leveled: true, maxPointsPerCharacter: BATTERY_MAX_POINTS_PER_CHARACTER }),
   rhythm: Object.freeze({ prefix: 'lb-rhythm', timed: false, maxPointsPerCharacter: RHYTHM_MAX_POINTS_PER_CHARACTER })
 });
 
@@ -39,6 +40,19 @@ export function resolveMode(rawMode) {
   const mode = rawMode ?? 'practice';
   if (!Object.hasOwn(MODES, mode)) throw new HttpError(422, 'invalid_mode', '지원하지 않는 모드입니다');
   return mode;
+}
+
+export const LEVELS = Object.freeze([1, 2, 3, 4]);
+// 난이도를 나누기 전 기록은 Lv.2(보통) 랭킹으로 이어 쓴다(예전 경로 그대로)
+const LEGACY_LEVEL = 2;
+
+// 난이도별 랭킹 모드면 1~4 정수만 받는다(없으면 Lv.2). 아니면 null
+export function resolveLevel(mode, rawLevel) {
+  if (!MODES[resolveMode(mode)].leveled) return null;
+  if (rawLevel === undefined || rawLevel === null || rawLevel === '') return LEGACY_LEVEL;
+  const level = Number(rawLevel);
+  if (!LEVELS.includes(level)) throw new HttpError(422, 'invalid_level', '지원하지 않는 난이도입니다');
+  return level;
 }
 
 export class HttpError extends Error {
@@ -85,8 +99,8 @@ function sign(payloadEncoded) {
   return createHmac('sha256', getSigningKey()).update(payloadEncoded).digest('base64url');
 }
 
-export function issueSessionToken({ language, durationSeconds = null, mode = 'practice' }) {
-  const payload = { sid: randomBytes(9).toString('hex'), mode, language, durationSeconds, startedAt: Date.now() };
+export function issueSessionToken({ language, durationSeconds = null, mode = 'practice', level = null }) {
+  const payload = { sid: randomBytes(9).toString('hex'), mode, language, durationSeconds, startedAt: Date.now(), ...(level ? { level } : {}) };
   const payloadEncoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return { token: `${payloadEncoded}.${sign(payloadEncoded)}`, session: payload };
 }
@@ -167,13 +181,17 @@ function validateArcadeTime(survivedSeconds, elapsedMs) {
 }
 
 // 점수 1건 = blob 1개(append-only). 데이터는 경로에 인코딩해 list 한 번으로 보드를 만든다.
-function boardPrefix(mode, week) {
-  return `${MODES[resolveMode(mode)].prefix}/${week}/`;
+// 난이도별 랭킹: Lv.2는 예전 경로(lb-throw/주차/), 나머지는 lb-throw-l1/주차/ 처럼 따로
+function boardPrefix(mode, week, level = null) {
+  const { prefix, leveled } = MODES[resolveMode(mode)];
+  const resolvedLevel = leveled ? (level ?? LEGACY_LEVEL) : null;
+  const suffix = resolvedLevel && resolvedLevel !== LEGACY_LEVEL ? `-l${resolvedLevel}` : '';
+  return `${prefix}${suffix}/${week}/`;
 }
 
-function encodeEntryPath(mode, week, sid, entry) {
+function encodeEntryPath(mode, week, sid, entry, level) {
   const payload = Buffer.from(JSON.stringify(entry)).toString('base64url');
-  return `${boardPrefix(mode, week)}${sid}.${payload}.json`;
+  return `${boardPrefix(mode, week, level)}${sid}.${payload}.json`;
 }
 
 function decodeEntryPath(pathname) {
@@ -187,13 +205,13 @@ function decodeEntryPath(pathname) {
   }
 }
 
-export async function sessionAlreadySubmitted(mode, week, sid) {
-  const { blobs } = await list({ prefix: `${boardPrefix(mode, week)}${sid}.`, limit: 1 });
+export async function sessionAlreadySubmitted(mode, week, sid, level = null) {
+  const { blobs } = await list({ prefix: `${boardPrefix(mode, week, level)}${sid}.`, limit: 1 });
   return blobs.length > 0;
 }
 
-export async function storeEntry(mode, week, sid, entry) {
-  await put(encodeEntryPath(mode, week, sid, entry), '{}', {
+export async function storeEntry(mode, week, sid, entry, level = null) {
+  await put(encodeEntryPath(mode, week, sid, entry, level), '{}', {
     access: 'public',
     addRandomSuffix: false,
     allowOverwrite: false,
@@ -211,11 +229,11 @@ export function rankEntries(entries) {
   return [...uniqueBySession.values()].sort((first, second) => second.score - first.score || first.achievedAt - second.achievedAt);
 }
 
-export async function loadWeeklyEntries(mode, week, maxPages = 5) {
+export async function loadWeeklyEntries(mode, week, maxPages = 5, level = null) {
   const entries = [];
   let cursor;
   for (let page = 0; page < maxPages; page++) {
-    const result = await list({ prefix: boardPrefix(mode, week), limit: 1000, cursor });
+    const result = await list({ prefix: boardPrefix(mode, week, level), limit: 1000, cursor });
     for (const blob of result.blobs) {
       const entry = decodeEntryPath(blob.pathname);
       if (entry) entries.push(entry);
@@ -225,6 +243,8 @@ export async function loadWeeklyEntries(mode, week, maxPages = 5) {
   }
   return entries;
 }
+
+export { boardPrefix };
 
 export function toPublicEntry(entry, index) {
   return {

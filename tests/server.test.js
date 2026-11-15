@@ -121,3 +121,22 @@ test('시간 연장 모드: 별도 랭킹, 생존 시간은 경과 시간·입�
   assert.equal(publicEntry.cpm, 240);
   assert.equal(lib.toPublicEntry({ sid: 'y', name: 'b', language: 'go', score: 1, wpm: 60, accuracy: 98, maxCombo: 1, achievedAt: 1 }, 0).cpm, 300, '예전 기록은 WPM × 5');
 });
+
+test('난이도별 랭킹: throw·battery만 레벨을 받고, Lv.2는 예전 경로, 나머지는 따로 저장', async () => {
+  assert.equal(lib.resolveLevel('practice', 3), null, '연습은 레벨 없음');
+  assert.equal(lib.resolveLevel('throw', undefined), 2, '레벨이 없으면 Lv.2');
+  assert.equal(lib.resolveLevel('battery', '4'), 4);
+  assert.throws(() => lib.resolveLevel('throw', 7), error => error.code === 'invalid_level');
+  assert.throws(() => lib.resolveLevel('throw', 'x'), error => error.code === 'invalid_level');
+  assert.equal(lib.boardPrefix('throw', '2026-W46', 2), 'lb-throw/2026-W46/');
+  assert.equal(lib.boardPrefix('throw', '2026-W46', 1), 'lb-throw-l1/2026-W46/');
+  assert.equal(lib.boardPrefix('battery', '2026-W46', 4), 'lb-battery-l4/2026-W46/');
+  assert.equal(lib.boardPrefix('practice', '2026-W46', 4), 'lb/2026-W46/', '레벨 없는 모드는 무시');
+
+  const response = await sessionRoute.POST(post({ mode: 'battery', language: 'go', level: 3 }));
+  const body = await response.json();
+  assert.equal(body.level, 3);
+  assert.equal(lib.verifySessionToken(body.token).level, 3, '레벨은 서명된 세션에 들어간다');
+  const bad = await sessionRoute.POST(post({ mode: 'throw', language: 'go', level: 9 }));
+  assert.equal(bad.status, 422);
+});

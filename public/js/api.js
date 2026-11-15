@@ -41,8 +41,8 @@ async function callApi(path, { method = 'GET', body } = {}) {
   }
 }
 
-export async function requestSession({ mode = 'practice', language, durationSeconds }) {
-  const result = await callApi('/api/session', { method: 'POST', body: { mode, language, durationSeconds } });
+export async function requestSession({ mode = 'practice', language, durationSeconds, level }) {
+  const result = await callApi('/api/session', { method: 'POST', body: { mode, language, durationSeconds, level } });
   if (typeof result.token !== 'string') throw new ApiError('세션 응답 형식 오류', 0, 'bad_response');
   return result.token;
 }
@@ -51,8 +51,9 @@ export function submitScore(payload) {
   return callApi('/api/scores', { method: 'POST', body: payload });
 }
 
-export function fetchBoard(mode = 'practice') {
-  return callApi(`/api/scores?mode=${encodeURIComponent(mode)}`);
+// level: 난이도별 랭킹 모드(throw·battery)일 때만
+export function fetchBoard(mode = 'practice', level = null) {
+  return callApi(`/api/scores?mode=${encodeURIComponent(mode)}${level ? `&level=${level}` : ''}`);
 }
 
 function readStorage(key, fallbackValue) {
@@ -78,19 +79,19 @@ export const preferences = {
   set: (key, value) => writeStorage(`typecode:${key}`, value)
 };
 
-// 모드별 로컬 랭킹. practice는 예전 키를 그대로 써서 기존 기록을 유지한다.
-const localBoardKey = mode => `${LOCAL_BOARD_PREFIX}${mode === 'practice' ? '' : `${mode}:`}${getWeekLabel()}`;
+// 모드별 로컬 랭킹. practice는 예전 키를 그대로 써서 기존 기록을 유지한다. 난이도별 모드는 Lv.2 외에 :L레벨을 붙인다
+const localBoardKey = (mode, level) => `${LOCAL_BOARD_PREFIX}${mode === 'practice' ? '' : `${mode}:`}${level && level !== 2 ? `L${level}:` : ''}${getWeekLabel()}`;
 
 export const localBoard = {
-  load(mode = 'practice') {
-    const entries = readStorage(localBoardKey(mode), []);
+  load(mode = 'practice', level = null) {
+    const entries = readStorage(localBoardKey(mode, level), []);
     return Array.isArray(entries) ? entries.filter(entry => entry && Number.isFinite(entry.score)) : [];
   },
-  save(entry, mode = 'practice') {
-    const entries = [...this.load(mode), entry]
+  save(entry, mode = 'practice', level = null) {
+    const entries = [...this.load(mode, level), entry]
       .sort((first, second) => second.score - first.score || first.achievedAt - second.achievedAt)
       .slice(0, BOARD_SIZE);
-    writeStorage(localBoardKey(mode), entries);
+    writeStorage(localBoardKey(mode, level), entries);
     return entries;
   }
 };

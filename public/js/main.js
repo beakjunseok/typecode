@@ -90,7 +90,13 @@ const isArcade = () => modeConfig().arcade;
 const isTimeAttack = () => settings.mode === 'practice' && settings.practiceVariant === 'timeattack';
 // 서버·로컬 랭킹에서 쓰는 모드 이름(연습의 시간 연장은 'timeattack')
 const boardMode = () => (isTimeAttack() ? 'timeattack' : settings.mode);
-const boardLabel = (mode = boardMode()) => BOARD_LABELS[mode] ?? mode;
+// 휴대폰 던지기·배터리 구조는 난이도마다 랭킹이 따로다(그 외 모드는 null)
+const LEVELED_BOARDS = Object.freeze(['throw', 'battery']);
+const boardLevel = (mode = boardMode()) => (LEVELED_BOARDS.includes(mode) ? settings.level : null);
+const boardLabel = (mode = boardMode(), level = boardLevel(mode)) => {
+  const label = BOARD_LABELS[mode] ?? mode;
+  return level ? `${label} · ${DIFFICULTY_LEVELS[level]?.label ?? `Lv.${level}`}` : label;
+};
 // 배터리 구조 PvP(친구와 1:1). 연결·경기 단계는 pvp 객체 하나에 모은다
 const isPvp = () => settings.mode === 'battery' && settings.batteryVariant === 'pvp';
 const pvp = {
@@ -371,7 +377,8 @@ const BATTERY_ITEM_LOG = {
 // ---------- 세션 · 제출 ----------
 function startSession(generation) {
   const mode = boardMode();
-  return requestSession({ mode, language: settings.languageKey, ...(mode === 'practice' ? { durationSeconds: settings.durationSeconds } : {}) }).catch(error => {
+  const level = boardLevel(mode);
+  return requestSession({ mode, language: settings.languageKey, ...(mode === 'practice' ? { durationSeconds: settings.durationSeconds } : {}), ...(level ? { level } : {}) }).catch(error => {
     if (generation === run.generation) ui.log('warn', `session 발급 실패 (${error.message}) — 이번 판은 로컬 랭킹에만 저장`);
     return null;
   });
@@ -391,6 +398,7 @@ async function handleSave(event) {
   if (!engine || engine.status !== 'finished' || run.submitted || engine.score <= 0) return;
   const generation = run.generation;
   const mode = boardMode();
+  const level = boardLevel(mode);
   const name = ui.elements.playerName.value.trim().slice(0, 16) || 'anonymous';
   preferences.set('name', name);
   ui.setSaveButton({ label: '등록 중…', disabled: true });
@@ -400,7 +408,7 @@ async function handleSave(event) {
   if (generation !== run.generation) return;
   const summary = engine.summary();
   if (!token) {
-    saveLocally(summary, name, mode);
+    saveLocally(summary, name, mode, level);
     return;
   }
   try {
@@ -408,9 +416,9 @@ async function handleSave(event) {
     if (generation !== run.generation) return;
     run.submitted = true;
     run.highlightId = result.myEntry.id;
-    ui.renderBoard(result.entries, { week: result.week, isLive: true, highlightId: run.highlightId, modeLabel: boardLabel(mode) });
+    ui.renderBoard(result.entries, { week: result.week, isLive: true, highlightId: run.highlightId, modeLabel: boardLabel(mode, level) });
     ui.setSaveButton({ label: '등록 완료', disabled: true });
-    ui.setSaveStatus(`이번 주 ${boardLabel(mode)} ${result.myRank}위로 등록됐습니다.`, 'ok');
+    ui.setSaveStatus(`이번 주 ${boardLabel(mode, level)} ${result.myRank}위로 등록됐습니다.`, 'ok');
     if (result.myRank === 1) sound.play('newRecord');
     ui.log('ok', `ranking updated: ${name} · #${result.myRank} (${result.week})`);
   } catch (error) {
@@ -421,7 +429,7 @@ async function handleSave(event) {
   }
 }
 
-function saveLocally(summary, name, mode) {
+function saveLocally(summary, name, mode, level = null) {
   const entry = {
     id: `local-${Date.now()}`, name, language: settings.languageKey, score: summary.score,
     wpm: summary.wordsPerMinute, cpm: summary.charactersPerMinute, accuracy: summary.accuracy, achievedAt: Date.now(),
@@ -429,21 +437,24 @@ function saveLocally(summary, name, mode) {
   };
   run.submitted = true;
   run.highlightId = entry.id;
-  ui.renderBoard(localBoard.save(entry, mode), { week: getWeekLabel(), isLive: false, highlightId: entry.id, modeLabel: boardLabel(mode) });
+  ui.renderBoard(localBoard.save(entry, mode, level), { week: getWeekLabel(), isLive: false, highlightId: entry.id, modeLabel: boardLabel(mode, level) });
   ui.setSaveButton({ label: '로컬 저장됨', disabled: true });
   ui.setSaveStatus('서버에 연결하지 못해 이 브라우저에만 저장했습니다.', 'warn');
 }
 
 async function refreshBoard() {
   const mode = boardMode();
-  const modeLabel = boardLabel(mode);
+  const level = boardLevel(mode);
+  const modeLabel = boardLabel(mode, level);
+  // 응답이 오는 사이 모드·난이도를 바꿨으면 그리지 않는다
+  const stale = () => mode !== boardMode() || level !== boardLevel();
   try {
-    const result = await fetchBoard(mode);
-    if (mode !== boardMode()) return;
+    const result = await fetchBoard(mode, level);
+    if (stale()) return;
     ui.renderBoard(result.entries, { week: result.week, isLive: true, highlightId: run.highlightId, modeLabel });
   } catch (error) {
-    if (mode !== boardMode()) return;
-    ui.renderBoard(localBoard.load(mode), { week: getWeekLabel(), isLive: false, highlightId: run.highlightId, modeLabel });
+    if (stale()) return;
+    ui.renderBoard(localBoard.load(mode, level), { week: getWeekLabel(), isLive: false, highlightId: run.highlightId, modeLabel });
   }
 }
 
@@ -1505,6 +1516,7 @@ function bindSettings() {
     settings.level = Number(ui.elements.levelSelect.value);
     preferences.set('level', settings.level);
     resetGame();
+    refreshBoard();
   });
   ui.elements.modeButtons.forEach(button => button.addEventListener('click', () => switchMode(button.dataset.mode)));
   // 30·60·120초 = 고정 시간, ⏳연장 = 시간 연장. 바꾸면 랭킹 보드도 해당 방식으로 바뀐다
