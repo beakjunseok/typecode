@@ -147,8 +147,10 @@ function handlePracticeEvent(type, payload) {
   }
 }
 
-function handlePracticeToken({ clean, combo, tier, tierUp, milestone, timeBonus }) {
+function handlePracticeToken({ token, clean, combo, tier, tierUp, milestone, timeBonus }) {
   sound.play('key', { character: run.lastCharacter });
+  ui.celebrateToken({ clean, combo, color: ui.kindColor(token.kind) });
+  if (clean && combo >= 10) emitSparks(ui.elements.currentView, { color: TIER_COLORS[tier], count: Math.min(18, 4 + Math.floor(combo / 10) * 2), distance: 60 });
   if (timeBonus > 0) ui.showTimeBonus(timeBonus);
   bgm.setIntensity(tier);
   if (tierUp) {
