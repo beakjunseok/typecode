@@ -486,3 +486,22 @@ test('동시 입력: 강세 곡 강박에 낱말의 이웃 두 글자가 한 박
   assert.equal(run.input(target.chordWith.character, state.ms).judgement, 'perfect');
   assert.equal(run.counts.perfect >= 2, true);
 });
+
+test('AI 음원 곡: 글자는 템포 지도(박마다 음원 시각) + 실제 소리 보정 위에, 끝까지 밀리지 않는다', async () => {
+  const { audioTimeAtBeat } = await import('../public/js/rhythm-songs.js');
+  assert.equal(audioTimeAtBeat([1, 1.5, 2.1], 1.5), 1.8, '박 사이는 직선 보간');
+  assert.ok(Math.abs(audioTimeAtBeat([1, 1.5, 2.1], 3) - 2.7) < 1e-9, '지도 밖은 끝 간격으로 외삽');
+  assert.ok(Math.abs(audioTimeAtBeat([1, 1.5, 2.1], -1) - 0.5) < 1e-9);
+  for (const song of RHYTHM_SONGS.filter(entry => entry.audio)) {
+    const map = song.audio.beatTimes;
+    assert.ok(map.length > 32, `${song.id} 템포 지도`);
+    for (let index = 1; index < map.length; index++) assert.ok(map[index] > map[index - 1], `${song.id} 박 시각이 늘어난다`);
+    assert.ok(map.at(-1) >= song.audio.seconds - 1, `${song.id} 지도가 곡 끝까지`);
+    const engine = create({ songId: song.id, difficulty: 'expert' });
+    const audioStart = engine.leadInBeats * engine.beatSeconds - song.audio.firstBeat;
+    const last = engine.notes.at(-1);
+    const event = song.melody.find(entry => Math.abs(audioTimeAtBeat(map, entry.beat) + entry.nudge - (last.hitTime - audioStart)) < 1e-6);
+    assert.ok(event, `${song.id}: 마지막 글자도 음원의 그 소리 시각에`);
+    assert.ok(engine.endTime - audioStart <= song.audio.seconds + RHYTHM_RULES.outroSeconds + 2, `${song.id}: 곡 끝`);
+  }
+});

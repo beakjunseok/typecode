@@ -204,11 +204,8 @@ export class RhythmRenderer {
 
     // 박·마디 선(노트와 같은 속도로 내려온다)
     if (engine.status !== 'ready') {
-      const firstBeat = Math.ceil(engine.gameTime / engine.beatSeconds);
-      const lastBeat = Math.floor((engine.gameTime + engine.fallSeconds) / engine.beatSeconds);
-      for (let beat = firstBeat; beat <= lastBeat; beat++) {
-        const y = this.noteY(beat * engine.beatSeconds, engine, layout);
-        const bar = (beat - engine.leadInBeats) % engine.beatsPerBar === 0;
+      for (const { time, bar } of engine.beatLines(engine.gameTime, engine.gameTime + engine.fallSeconds)) {
+        const y = this.noteY(time, engine, layout);
         context.fillStyle = bar ? 'rgba(160, 180, 220, 0.2)' : 'rgba(160, 180, 220, 0.07)';
         context.fillRect(left, Math.round(y), totalWidth, bar ? 2 : 1);
       }
