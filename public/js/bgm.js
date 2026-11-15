@@ -287,6 +287,8 @@ export class BgmEngine {
     // 배터리 모드 인트로·브레이크다운의 소나 핑, 위기 층
     if (section.ping && step === 0 && barInSection % 2 === 0) play('ping', song.key + 36 + transpose, 8, 0.9);
     if (this.songName === 'battery' && this.intensity >= 1 && (step === 0 || step === 8)) play('alarm', chordRoot + 31, 1, 0.8);
+    // 보스전 사이렌(섹션에 alarm 표시가 있을 때)
+    if (section.alarm && (step === 0 || step === 8)) play('alarm', chordRoot + 31, 1, 0.6);
     if (this.intensity >= 2 && this.songName === 'battery' && (step === 0 || step === 8)) play('heartbeat', 0, 1, 1);
   }
 

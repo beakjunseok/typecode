@@ -232,12 +232,14 @@ function handleArcadeEvent(type, payload) {
       break;
     case 'goal':
       sound.play('newRecord');
+      startMusic();
       run.engine?.hitStop?.(0.22);
       pulseClass(ui.elements.arcadeStage, 'tier-flash', 900);
       ui.log('ok', payload.boss ? '👑 보스 서버봇 격파 — 미션 클리어!' : `🤖 로봇 ${payload.kills}대 처치 — 미션 클리어!`);
       break;
     case 'boss-warning':
       sound.play('warning', { remainingSeconds: 1 });
+      startMusic();
       bgm.setIntensity(2);
       ui.log('warn', `🤖 ${payload.kills}대 처치! 마지막 웨이브 — 보스가 다가와요`);
       break;
@@ -654,7 +656,9 @@ function startMusic() {
     else bgm.stop();
     return;
   }
-  bgm.play(settings.mode);
+  // 휴대폰 던지기 보스전(경고~싸움)에는 전용 곡. 보스를 쓰러뜨리거나 새 판을 시작하면 원래 곡으로 돌아온다
+  const bossWave = settings.mode === 'throw' && ['warning', 'fight'].includes(run.engine?.bossPhase);
+  bgm.play(bossWave ? 'boss' : settings.mode);
 }
 
 function createEngine() {
@@ -1661,4 +1665,4 @@ resetGame();
 refreshBoard();
 
 // 자동화 테스트·디버깅용 읽기 창구(게임 상태 조회). 게임 로직은 이 값에 의존하지 않는다.
-globalThis.__TYPECODE__ = { run, settings, renderers, pvp, collection, keyboard };
+globalThis.__TYPECODE__ = { run, settings, renderers, pvp, collection, keyboard, bgm };
