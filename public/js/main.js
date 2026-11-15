@@ -76,6 +76,8 @@ const settings = {
   keyboardVisible: preferences.get('keyboard', true) !== false,
   // 게임(휴대폰 던지기·배터리 구조) 화면의 키보드는 기본으로 숨긴다
   keyboardInGame: preferences.get('keyboardGame', false) === true,
+  // 리듬은 누를 때 키보드 4구역이 빛나므로 기본으로 보인다(따로 기억)
+  keyboardInRhythm: preferences.get('keyboardRhythm', true) !== false,
   // 리듬 모드: 고른 곡과 난이도
   rhythmSong: SONG_BY_ID.has(preferences.get('rhythmSong', DEFAULT_SONG_ID)) ? preferences.get('rhythmSong', DEFAULT_SONG_ID) : DEFAULT_SONG_ID,
   rhythmDifficulty: RHYTHM_DIFFICULTIES[preferences.get('rhythmDifficulty', 'normal')] ? preferences.get('rhythmDifficulty', 'normal') : 'normal',
@@ -876,8 +878,9 @@ function updateKeyboardHint() {
   keyboard.setNext(engine.wrongInBuffer > 0 ? 'Backspace' : engine.current.text[engine.cursor]);
 }
 
-// 연습 화면과 게임 화면의 키보드 표시는 따로 기억한다(게임은 기본 숨김)
-const keyboardShown = () => (isArcade() ? settings.keyboardInGame : settings.keyboardVisible);
+// 연습·게임·리듬 화면의 키보드 표시는 따로 기억한다(게임은 기본 숨김, 리듬은 기본 보임)
+const keyboardShown = () => (settings.mode === 'rhythm' ? settings.keyboardInRhythm
+  : isArcade() ? settings.keyboardInGame : settings.keyboardVisible);
 
 function applyKeyboardVisibility() {
   const shown = keyboardShown();
@@ -892,7 +895,7 @@ function applyKeyboardVisibility() {
 
 // 게임 화면 키보드: 잡고 있는 낱말의 다음 글자(오타가 있으면 Backspace)를 표시한다
 function updateArcadeKeyboardHint() {
-  if (!isArcade() || !settings.keyboardInGame) return;
+  if (!isArcade() || !keyboardShown()) return;
   const engine = run.engine;
   if (settings.mode === 'rhythm') {
     // 대문자는 소문자로 쳐도 되므로 Shift 없이 그 글자 키만 표시
@@ -1618,7 +1621,10 @@ function bindSettings() {
     if (bgm.enabled) startMusic();
   });
   ui.elements.keyboardToggle.addEventListener('click', () => {
-    if (isArcade()) {
+    if (settings.mode === 'rhythm') {
+      settings.keyboardInRhythm = !settings.keyboardInRhythm;
+      preferences.set('keyboardRhythm', settings.keyboardInRhythm);
+    } else if (isArcade()) {
       settings.keyboardInGame = !settings.keyboardInGame;
       preferences.set('keyboardGame', settings.keyboardInGame);
     } else {
