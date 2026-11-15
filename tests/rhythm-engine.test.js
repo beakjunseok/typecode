@@ -79,6 +79,7 @@ test('악보: 곡 선율 위에 글자를 얹고, 난이도가 높을수록 촘�
         assert.ok(gap >= chart.minGap - 1e-6, `${song.id}/${difficulty} 노트 간격 ${gap}`);
       }
       assert.ok(engine.autoNotes.length > 0, '글자 없는 선율 음은 자동 연주');
+      assert.equal(engine.melodyNotes.length, engine.autoNotes.length + engine.notes.filter(note => Number.isFinite(note.midi)).length, '글자 얹은 음도 반주가 연주');
       perMinute.push(engine.notes.length / ((engine.endTime - engine.leadInBeats * engine.beatSeconds) / 60));
       levels.push(engine.levelNumber());
     }
@@ -279,31 +280,25 @@ test('피버: PERFECT가 이어지면 레벨이 오르고 배율이 붙으며, M
   assert.ok(summary.averageDeltaMs > 0);
 });
 
-test('원이 오기 전: 맞는 키는 가까우면 GOOD·너무 이르면 무시, 다른 키는 언제든 오타', () => {
+test('원이 오기 전에 누르면 다음 글자여도 오타, 곡 시작 전(첫 원이 멀 때)은 감점 없음', () => {
   const engine = create({ songId: 'ode-to-joy', difficulty: 'normal' });
   const state = { ms: 0 };
   engine.input('x', state.ms);
   const note = engine.notes[0];
   const other = character => (character === 'q' ? 'z' : 'q');
   advanceTo(engine, note.hitTime - 1.5, state);
-  assert.equal(engine.input(note.character, state.ms).reason, 'too_early', '너무 이른 맞는 키는 무시');
-  assert.equal(engine.input(other(note.character), state.ms).reason, 'too_early', '곡 시작 전에는 다른 키도 감점 없음');
+  assert.equal(engine.input(note.character, state.ms).reason, 'too_early', '곡 시작 전: 감점 없음');
+  assert.equal(engine.input(other(note.character), state.ms).reason, 'too_early');
   assert.equal(engine.wrongKeystrokes, 0);
   advanceTo(engine, note.hitTime - 0.45, state);
-  assert.equal(engine.input(other(note.character), state.ms).correct, false, '첫 원이 가까워지면 다른 키는 오타');
-  assert.equal(engine.wrongKeystrokes, 1);
+  assert.equal(engine.input(note.character, state.ms).correct, false, '판정 범위 밖에서 누른 다음 글자도 오타');
+  assert.equal(engine.input(other(note.character), state.ms).correct, false);
+  assert.equal(engine.wrongKeystrokes, 2);
   assert.equal(note.state, 'pending', '노트는 그대로');
-  const result = engine.input(note.character, state.ms);
-  assert.equal(result.correct, true);
-  assert.equal(result.judgement, 'good');
-  assert.equal(engine.combo, 1);
-  // 곡 중간: 다음 원이 멀어도 다른 키는 오타
-  const next = engine.headNote();
-  advanceTo(engine, next.hitTime - 1.2, state);
-  if (next.hitTime - (engine.gameTime - engine.offset) > RHYTHM_RULES.earlyAccept) {
-    assert.equal(engine.input(other(next.character), state.ms).correct, false);
-    assert.equal(engine.wrongKeystrokes, 2);
-  }
+  advanceTo(engine, note.hitTime - 0.2, state);
+  const early = engine.input(note.character, state.ms);
+  assert.equal(early.correct, true, '판정 범위 안이면 맞음');
+  assert.equal(early.judgement, 'bad', '±0.15초보다 이르면 BAD');
 });
 
 test('롱노트: 길게 끄는 음은 막대가 되고, 꼬리까지 누르면 성공·일찍 떼면 끊김·떼는 신호가 없으면 자동 성공', () => {

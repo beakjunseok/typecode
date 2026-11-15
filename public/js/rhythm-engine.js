@@ -14,8 +14,8 @@ export const RHYTHM_RULES = Object.freeze({
   // 판정 창(초, 정박 기준 ±). 그 밖이지만 missAfter 안에 치면 BAD, 지나가면 MISS
   windows: Object.freeze({ perfect: 0.05, great: 0.1, good: 0.15 }),
   missAfter: 0.25,
-  // 판정 창보다 일찍(원이 오기 전) 맞는 키를 눌러도 이만큼 앞이면 인정한다(GOOD). 다음 글자가 아닌 키는 언제 눌러도 오타
-  earlyAccept: 0.6,
+  // 곡 시작 유예: 첫 원이 이만큼보다 멀면 아무 키나 눌러도 감점하지 않는다(키보드 4구역 안내도 이때까지)
+  startGrace: 0.6,
   // 글자 하나의 점수(× 콤보 배율). 낱말의 모든 글자를 GOOD 이상으로, 오타 없이 치면 글자당 wordBonus 추가
   points: Object.freeze({ perfect: 100, great: 70, good: 40, bad: 10 }),
   wordBonus: 30,
@@ -163,6 +163,10 @@ export class RhythmEngine extends TargetGameEngine {
     this.words = words;
     this.notes = notes;
     this.autoNotes = autoNotes;
+    // 반주가 연주하는 선율 전체: 글자를 얹은 음도 포함한다(곡은 그대로 흐르고, 맞히면 그 음이 작게 한 번 더 난다)
+    this.melodyNotes = [...autoNotes, ...notes.map(note => ({ time: note.hitTime, dur: note.dur * this.beatSeconds, midi: note.midi }))]
+      .filter(note => Number.isFinite(note.midi))
+      .sort((first, second) => first.time - second.time);
     this.lastHitTime = notes.at(-1)?.hitTime ?? 0;
     this.endTime = (this.leadInBeats + song.totalBeats) * this.beatSeconds + RHYTHM_RULES.outroSeconds;
   }
@@ -434,15 +438,10 @@ export class RhythmEngine extends TargetGameEngine {
     if (!head) return { accepted: false, reason: 'too_early' };
     const ahead = head.hitTime - (this.gameTime - this.offset);
     // 곡 시작 전(첫 원이 아직 멀 때)에는 어떤 키도 감점하지 않는다
-    const beforeFirstNote = head === this.notes[0] && ahead > RHYTHM_RULES.earlyAccept;
+    const beforeFirstNote = head === this.notes[0] && ahead > RHYTHM_RULES.startGrace;
     if (beforeFirstNote) return { accepted: false, reason: 'too_early' };
-    // 다음 글자가 아닌 키: 원이 오기 전이든 판정선에 있든 오타
-    if (!matchesNote(character, head.character)) return this.wrongKey(head, character);
-    if (ahead > RHYTHM_RULES.missAfter) {
-      // 원이 오기 전 맞는 키: 가까우면 GOOD으로 받아 주고(콤보 유지), 너무 이르면 무시
-      if (ahead <= RHYTHM_RULES.earlyAccept) return this.hit(head, null, 'good');
-      return { accepted: false, reason: 'too_early' };
-    }
+    // 원이 판정 범위(±missAfter) 밖에 있을 때 누르면, 다음 글자든 아니든 오타. 범위 안에서는 다음 글자만 맞다
+    if (ahead > RHYTHM_RULES.missAfter || !matchesNote(character, head.character)) return this.wrongKey(head, character);
     return this.hit(head);
   }
 
