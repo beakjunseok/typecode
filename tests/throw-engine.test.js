@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ThrowEngine, ROBOT_TYPES, THROW_RULES, MAX_POINTS_PER_CHARACTER, filterThrowTokens } from '../public/js/throw-engine.js';
+import { ThrowEngine, ROBOT_TYPES, THROW_RULES, BOSS_RULES, MAX_POINTS_PER_CHARACTER, filterThrowTokens } from '../public/js/throw-engine.js';
 import { ARCADE_RULES } from '../public/js/target-game.js';
 import { getTokenPool } from '../public/js/tokens.js';
 
@@ -41,7 +41,7 @@ function startWithRobot(engine, clock, typeKey = 'basic') {
 
 test('토큰 길이 필터와 점수 상한 상수', () => {
   assert.ok(filterThrowTokens([{ text: '?' }, { text: 'if' }]).every(token => token.text.length >= 2));
-  assert.equal(MAX_POINTS_PER_CHARACTER, 95);
+  assert.equal(MAX_POINTS_PER_CHARACTER, 105);
   assert.throws(() => new ThrowEngine({ tokenPool: [{ text: 'a' }] }));
 });
 
@@ -342,20 +342,45 @@ test('게임 모드도 타수를 계산한다(스냅샷·요약)', async () => {
   assert.equal(typeof engine.summary().charactersPerMinute, 'number');
 });
 
-test('로봇 목표 수를 처치하면 승리 연출 뒤 끝나고, 그동안 생명·입력·스폰이 멈춘다', () => {
-  const engine = new ThrowEngine({ tokenPool: getTokenPool('python'), level: 2, random: () => 0.5 });
+test('목표 수를 채우면 보스전: 경고 뒤 보스 등장, 졸개 소환, 맞으면 밀려나고 쓰러뜨리면 승리', () => {
+  const { engine } = createEngine();
+  const clock = { now: 0 };
   engine.start(0);
   engine.kills.basic = THROW_RULES.goalKills - 1;
-  const robot = { id: 999, type: 'basic', hp: 1, incomingDamage: 1, state: 'walking', x: 0.5, lane: 0, token: engine.robots[0]?.token };
-  engine.robots.push(robot);
-  engine.damageRobot(robot, { damage: 1, weapon: 'phone' });
+  const last = engine.spawnRobot('basic', 0);
+  engine.damageRobot(last, { damage: 1, weapon: 'phone' });
+  assert.equal(engine.bossPhase, 'warning');
+  assert.equal(engine.outcome, null, '아직 승리 아님');
+  advance(engine, clock, BOSS_RULES.warningSeconds + 0.2);
+  const boss = engine.boss();
+  assert.ok(boss, '보스 등장');
+  assert.equal(boss.hp, ROBOT_TYPES.boss.hp);
+  const before = engine.robots.length;
+  advance(engine, clock, BOSS_RULES.minionInterval[1] + 0.3);
+  const minions = engine.robots.filter(robot => robot.type !== 'boss' && robot.spawnedAt > boss.spawnedAt);
+  assert.ok(minions.length >= 1 && engine.robots.length > before, '졸개 소환');
+  assert.ok(minions.every(minion => minion.lane !== boss.lane), '졸개는 보스 줄을 피한다');
+  const x = boss.x;
+  engine.damageRobot(boss, { damage: 1, weapon: 'phone' });
+  assert.ok(boss.x > x, '맞으면 밀려남');
+  engine.damageRobot(boss, { damage: ROBOT_TYPES.boss.hp, weapon: 'laptop' });
   assert.equal(engine.outcome, 'cleared');
-  assert.equal(engine.input('a', 0).accepted, false);
-  const lives = engine.lives;
-  engine.loseLife({});
-  assert.equal(engine.lives, lives);
-  for (let now = 100; now <= (THROW_RULES.winPauseSeconds + 0.5) * 1000; now += 100) engine.update(now);
+  assert.equal(engine.input('a', clock.now).accepted, false);
+  advance(engine, clock, THROW_RULES.winPauseSeconds + 0.3);
   assert.equal(engine.status, 'finished');
-  assert.equal(engine.summary().outcome, 'cleared');
-  assert.equal(engine.summary().totalKills, THROW_RULES.goalKills);
+  assert.equal(engine.summary().bossDefeated, true);
+});
+
+test('보스가 책상에 닿으면 생명이 남아 있어도 즉시 패배', () => {
+  const { engine } = createEngine();
+  const clock = { now: 0 };
+  engine.start(0);
+  const boss = engine.spawnRobot('boss', 1);
+  engine.bossId = boss.id;
+  engine.bossPhase = 'fight';
+  assert.equal(engine.lives, ARCADE_RULES.startLives);
+  boss.x = THROW_RULES.playerX + 0.001;
+  advance(engine, clock, 0.3);
+  assert.equal(engine.status, 'finished');
+  assert.equal(engine.summary().outcome, 'overrun');
 });

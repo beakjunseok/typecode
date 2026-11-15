@@ -4,7 +4,7 @@
 import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
 import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING, SKIN, PHONE_HELD_SCALE } from './developer-view.js';
-import { THROW_RULES } from './throw-engine.js';
+import { THROW_RULES, BOSS_RULES } from './throw-engine.js';
 import {
   setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont,
   loadArt, drawCoverArt, Juice } from './game-view.js';
@@ -16,6 +16,7 @@ const ROBOT_STYLE = {
   basic: { name: '버그봇', body: '#2f5d72', bodyLight: '#4b8aa6', trim: '#7fdbca', eye: '#36e2ff', width: 40, height: 46, stride: 7 },
   fast: { name: '스피드봇', body: '#b14a2c', bodyLight: '#e0703f', trim: '#ffcb6b', eye: '#ffe08a', width: 32, height: 40, stride: 14 },
   slow: { name: '달팽봇', body: '#3f6b3a', bodyLight: '#6fae5c', trim: '#c9f29b', eye: '#b6ff6b', shell: '#c7834a', shellLight: '#f0b878', width: 54, height: 44, stride: 3 },
+  boss: { name: '보스 서버봇', body: '#4a1424', bodyLight: '#a8304a', trim: '#ffcf5a', eye: '#ff3355', width: 112, height: 100, stride: 1.6 },
   tank: { name: '헤비봇', body: '#353d49', bodyLight: '#566273', trim: '#8a98aa', eye: '#ff4d6d', width: 60, height: 56, stride: 4 }
 };
 const ITEM_STYLE = {
@@ -125,7 +126,7 @@ export class ThrowRenderer {
         this.particles.burst(x, y, { color: style.eye, count: 14, speed: 160, life: 0.5, size: 2.5 });
         this.particles.burst(x, y, { color: '#ffffff', count: 8, speed: 90, life: 0.25, size: 5 });
       } else {
-        this.juice.shake(payload.weapon === 'laptop' ? 0.3 : 0.18);
+        this.juice.shake(robot.type === 'boss' ? 0.4 : payload.weapon === 'laptop' ? 0.3 : 0.18);
         this.juice.ring(x, y, { color: '#ffcb6b', radius: 40 * scale, life: 0.25, width: 3 });
         if (robot.hp > 0) this.juice.popup(x + 22 * scale, y - 10, `HP ${robot.hp}`, { color: '#ffcb6b', size: 15, rise: 28, life: 0.6 });
         this.particles.burst(x, y + 10, { color: '#ffcb6b', count: 10, speed: 150, life: 0.35, size: 2.5 });
@@ -136,10 +137,22 @@ export class ThrowRenderer {
       this.juice.flash(ITEM_STYLE[item.item].color, 0.18, 0.3);
       this.juice.ring(this.columnX(item.lane), this.toY(item.x) - 14, { color: ITEM_STYLE[item.item].color, radius: 110, life: 0.5, width: 6 });
       this.juice.popup(this.columnX(item.lane), this.toY(item.x) - 40, item.item === 'laptop' ? '💻 위력 ×3!' : '🔋 +1', { color: ITEM_STYLE[item.item].color, size: 22 });
+    } else if (type === 'boss-warning') {
+      this.juice.shake(0.5);
+      this.juice.flash('#ff2846', 0.3, 0.6);
+    } else if (type === 'boss-appear') {
+      const x = this.columnX(payload.boss.lane);
+      const y = this.toY(payload.boss.x);
+      this.juice.shake(0.9);
+      this.juice.flash('#ffffff', 0.35, 0.3);
+      this.juice.ring(x, y - 40, { color: '#ff3355', radius: 220, life: 0.7, width: 8 });
+      this.particles.burst(x, y - 40, { color: '#ff3355', count: 40, speed: 320, life: 0.9, size: 4 });
+    } else if (type === 'boss-summon') {
+      if (payload.boss) this.juice.popup(this.columnX(payload.boss.lane), this.toY(payload.boss.x) - 120, '졸개 소환!', { color: '#ff8fa3', size: 16, life: 0.8 });
     } else if (type === 'goal') {
       this.juice.flash('#ffffff', 0.55, 0.5);
       this.juice.shake(0.6);
-      this.juice.popup(this.surface.width / 2, this.surface.height * 0.45, 'MISSION CLEAR!', { color: '#4df0a6', size: 34, rise: 30, life: 1.6 });
+      this.juice.popup(this.surface.width / 2, this.surface.height * 0.45, payload.boss ? 'BOSS DOWN!' : 'MISSION CLEAR!', { color: '#4df0a6', size: 34, rise: 30, life: 1.6 });
     } else if (type === 'throw' && payload.combo > 0 && payload.combo % 10 === 0) {
       const { x, y } = this.playerPosition();
       this.juice.popup(x, y - 70, `${payload.combo} COMBO!`, { color: this.accent, size: 24, life: 1.1 });
@@ -186,6 +199,7 @@ export class ThrowRenderer {
     this.particles.draw(context);
     this.juice.endShake(context);
     this.juice.drawOverlay(context, width, height);
+    this.drawBossBanner(context, width, engine);
     this.drawHud(context, engine);
   }
 
@@ -388,7 +402,7 @@ export class ThrowRenderer {
     const visual = this.visuals.get(robot.id);
     const age = engine.gameTime - robot.spawnedAt;
     const sinceState = engine.gameTime - robot.stateAt;
-    let scale = easeOutBack(Math.min(1, age / 0.35)) * this.depthScale(robot.x);
+    let scale = easeOutBack(Math.min(1, age / 0.35)) * this.depthScale(robot.x) * (robot.type === 'boss' ? 1.15 : 1);
     let rotation = 0;
     let alpha = Math.min(1, age / 0.2);
     if (robot.state === 'dying') {
@@ -435,6 +449,7 @@ export class ThrowRenderer {
     if (robot.type === 'basic') this.drawBugBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
     else if (robot.type === 'fast') this.drawSpeedBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
     else if (robot.type === 'slow') this.drawSnailBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
+    else if (robot.type === 'boss') this.drawBossBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
     else this.drawHeavyBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
     context.restore();
   }
@@ -730,6 +745,91 @@ export class ThrowRenderer {
       roundedRect(context, -17 + pip * pipWidth, -height - 10, pipWidth - 3, 5, 2);
       context.fill();
     }
+  }
+
+  // 보스 '서버봇': 헤비봇 몸을 크게 키우고 붉은 기운·왕관·양어깨 경고등을 더한다. 체력은 화면 위 막대로 따로 보여 준다
+  drawBossBot(context, style, phase, engine, robot, hitFlash, stunned) {
+    const { width, height } = style;
+    const glow = 0.5 + 0.5 * Math.sin(engine.gameTime * 4);
+    const aura = context.createRadialGradient(0, -height * 0.5, 10, 0, -height * 0.5, width);
+    aura.addColorStop(0, `rgba(255, 51, 85, ${0.28 + glow * 0.15})`);
+    aura.addColorStop(1, 'rgba(255, 51, 85, 0)');
+    context.fillStyle = aura;
+    context.fillRect(-width, -height * 1.6, width * 2, height * 1.8);
+    this.drawHeavyBot(context, style, phase, engine, robot, hitFlash, stunned);
+    // 어깨 경고등
+    for (const side of [-1, 1]) {
+      context.fillStyle = glow > 0.5 ? '#ff3355' : '#5a1020';
+      context.shadowColor = '#ff3355';
+      context.shadowBlur = glow * 14;
+      context.beginPath();
+      context.arc(side * width * 0.46, -height * 0.78, 6, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.shadowBlur = 0;
+    // 왕관
+    const crownY = -height - 6;
+    context.fillStyle = hitFlash ? '#ffffff' : style.trim;
+    context.beginPath();
+    context.moveTo(-22, crownY);
+    context.lineTo(-22, crownY - 14);
+    context.lineTo(-11, crownY - 6);
+    context.lineTo(0, crownY - 20);
+    context.lineTo(11, crownY - 6);
+    context.lineTo(22, crownY - 14);
+    context.lineTo(22, crownY);
+    context.closePath();
+    context.fill();
+    context.fillStyle = '#ff3355';
+    for (const gemX of [-11, 0, 11]) {
+      context.beginPath();
+      context.arc(gemX, crownY - 4, 2.5, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+
+  // 보스전 화면 위 표시: 경고 중에는 붉은 띠에 WARNING이 깜빡이고, 싸우는 중에는 보스 체력 막대
+  drawBossBanner(context, width, engine) {
+    if (engine.bossPhase === 'warning') {
+      const blink = Math.sin(engine.gameTime * 12) > -0.2;
+      const bandY = this.surface.height * 0.38;
+      context.fillStyle = `rgba(120, 10, 30, ${blink ? 0.78 : 0.55})`;
+      context.fillRect(0, bandY - 30, width, 60);
+      context.fillStyle = '#ff3355';
+      context.fillRect(0, bandY - 30, width, 3);
+      context.fillRect(0, bandY + 27, width, 3);
+      context.font = canvasFont(Math.min(30, width / 18), 'display', 700);
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillStyle = blink ? '#ffe0e6' : '#ff8fa3';
+      context.fillText('⚠ WARNING · BOSS 접근 중', width / 2, bandY);
+      return;
+    }
+    const boss = engine.boss();
+    if (engine.bossPhase !== 'fight' || !boss) return;
+    const barWidth = Math.min(420, width - 40);
+    const barX = (width - barWidth) / 2;
+    // 서버 벽 띠(로봇이 나오는 문 높이)에 겹쳐 그려 로봇·낱말을 가리지 않게 한다
+    const barY = HUD_HEIGHT + 8;
+    const ratio = boss.hp / boss.maxHp;
+    context.fillStyle = 'rgba(10, 12, 24, 0.85)';
+    roundedRect(context, barX - 2, barY - 2, barWidth + 4, 14, 7);
+    context.fill();
+    const fill = context.createLinearGradient(barX, 0, barX + barWidth, 0);
+    fill.addColorStop(0, '#ff3355');
+    fill.addColorStop(1, '#ffb547');
+    context.fillStyle = fill;
+    roundedRect(context, barX, barY, Math.max(6, barWidth * ratio), 10, 5);
+    context.fill();
+    for (let tick = 1; tick < boss.maxHp; tick++) {
+      context.fillStyle = 'rgba(10, 12, 24, 0.6)';
+      context.fillRect(barX + (barWidth * tick) / boss.maxHp, barY, 1.5, 10);
+    }
+    context.font = canvasFont(10, 'display', 700);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = '#1a0610';
+    context.fillText(`👑 BOSS ${boss.hp}/${boss.maxHp}`, width / 2, barY + 5.5);
   }
 
   drawItem(context, item, engine) {
@@ -1033,8 +1133,9 @@ export class ThrowRenderer {
     }
     // 가운데: 목표까지 처치 수
     context.textAlign = 'center';
-    context.fillStyle = engine.winAt != null ? '#4df0a6' : '#e6e9f5';
-    context.fillText(`🤖 ${Math.min(engine.totalKills(), THROW_RULES.goalKills)} / ${THROW_RULES.goalKills}`, width / 2, HUD_HEIGHT / 2);
+    context.fillStyle = engine.winAt != null ? '#4df0a6' : engine.bossPhase ? '#ff5d73' : '#e6e9f5';
+    const progress = engine.bossPhase ? '👑 FINAL WAVE' : `🤖 ${Math.min(engine.totalKills(), THROW_RULES.goalKills)} / ${THROW_RULES.goalKills}`;
+    context.fillText(progress, width / 2, HUD_HEIGHT / 2);
     const laptop = engine.laptopRemaining();
     context.textAlign = 'right';
     context.font = canvasFont(12);

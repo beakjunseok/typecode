@@ -234,7 +234,21 @@ function handleArcadeEvent(type, payload) {
       sound.play('newRecord');
       run.engine?.hitStop?.(0.22);
       pulseClass(ui.elements.arcadeStage, 'tier-flash', 900);
-      ui.log('ok', `🤖 로봇 ${payload.kills}대 처치 — 미션 클리어!`);
+      ui.log('ok', payload.boss ? '👑 보스 서버봇 격파 — 미션 클리어!' : `🤖 로봇 ${payload.kills}대 처치 — 미션 클리어!`);
+      break;
+    case 'boss-warning':
+      sound.play('warning', { remainingSeconds: 1 });
+      bgm.setIntensity(2);
+      ui.log('warn', `🤖 ${payload.kills}대 처치! 마지막 웨이브 — 보스가 다가와요`);
+      break;
+    case 'boss-appear':
+      sound.play('explode');
+      run.engine?.hitStop?.(0.15);
+      pulseClass(ui.elements.arcadeStage, 'shake', 400);
+      ui.log('err', '👑 보스 서버봇 등장! 책상에 닿으면 바로 끝나요');
+      break;
+    case 'boss-reached':
+      ui.log('err', '👑 보스가 책상에 닿았어요');
       break;
     case 'item-spawn':
       sound.play('itemSpawn');
@@ -416,7 +430,7 @@ function arcadeSubtitle(summary) {
     return `${base} · 공격 ${summary.drains} · 아이템 ${summary.itemsCollected} · 뺏김 ${summary.stolen} · ${result}`;
   }
   const { basic = 0, fast = 0, slow = 0, tank = 0 } = summary.kills;
-  return `${base} · 처치 ${summary.totalKills}/${summary.goalKills} (기본 ${basic} · 빠른 ${fast} · 달팽 ${slow} · 헤비 ${tank}) · 아이템 ${summary.itemsCollected}`;
+  return `${base}${summary.bossDefeated ? ' · 👑 보스 격파' : ''} · 처치 ${summary.totalKills}/${summary.goalKills} (기본 ${basic} · 빠른 ${fast} · 달팽 ${slow} · 헤비 ${tank}) · 아이템 ${summary.itemsCollected}`;
 }
 
 function timeAttackSubtitle(summary) {
@@ -434,7 +448,7 @@ function pvpSubtitle(summary) {
 
 // 아케이드 승리 조건: 배터리는 구조되거나 방전봇이 가라앉음, 던지기는 목표 처치 수 달성
 const ARCADE_WIN_OUTCOMES = Object.freeze(['rescued', 'rival-sunk', 'cleared']);
-const ARCADE_WIN_TITLES = Object.freeze({ battery: 'RESCUED 🚁', throw: 'MISSION CLEAR 🏆' });
+const ARCADE_WIN_TITLES = Object.freeze({ battery: 'RESCUED 🚁', throw: 'BOSS DOWN 🏆' });
 const arcadeWon = summary => ARCADE_WIN_OUTCOMES.includes(summary.outcome);
 
 // 결과창 제목·부제(모드별). PvP는 랭킹 등록 폼을 숨긴다
