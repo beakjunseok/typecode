@@ -21,7 +21,7 @@ const ROBOT_STYLE = {
   tank: { name: '헤비봇', body: '#353d49', bodyLight: '#566273', trim: '#8a98aa', eye: '#ff4d6d', width: 60, height: 56, stride: 4 }
 };
 const ITEM_STYLE = {
-  laptop: { color: '#c792ea', fill: '#2a1f3d', label: '노트북 ×3' },
+  laptop: { color: '#c792ea', fill: '#2a1f3d', label: '노트북 ×2' },
   battery: { color: '#39ff88', fill: '#123321', label: 'HP +1' }
 };
 // 금 단계별 화면색(금이 갈수록 어두워지고 붉어진다)과 금 무늬(단계마다 누적되는 선분 묶음, 화면 좌표 -4.5~4.5 × -8~6)
@@ -155,7 +155,7 @@ export class ThrowRenderer {
       this.particles.burst(this.columnX(item.lane), this.toY(item.x) - 14, { color: ITEM_STYLE[item.item].color, count: 32, speed: 220, life: 0.8 });
       this.juice.flash(ITEM_STYLE[item.item].color, 0.18, 0.3);
       this.juice.ring(this.columnX(item.lane), this.toY(item.x) - 14, { color: ITEM_STYLE[item.item].color, radius: 110, life: 0.5, width: 6 });
-      this.juice.popup(this.columnX(item.lane), this.toY(item.x) - 40, item.item === 'laptop' ? '💻 위력 ×3!' : '🔋 +1', { color: ITEM_STYLE[item.item].color, size: 22 });
+      this.juice.popup(this.columnX(item.lane), this.toY(item.x) - 40, item.item === 'laptop' ? '💻 두 개씩!' : '🔋 +1', { color: ITEM_STYLE[item.item].color, size: 22 });
     } else if (type === 'boss-warning') {
       this.juice.shake(0.5);
       this.juice.flash('#ff2846', 0.3, 0.6);
@@ -1557,7 +1557,7 @@ export class ThrowRenderer {
     context.font = canvasFont(12);
     if (laptop > 0) {
       context.fillStyle = '#c792ea';
-      context.fillText(`💻 노트북 ×3 · ${laptop.toFixed(1)}s`, width - 10, HUD_HEIGHT / 2);
+      context.fillText(`💻 노트북 ×2 · ${laptop.toFixed(1)}s`, width - 10, HUD_HEIGHT / 2);
       context.fillRect(width - 130, HUD_HEIGHT - 5, 120 * (laptop / THROW_RULES.laptopSeconds), 3);
     } else {
       context.fillStyle = '#8a93b8';

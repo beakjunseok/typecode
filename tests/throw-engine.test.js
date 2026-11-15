@@ -41,7 +41,7 @@ function startWithRobot(engine, clock, typeKey = 'basic') {
 
 test('토큰 길이 필터와 점수 상한 상수', () => {
   assert.ok(filterThrowTokens([{ text: '?' }, { text: 'if' }]).every(token => token.text.length >= 2));
-  assert.equal(MAX_POINTS_PER_CHARACTER, 105);
+  assert.equal(MAX_POINTS_PER_CHARACTER, 180);
   assert.throws(() => new ThrowEngine({ tokenPool: [{ text: 'a' }] }));
 });
 
@@ -117,16 +117,17 @@ test('조준 중 오타는 빨갛게 남고, 다 지우면 조준 해제', () =>
   assert.equal(engine.combo, 1, '오타 없이 새로 친 것은 클린');
 });
 
-test('탱크 로봇: 휴대폰 3번, 맞을 때마다 새 토큰', () => {
+test('탱크 로봇: 휴대폰 2번, 맞을 때마다 새 토큰', () => {
   const { engine } = createEngine();
   const clock = { now: 0 };
   const tank = startWithRobot(engine, clock, 'tank');
-  for (let hit = 1; hit <= 3; hit++) {
+  assert.equal(ROBOT_TYPES.tank.hp, 2);
+  for (let hit = 1; hit <= 2; hit++) {
     const before = tank.token.text;
     typeText(engine, clock, before);
     advance(engine, clock, 0.3);
-    assert.equal(tank.hp, 3 - hit);
-    if (hit < 3) assert.ok(tank.state === 'walking');
+    assert.equal(tank.hp, 2 - hit);
+    if (hit < 2) assert.ok(tank.state === 'walking');
   }
   assert.equal(engine.kills.tank, 1);
 });
@@ -148,11 +149,11 @@ test('달팽봇: 탱크보다도 느리고, 휴대폰은 낱말 두 개(맞으�
   engine.laptopUntil = engine.gameTime + 8;
   const armored = engine.spawnRobot('slow', 1);
   assert.equal(typeText(engine, clock, armored.token.text).weapon, 'laptop');
-  advance(engine, clock, 0.3);
+  advance(engine, clock, 0.45);
   assert.equal(engine.kills.slow, 2, '노트북 한 방');
 });
 
-test('노트북 아이템: 맞히면 8초간 노트북(피해 3), 탱크 한 방', () => {
+test('노트북 아이템: 맞히면 8초간 노트북(두 개씩), 탱크는 낱말 하나로 처치', () => {
   const { engine, events } = createEngine();
   const clock = { now: 0 };
   engine.start(0);
@@ -165,7 +166,8 @@ test('노트북 아이템: 맞히면 8초간 노트북(피해 3), 탱크 한 방
   const tank = engine.spawnRobot('tank', 0);
   const result = typeText(engine, clock, tank.token.text);
   assert.equal(result.weapon, 'laptop');
-  advance(engine, clock, 0.3);
+  assert.equal(engine.projectiles.filter(projectile => projectile.targetId === tank.id).length, 2, '두 개 모두 탱크에');
+  advance(engine, clock, 0.4);
   assert.equal(engine.kills.tank, 1);
   advance(engine, clock, 8);
   assert.equal(engine.laptopRemaining(), 0);
@@ -431,4 +433,31 @@ test('보스 대포: 충전 뒤 패드 발사, 짧은 낱말을 쳐서 막으면
   advance(engine, clock, 0.1);
   assert.ok(second.hitPlayer);
   assert.equal(engine.lives, lives - 1, '못 막으면 건전지 1칸');
+});
+
+test('노트북 두 개: 목표가 한 방이면 두 번째는 옆 로봇에게, 옆 로봇이 없으면 하나만', () => {
+  const { engine } = createEngine();
+  const clock = { now: 0 };
+  engine.start(0);
+  engine.nextSpawnAt = Infinity;
+  engine.nextItemAt = Infinity;
+  for (const robot of engine.robots) robot.state = 'crashed';
+  engine.robots = [];
+  engine.laptopUntil = 100;
+  const target = engine.spawnRobot('basic', 0);
+  target.x = 0.5;
+  const near = engine.spawnRobot('basic', 1);
+  near.x = 0.55;
+  const far = engine.spawnRobot('basic', 3);
+  far.x = 0.95;
+  typeText(engine, clock, target.token.text);
+  assert.deepEqual(engine.projectiles.map(projectile => projectile.targetId).sort(), [target.id, near.id].sort());
+  advance(engine, clock, 0.5);
+  assert.equal(engine.kills.basic, 2, '목표와 옆 로봇 모두 처치');
+  assert.equal(far.state, 'walking');
+
+  typeText(engine, clock, far.token.text);
+  assert.equal(engine.projectiles.length, 1, '옆 로봇이 없으면 하나만');
+  advance(engine, clock, 0.5);
+  assert.equal(engine.kills.basic, 3);
 });

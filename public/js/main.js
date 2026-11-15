@@ -289,7 +289,7 @@ function handleArcadeEvent(type, payload) {
     case 'item':
       sound.play(battery && payload.item.item === 'heat' ? 'explode' : 'powerUp');
       ui.log('ok', battery ? BATTERY_ITEM_LOG[payload.item.item](rivalName())
-        : payload.item.item === 'battery' ? `건전지 충전 — 생명 ${payload.lives}칸` : '노트북 장착 — 8초간 위력 ×3');
+        : payload.item.item === 'battery' ? `건전지 충전 — 생명 ${payload.lives}칸` : '노트북 장착 — 8초간 두 개씩 던지기');
       break;
     case 'drain':
       sound.play('hit');
