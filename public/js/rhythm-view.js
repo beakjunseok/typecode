@@ -141,6 +141,22 @@ export class RhythmRenderer {
     }
   }
 
+  // 곡 시작 전(첫 원이 아직 멀 때)·끝난 뒤
+  isIdle(engine) {
+    if (engine.status !== 'running') return true;
+    const first = engine.notes?.[0];
+    return Boolean(first) && engine.headNote?.() === first
+      && first.hitTime - (engine.gameTime - (engine.offset ?? 0)) > RHYTHM_RULES.startGrace;
+  }
+
+  // 키를 누르면 그 레인 전체를 번쩍인다(감점이면 빨강). main.js가 부른다
+  flashLane(laneIndex, color) {
+    const flash = this.laneFlash[laneIndex];
+    if (!flash) return;
+    flash.amount = 1;
+    flash.color = color;
+  }
+
   render(engine, { accent }) {
     const context = this.context;
     if (!context) return;
@@ -165,12 +181,19 @@ export class RhythmRenderer {
     this.juice.beginShake(context);
     this.drawStage(context, width, height, pulse);
 
-    // 레인 바탕 + 맞힌 레인 번쩍임
+    // 레인 바탕 + 누른 레인 번쩍임. 곡 시작 전·끝난 뒤에는 레인 4칸을 레인 색 넓은 직사각형 빛으로 칠해 둔다
+    const idle = this.isIdle(engine);
+    const breathe = 0.5 + 0.5 * Math.sin(performance.now() / 1000 * 3.2);
     RHYTHM_LANES.forEach((lane, index) => {
       const x = this.laneCenter(index, layout) - laneWidth / 2;
+      const flash = this.laneFlash[index];
+      if (idle) {
+        context.fillStyle = hexAlpha(lane.color, 0.2 + breathe * 0.1);
+        context.fillRect(x + 1, topY, laneWidth - 1, judgeY - topY + radius);
+      }
       const gradient = context.createLinearGradient(0, topY, 0, judgeY);
-      gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
-      gradient.addColorStop(1, hexAlpha(lane.color, 0.07 + this.laneFlash[index].amount * 0.25));
+      gradient.addColorStop(0, hexAlpha(flash.amount > 0 ? flash.color : lane.color, flash.amount * 0.25));
+      gradient.addColorStop(1, hexAlpha(flash.amount > 0 ? flash.color : lane.color, 0.07 + flash.amount * 0.55));
       context.fillStyle = gradient;
       context.fillRect(x, topY, laneWidth, judgeY - topY);
       context.fillStyle = 'rgba(120, 140, 170, 0.16)';

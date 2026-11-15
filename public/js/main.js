@@ -1034,9 +1034,14 @@ function releasedCharacters(event) {
 }
 
 const PENALTY_COLOR = '#ff2846';
+// 키보드 구역과 리듬 화면의 레인(넓은 직사각형)을 함께 빛낸다
 function flashRhythmZone(character, penalty = false) {
-  const lane = RHYTHM_LANES[laneOfCharacter(character)];
-  if (lane) keyboard.flashZone(lane.fingers, penalty ? PENALTY_COLOR : lane.color);
+  const laneIndex = laneOfCharacter(character);
+  const lane = RHYTHM_LANES[laneIndex];
+  if (!lane) return;
+  const color = penalty ? PENALTY_COLOR : lane.color;
+  keyboard.flashZone(lane.fingers, color);
+  renderers.rhythm?.flashLane?.(laneIndex, color);
 }
 
 // 리듬: 게임 입력칸에 초점이 없을 때(곡 목록을 보는 중 등)도 누른 키의 구역을 빛낸다(입력칸에 있으면 applyCharacter가 한다)
