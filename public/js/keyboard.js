@@ -325,7 +325,7 @@ export function createKeyboard(container, { compact = false, interactive = false
   }
 
   // 손가락 묶음(리듬 레인) 하나를 통째로 번쩍인다: 리듬 모드에서 아무 키나 누르면 그 키가 속한 1/4 구역이 빛난다. O(키 수)
-  const ZONE_FLASH_MS = 320;
+  const ZONE_FLASH_MS = 450;
   function flashZone(fingers, color) {
     const wanted = new Set(fingers);
     for (const key of keyElements.values()) {
