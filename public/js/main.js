@@ -267,14 +267,18 @@ function handleArcadeEvent(type, payload) {
       break;
     case 'boss-reached':
       sound.play('warning', { remainingSeconds: 1 });
-      ui.log('err', '👑 보스가 눈앞까지 왔어요!');
+      ui.log('err', '👑 보스가 눈앞까지 왔어요 — 맞혀서 밀어내세요');
+      break;
+    case 'boss-windup':
+      sound.play('powerUp');
+      break;
+    case 'boss-pushed':
+      ui.log('ok', '🛡 보스를 밀어내 펀치를 막았어요');
       break;
     case 'boss-punch':
       sound.play('explode');
-      sound.play('glassCrack');
-      run.engine?.hitStop?.(0.2);
-      pulseClass(ui.elements.arcadeStage, 'shake', 500);
-      ui.log('err', '👊 보스의 펀치! K.O.');
+      run.engine?.hitStop?.(0.1);
+      ui.log('err', '👊 보스의 펀치! 건전지 -1');
       break;
     case 'item-spawn':
       sound.play('itemSpawn');

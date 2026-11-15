@@ -373,25 +373,34 @@ test('목표 수를 채우면 보스전: 경고 뒤 보스 등장, 이후 로봇
   assert.equal(engine.summary().bossDefeated, true);
 });
 
-test('보스가 내 앞에 닿으면 멈춰 서서 펀치: 명중 이벤트 뒤 생명과 상관없이 패배', () => {
+test('보스 근접: 내 앞에 멈춰 딜레이마다 펀치(건전지 1칸), 그동안 대포 없음, 맞혀 밀어내면 펀치 취소', () => {
   const { engine, events } = createEngine();
   const clock = { now: 0 };
   engine.start(0);
-  const boss = engine.spawnRobot('boss', 1.5);
-  engine.bossId = boss.id;
-  engine.bossPhase = 'fight';
-  engine.nextPadAt = Infinity;
+  engine.bossPhase = 'warning';
+  engine.bossAt = 0;
+  advance(engine, clock, 0.1);
+  const boss = engine.boss();
+  for (const robot of engine.robots) if (robot !== boss) robot.x = 50;
+  engine.nextPadAt = 0;
+  boss.chargeUntil = null;
   boss.x = THROW_RULES.playerX + BOSS_RULES.reachGap + 0.001;
-  advance(engine, clock, 0.2);
-  assert.equal(boss.state, 'punching');
-  assert.equal(engine.status, 'running', '펀치 연출 중');
-  assert.ok(boss.x > THROW_RULES.playerX, '책상 앞에 멈춰 섬');
-  assert.equal(engine.input('a', clock.now).accepted, false);
-  advance(engine, clock, BOSS_RULES.punchImpactSeconds);
-  assert.ok(events.some(event => event.type === 'boss-punch'));
-  advance(engine, clock, BOSS_RULES.punchEndSeconds);
-  assert.equal(engine.status, 'finished');
-  assert.equal(engine.summary().outcome, 'overrun');
+  advance(engine, clock, 0.3);
+  assert.ok(boss.inMelee);
+  assert.equal(boss.state, 'walking', '계속 맞힐 수 있다');
+  const lives = engine.lives;
+  advance(engine, clock, BOSS_RULES.punchFirstDelay + BOSS_RULES.punchWindupSeconds + 0.1);
+  assert.equal(engine.lives, lives - 1, '펀치 한 대 = 건전지 1칸');
+  assert.equal(engine.status, 'running');
+  assert.equal(engine.pads.length, 0, '근접 중 대포 없음');
+  advance(engine, clock, BOSS_RULES.punchDelay - 0.3);
+  assert.equal(engine.lives, lives - 1, '딜레이 동안은 안 맞음');
+  advance(engine, clock, 0.4);
+  assert.ok(boss.punchStartAt != null, '두 번째 펀치 준비');
+  engine.damageRobot(boss, { damage: 1, weapon: 'phone' });
+  advance(engine, clock, 0.05);
+  assert.equal(boss.punchStartAt, null, '밀려나면 취소');
+  assert.ok(events.some(event => event.type === 'boss-pushed'));
 });
 
 test('보스 대포: 충전 뒤 패드 발사, 짧은 낱말을 쳐서 막으면 보너스, 못 막으면 건전지 1칸', () => {
