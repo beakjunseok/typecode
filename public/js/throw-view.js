@@ -459,22 +459,71 @@ export class ThrowRenderer {
     let scale = easeOutBack(Math.min(1, age / 0.35)) * (robot.type === 'boss' ? this.bossScale() : this.depthScale(robot.x));
     let rotation = 0;
     let alpha = Math.min(1, age / 0.2);
+    // 몸 움직임(보스 제외): offsetX/offsetY는 화면 픽셀, tilt는 기울기, stretch는 세로로 늘어나는 정도
+    let offsetX = 0;
+    let offsetY = 0;
+    let tilt = 0;
+    let stretch = 0;
+    const side = robot.id % 2 === 0 ? 1 : -1;
     if (robot.state === 'dying') {
+      // 맞은 반대쪽으로 튕겨 올라 빙글 돌며 사라진다
       const progress = Math.min(1, sinceState / THROW_RULES.dyingSeconds);
       scale *= progress < 0.3 ? 1 + progress : Math.max(0, 1.3 * (1 - (progress - 0.3) / 0.7));
-      rotation = progress * 2.4;
+      rotation = side * progress * 3.2;
       alpha = 1 - progress * 0.6;
+      offsetX = side * progress * 26;
+      offsetY = -Math.sin(progress * Math.PI) * 34;
     } else if (robot.state === 'crashed') {
+      // 책상으로 몸을 던져 덮친다
       const progress = Math.min(1, sinceState / THROW_RULES.dyingSeconds);
       scale *= 1 + progress * 0.4;
       alpha = 1 - progress;
+      offsetY = easeOutCubic(progress) * 30;
+      tilt = side * progress * 0.3;
     }
     if (scale <= 0.01) return;
+    const time = engine.gameTime;
+    const sinceHit = time - robot.hitAt;
+    const motion = {
+      // 맞은 직후 0→1→0: 움찔하며 뒤로 젖혀진다
+      flinch: sinceHit >= 0 && sinceHit < 0.35 ? Math.sin((sinceHit / 0.35) * Math.PI) : 0,
+      // 책상에 가까울수록 0→1: 팔을 치켜들고 부들부들 떤다
+      menace: robot.state === 'walking' ? Math.min(1, Math.max(0, (THROW_RULES.playerX + 0.22 - robot.x) / 0.22)) : 0
+    };
 
     const walkPhase = (engine.gameTime + robot.id * 0.37) * style.stride;
-    const bob = robot.state === 'walking' ? Math.abs(Math.sin(walkPhase)) * (robot.type === 'tank' ? 1.5 : 3) : 0;
+    let bob = robot.state === 'walking' ? Math.abs(Math.sin(walkPhase)) * (robot.type === 'tank' ? 1.5 : 3) : 0;
+    if (robot.state === 'walking' && robot.type !== 'boss') {
+      if (robot.type === 'basic') {
+        // 뒤뚱뒤뚱: 걸음마다 좌우로 기울고, 가끔 폴짝 뛴다
+        tilt = Math.sin(walkPhase) * 0.09;
+        const hop = (time * 0.7 + robot.id * 0.31) % 1;
+        if (hop < 0.18) bob += Math.sin((hop / 0.18) * Math.PI) * 9;
+      } else if (robot.type === 'fast') {
+        // 지그재그: 좌우로 미끄러지며 그쪽으로 몸을 눕히고, 달리는 방향으로 길쭉해진다
+        const weave = time * 6 + robot.id;
+        offsetX = Math.sin(weave) * 7 * scale;
+        tilt = Math.cos(weave) * 0.2;
+        stretch = 0.07;
+      } else if (robot.type === 'tank') {
+        // 쿵, 쿵: 천천히 들렸다가 뚝 떨어지고, 떨어질 때 납작해지며 먼지가 난다
+        const stomp = Math.abs(Math.sin(walkPhase));
+        bob = stomp ** 0.5 * 4;
+        tilt = Math.sin(walkPhase) * 0.035;
+        if (stomp < 0.12) {
+          stretch = -0.05;
+          if (Math.random() < 0.35) this.particles.burst(this.columnX(robot.lane) + (Math.random() - 0.5) * 40 * scale, this.toY(robot.x), { color: '#8a98aa', count: 1, speed: 50, life: 0.35, size: 2.5, gravity: -80 });
+        }
+      } else if (robot.type === 'slow') {
+        // 꿈틀꿈틀: 몸을 늘였다 줄였다 하며 긴다(세로로 숨 쉬듯)
+        stretch = Math.sin(walkPhase) * 0.04;
+      }
+      tilt -= side * motion.flinch * 0.22;
+      offsetY -= motion.flinch * 5;
+      offsetX += Math.sin(time * 42 + robot.id) * 1.6 * motion.menace;
+    }
     const squash = visual.squash.value * 0.025;
-    const x = this.columnX(robot.lane);
+    const x = this.columnX(robot.lane) + offsetX;
     const footY = this.toY(robot.x) + visual.knock.value * 0.05;
     const hitFlash = engine.gameTime - robot.hitAt < 0.1;
     const stunned = engine.gameTime - robot.hitAt < 0.25;
@@ -484,7 +533,7 @@ export class ThrowRenderer {
       const pop = visual.labelPop.value * 0.4;
       context.save();
       context.globalAlpha = Math.min(1, age / 0.3);
-      drawTokenLabel(context, x, footY + 26 - pop, robot, engine.getCharacterStates(robot), {
+      drawTokenLabel(context, this.columnX(robot.lane), footY + 26 - pop, robot, engine.getCharacterStates(robot), {
         active: robot.id === engine.targetId, accent: this.accent, compact: this.surface.width < 520
       });
       context.restore();
@@ -497,14 +546,14 @@ export class ThrowRenderer {
 
     context.save();
     context.globalAlpha = alpha;
-    context.translate(x, footY - bob * scale);
-    context.rotate(rotation);
-    context.scale(scale * (1 + squash), scale * (1 - squash));
-    if (robot.type === 'basic') this.drawBugBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
-    else if (robot.type === 'fast') this.drawSpeedBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
-    else if (robot.type === 'slow') this.drawSnailBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
+    context.translate(x, footY - bob * scale + offsetY);
+    context.rotate(rotation + tilt);
+    context.scale(scale * (1 + squash - stretch), scale * (1 - squash + stretch));
+    if (robot.type === 'basic') this.drawBugBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
+    else if (robot.type === 'fast') this.drawSpeedBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
+    else if (robot.type === 'slow') this.drawSnailBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
     else if (robot.type === 'boss') this.drawBossBot(context, style, walkPhase, engine, robot, hitFlash, stunned, this.bossSpread());
-    else this.drawHeavyBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
+    else this.drawHeavyBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
     context.restore();
   }
 
@@ -550,7 +599,7 @@ export class ThrowRenderer {
   }
 
   // 기본 로봇 '버그봇'(정면): 모니터 머리 + 몸통 + 팔다리를 번갈아 흔들며 걷는다
-  drawBugBot(context, style, phase, engine, robot, hitFlash, stunned) {
+  drawBugBot(context, style, phase, engine, robot, hitFlash, stunned, motion = { flinch: 0, menace: 0 }) {
     const { width, height } = style;
     const swing = Math.sin(phase);
     context.fillStyle = '#1b2430';
@@ -573,9 +622,11 @@ export class ThrowRenderer {
     context.lineCap = 'round';
     context.beginPath();
     context.moveTo(-width / 2 + 6, -height * 0.5);
-    context.lineTo(-width / 2 - 2, -height * 0.3 + swing * 5);
+    // 팔: 걸을 땐 번갈아 흔들고, 맞거나 책상에 가까워지면 번쩍 치켜든다(가까우면 파닥파닥)
+    const raise = Math.max(motion.flinch, motion.menace) * (16 + Math.sin(engine.gameTime * 18 + robot.id) * 4 * motion.menace);
+    context.lineTo(-width / 2 - 2 - raise * 0.35, -height * 0.3 + swing * 5 - raise);
     context.moveTo(width / 2 - 6, -height * 0.5);
-    context.lineTo(width / 2 + 2, -height * 0.3 - swing * 5);
+    context.lineTo(width / 2 + 2 + raise * 0.35, -height * 0.3 - swing * 5 - raise);
     context.stroke();
     context.fillStyle = hitFlash ? '#ffffff' : style.body;
     roundedRect(context, -width / 2, -height - 2, width, height * 0.48, 8);
@@ -590,6 +641,7 @@ export class ThrowRenderer {
     // 입: 픽셀 스마일 → 맞으면 찡그림
     context.fillStyle = style.eye;
     if (stunned) context.fillRect(-5, -height * 0.66, 10, 2);
+    else if (motion.menace > 0.4) context.fillRect(-4, -height * 0.69, 8, 5);
     else { context.fillRect(-5, -height * 0.67, 2, 2); context.fillRect(-3, -height * 0.65, 6, 2); context.fillRect(3, -height * 0.67, 2, 2); }
     const sway = Math.sin(phase * 0.5) * 3;
     context.strokeStyle = style.trim;
@@ -605,7 +657,7 @@ export class ThrowRenderer {
   }
 
   // 빠른 로봇 '스피드봇'(정면): 유선형 헬멧 + 외바퀴 + 뒤로 흩날리는 속도선
-  drawSpeedBot(context, style, phase, engine, robot, hitFlash, stunned) {
+  drawSpeedBot(context, style, phase, engine, robot, hitFlash, stunned, motion = { flinch: 0, menace: 0 }) {
     const { width, height } = style;
     if (robot.state === 'walking' && Math.random() < 0.4) {
       this.particles.burst(this.columnX(robot.lane) + (Math.random() - 0.5) * 12, this.toY(robot.x) - 4, { color: '#ffb547', count: 1, speed: 40, life: 0.3, size: 2, gravity: -200 });
@@ -619,8 +671,19 @@ export class ThrowRenderer {
       context.lineTo(line * 10, -height - 18 - offset);
       context.stroke();
     }
+    // 가까워지면 뒤(위)로 불꽃을 뿜으며 막판 질주
+    if (motion.menace > 0) {
+      const flame = 10 + motion.menace * 14 + Math.sin(engine.gameTime * 40 + robot.id) * 4;
+      context.fillStyle = 'rgba(255, 181, 71, 0.85)';
+      context.beginPath();
+      context.moveTo(-7, -height + 2);
+      context.lineTo(0, -height - flame);
+      context.lineTo(7, -height + 2);
+      context.closePath();
+      context.fill();
+    }
     context.fillStyle = '#121a24';
-    roundedRect(context, -6, -14, 12, 14, 6);
+    roundedRect(context, -6 + Math.sin(phase * 2) * 1.5, -14, 12, 14, 6);
     context.fill();
     context.strokeStyle = '#8a98aa';
     context.lineWidth = 1.5;
@@ -670,7 +733,7 @@ export class ThrowRenderer {
   }
 
   // 피 많은 로봇 '헤비봇'(정면): 무한궤도, 어깨 장갑, 화난 눈, 체력 칸. 맞으면 전기 스파크(원작 R 로봇 오마주)
-  drawHeavyBot(context, style, phase, engine, robot, hitFlash, stunned) {
+  drawHeavyBot(context, style, phase, engine, robot, hitFlash, stunned, motion = { flinch: 0, menace: 0 }) {
     const { width, height } = style;
     context.fillStyle = '#141b24';
     roundedRect(context, -width / 2 - 2, -14, 16, 14, 4);
@@ -694,9 +757,12 @@ export class ThrowRenderer {
     context.lineWidth = 2;
     context.stroke();
     context.fillStyle = hitFlash ? '#ffffff' : '#2a313b';
-    roundedRect(context, -width / 2 - 8, -height + 8, 12, 22, 4);
+    // 어깨 장갑: 걸음마다 번갈아 들썩이고, 맞으면 몸 쪽으로 움츠려 막는다. 가까워지면 양쪽을 치켜든다
+    const brace = motion.flinch * 5;
+    const lift = motion.menace * 7;
+    roundedRect(context, -width / 2 - 8 + brace, -height + 8 - Math.max(0, Math.sin(phase)) * 3 - lift, 12, 22, 4);
     context.fill();
-    roundedRect(context, width / 2 - 4, -height + 8, 12, 22, 4);
+    roundedRect(context, width / 2 - 4 - brace, -height + 8 - Math.max(0, -Math.sin(phase)) * 3 - lift, 12, 22, 4);
     context.fill();
     context.fillStyle = '#0b1017';
     roundedRect(context, -width / 2 + 9, -height + 8, width - 18, 17, 5);
@@ -708,7 +774,9 @@ export class ThrowRenderer {
       context.arc(rivetX, rivetY, 2, 0, Math.PI * 2);
       context.fill();
     }
-    context.fillStyle = 'rgba(138, 152, 170, 0.3)';
+    // 가슴 환기구: 숨 쉬듯 밝아졌다 어두워진다(가까워지면 붉게)
+    const breath = 0.3 + 0.25 * Math.sin(engine.gameTime * 3 + robot.id);
+    context.fillStyle = motion.menace > 0.3 ? `rgba(255, 77, 109, ${breath + 0.2})` : `rgba(138, 152, 170, ${breath})`;
     context.fillRect(-width / 2 + 12, -height + 33, width - 24, 3);
     context.fillRect(-width / 2 + 12, -height + 39, width - 24, 3);
     // 손상되면 전기 스파크
@@ -732,16 +800,17 @@ export class ThrowRenderer {
 
   // 느린 로봇 '달팽봇'(정면): 납작한 몸이 꿈틀대며 기어오고, 등에 소용돌이 껍데기, 더듬이 끝에 눈.
   // 한 방 맞으면 껍데기에 금이 간다. 머리 위 칸은 남은 체력(휴대폰 두 방)
-  drawSnailBot(context, style, phase, engine, robot, hitFlash, stunned) {
+  drawSnailBot(context, style, phase, engine, robot, hitFlash, stunned, motion = { flinch: 0, menace: 0 }) {
     const { width, height } = style;
-    const crawl = Math.sin(phase) * 2;
+    const crawl = Math.sin(phase) * 5;
     // 몸통(바닥에 붙은 납작한 발)
     context.fillStyle = hitFlash ? '#ffffff' : style.body;
     roundedRect(context, -width / 2 - crawl / 2, -12, width + crawl, 12, 6);
     context.fill();
     // 껍데기
     const shellRadius = height * 0.42;
-    const shellY = -12 - shellRadius * 0.85;
+    // 껍데기는 몸보다 한 박자 늦게 출렁인다
+    const shellY = -12 - shellRadius * 0.85 + Math.sin(phase - 0.9) * 1.8;
     const shellGradient = context.createRadialGradient(-6, shellY - 6, 2, 0, shellY, shellRadius);
     shellGradient.addColorStop(0, style.shellLight);
     shellGradient.addColorStop(1, style.shell);
@@ -779,7 +848,9 @@ export class ThrowRenderer {
     context.lineWidth = 3;
     context.lineCap = 'round';
     const sway = Math.sin(engine.gameTime * 2 + robot.id) * 3;
-    const eyes = [[-9 + sway, -40], [9 + sway, -40]];
+    // 맞으면 더듬이 눈을 쏙 움츠린다. 가까워지면 꼿꼿이 세운다
+    const stalk = -40 + motion.flinch * 15 - motion.menace * 4;
+    const eyes = [[-9 + sway, stalk], [9 + sway, stalk]];
     for (const [eyeX, eyeY] of eyes) {
       context.beginPath();
       context.moveTo(eyeX * 0.6 - sway * 0.5, -22);
