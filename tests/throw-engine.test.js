@@ -373,16 +373,23 @@ test('목표 수를 채우면 보스전: 경고 뒤 보스 등장, 이후 로봇
   assert.equal(engine.summary().bossDefeated, true);
 });
 
-test('보스가 책상에 닿으면 생명이 남아 있어도 즉시 패배', () => {
-  const { engine } = createEngine();
+test('보스가 내 앞에 닿으면 멈춰 서서 펀치: 명중 이벤트 뒤 생명과 상관없이 패배', () => {
+  const { engine, events } = createEngine();
   const clock = { now: 0 };
   engine.start(0);
-  const boss = engine.spawnRobot('boss', 1);
+  const boss = engine.spawnRobot('boss', 1.5);
   engine.bossId = boss.id;
   engine.bossPhase = 'fight';
-  assert.equal(engine.lives, ARCADE_RULES.startLives);
-  boss.x = THROW_RULES.playerX + 0.001;
-  advance(engine, clock, 0.3);
+  engine.nextPadAt = Infinity;
+  boss.x = THROW_RULES.playerX + BOSS_RULES.reachGap + 0.001;
+  advance(engine, clock, 0.2);
+  assert.equal(boss.state, 'punching');
+  assert.equal(engine.status, 'running', '펀치 연출 중');
+  assert.ok(boss.x > THROW_RULES.playerX, '책상 앞에 멈춰 섬');
+  assert.equal(engine.input('a', clock.now).accepted, false);
+  advance(engine, clock, BOSS_RULES.punchImpactSeconds);
+  assert.ok(events.some(event => event.type === 'boss-punch'));
+  advance(engine, clock, BOSS_RULES.punchEndSeconds);
   assert.equal(engine.status, 'finished');
   assert.equal(engine.summary().outcome, 'overrun');
 });

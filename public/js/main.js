@@ -266,7 +266,15 @@ function handleArcadeEvent(type, payload) {
       ui.log('ok', `🔋 보스 타격 — 건전지 회복 (${payload.lives}칸)`);
       break;
     case 'boss-reached':
-      ui.log('err', '👑 보스가 책상에 닿았어요');
+      sound.play('warning', { remainingSeconds: 1 });
+      ui.log('err', '👑 보스가 눈앞까지 왔어요!');
+      break;
+    case 'boss-punch':
+      sound.play('explode');
+      sound.play('glassCrack');
+      run.engine?.hitStop?.(0.2);
+      pulseClass(ui.elements.arcadeStage, 'shake', 500);
+      ui.log('err', '👊 보스의 펀치! K.O.');
       break;
     case 'item-spawn':
       sound.play('itemSpawn');

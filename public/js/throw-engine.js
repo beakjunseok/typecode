@@ -10,7 +10,7 @@ export const ROBOT_TYPES = Object.freeze({
   // 느린 로봇: 휴대폰은 낱말 두 개(두 방), 노트북(피해 3)은 한 방
   slow: Object.freeze({ label: '달팽봇', hp: 2, speed: 0.036, bounty: 100, unlockAt: 8, weight: 0.4 }),
   // 마지막 웨이브 보스: 무작위로는 안 나오고(weight 0) 목표 처치 수를 채우면 한 번 등장. 속도는 시간 가속을 받지 않는다
-  boss: Object.freeze({ label: '보스 서버봇', hp: 10, speed: 0.02, bounty: 1000, unlockAt: Infinity, weight: 0, boss: true })
+  boss: Object.freeze({ label: '보스 서버봇', hp: 10, speed: 0.017, bounty: 1000, unlockAt: Infinity, weight: 0, boss: true })
 });
 
 // 보스전: 경고 뒤 화면 가운데(줄 4칸 너비)로 내려온다. 맞으면 조금 밀려나고 내 건전지가 1칸 찬다.
@@ -18,7 +18,7 @@ export const ROBOT_TYPES = Object.freeze({
 export const BOSS_RULES = Object.freeze({
   warningSeconds: 2.5,
   // 몸집이 커서 문 앞이 아니라 조금 앞(아래)에서 나타난다. 밀려나도 이 지점보다 뒤로는 안 간다
-  spawnX: 0.6,
+  spawnX: 0.5,
   knockback: 0.03,
   healPerHit: 1,
   padFirstDelay: 3,
@@ -26,7 +26,11 @@ export const BOSS_RULES = Object.freeze({
   cannonChargeSeconds: 1.1,
   padSpeed: 0.2,
   padMaxLength: 6,
-  padBlockBonus: 30
+  padBlockBonus: 30,
+  // 책상 앞(playerX + reachGap)에 닿으면 멈춰 서서 주먹을 날린다: 준비 → impactSeconds에 명중 → endSeconds에 판 종료
+  reachGap: 0.13,
+  punchImpactSeconds: 0.55,
+  punchEndSeconds: 1.4
 });
 
 export const ITEM_TYPES = Object.freeze({
@@ -92,6 +96,8 @@ export class ThrowEngine extends TargetGameEngine {
     this.bossId = null;
     this.pads = [];
     this.nextPadAt = Infinity;
+    this.punchAt = null;
+    this.punchLanded = false;
   }
 
   targetables() {
@@ -133,6 +139,10 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   step(frameSeconds) {
+    if (this.punchAt != null) {
+      this.stepBossPunch();
+      return;
+    }
     if (this.winAt != null && this.gameTime >= this.winAt) {
       this.finish();
       return;
@@ -219,9 +229,22 @@ export class ThrowEngine extends TargetGameEngine {
     this.emit('goal', { kills: this.totalKills(), boss: true });
   }
 
-  // 승리 연출 중에는 입력도, 로봇이 선을 넘어 생명이 깎이는 것도 막는다
+  // 보스 펀치 연출 중에는 세상이 멈춘다: 주먹이 닿는 순간 'boss-punch', 연출이 끝나면 생명과 상관없이 패배
+  stepBossPunch() {
+    const elapsed = this.gameTime - this.punchAt;
+    if (!this.punchLanded && elapsed >= BOSS_RULES.punchImpactSeconds) {
+      this.punchLanded = true;
+      this.emit('boss-punch', { boss: this.boss() });
+    }
+    if (elapsed < BOSS_RULES.punchEndSeconds) return;
+    this.punchAt = null;
+    this.lives = Math.min(this.lives, 1);
+    this.loseLife({ robot: this.boss(), boss: true });
+  }
+
+  // 승리 연출·보스 펀치 중에는 입력도, 로봇이 선을 넘어 생명이 깎이는 것도 막는다
   input(character, nowMs) {
-    if (this.winAt != null) return { accepted: false, reason: 'finished' };
+    if (this.winAt != null || this.punchAt != null) return { accepted: false, reason: 'finished' };
     return super.input(character, nowMs);
   }
 
@@ -365,6 +388,10 @@ export class ThrowEngine extends TargetGameEngine {
       if (robot.state !== 'walking') continue;
       const type = ROBOT_TYPES[robot.type];
       robot.x -= type.speed * (type.boss ? this.difficulty.speed : multiplier) * frameSeconds;
+      if (type.boss && robot.x <= THROW_RULES.playerX + BOSS_RULES.reachGap) {
+        this.startBossPunch(robot);
+        return;
+      }
       if (robot.x <= THROW_RULES.playerX) this.robotReachedPlayer(robot);
       if (this.status !== 'running') return;
     }
@@ -389,15 +416,21 @@ export class ThrowEngine extends TargetGameEngine {
     robot.state = 'crashed';
     robot.stateAt = this.gameTime;
     this.releaseTargetIf(robot.id, 'robot-crashed');
-    // 보스가 책상에 닿으면 남은 생명과 상관없이 끝
-    if (ROBOT_TYPES[robot.type].boss) {
-      this.emit('boss-reached', { boss: robot });
-      this.lives = Math.min(this.lives, 1);
-      this.loseLife({ robot, boss: true });
-      return;
-    }
     this.loseLife({ robot });
     if (this.status === 'running' && this.nextBatteryAt === Infinity) this.scheduleBattery(THROW_RULES.batteryFirstDelay);
+  }
+
+  // 보스가 내 앞에 멈춰 서서 주먹을 날린다(조준·입력·패드 모두 정리)
+  startBossPunch(boss) {
+    boss.state = 'punching';
+    boss.stateAt = this.gameTime;
+    boss.chargeUntil = null;
+    this.punchAt = this.gameTime;
+    this.punchLanded = false;
+    this.releaseTargetIf(boss.id, 'boss-reached');
+    this.clearBuffer();
+    for (const pad of this.pads) pad.consumed = true;
+    this.emit('boss-reached', { boss });
   }
 
   // 막지 못한 패드는 건전지 1칸을 깎는다
@@ -412,7 +445,7 @@ export class ThrowEngine extends TargetGameEngine {
 
   removeFinished() {
     this.robots = this.robots.filter(robot =>
-      robot.state === 'walking' || this.gameTime - robot.stateAt < THROW_RULES.dyingSeconds);
+      robot.state === 'walking' || robot.state === 'punching' || this.gameTime - robot.stateAt < THROW_RULES.dyingSeconds);
     const inFlight = entity => this.projectiles.some(projectile => projectile.targetId === entity.id);
     this.items = this.items.filter(item => !item.consumed || inFlight(item));
     this.pads = this.pads.filter(pad => !pad.consumed || inFlight(pad));
