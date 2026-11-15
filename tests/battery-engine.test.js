@@ -202,3 +202,10 @@ test('따라잡기 도움: 내 탑이 낮으면 방전봇이 느려진다', () =
   engine.me.cells = BATTERY_RULES.mercyCells;
   assert.ok(Math.abs(engine.aiCharactersPerSecond() - normal * BATTERY_RULES.mercyFactor) < 1e-9);
 });
+
+test('혼자 하기 상대 캐릭터: 레벨마다 다른 이름, 그림 쪽 이름과 같다', async () => {
+  const { DRAIN_BOTS } = await import('../public/js/battery-characters.js');
+  const names = [1, 2, 3, 4].map(level => setup({ level }).engine.rivalName);
+  assert.equal(new Set(names).size, 4);
+  names.forEach((name, index) => assert.equal(name, DRAIN_BOTS[index + 1].name));
+});

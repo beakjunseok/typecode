@@ -51,6 +51,8 @@ export const BATTERY_MAX_POINTS_PER_CHARACTER = SCORING.basePoints * MAX_MULTIPL
   + Math.max(BATTERY_RULES.drainBounty, ...Object.values(BATTERY_ITEMS).map(item => item.bounty)) / ARCADE_RULES.minTokenLength
   + BATTERY_RULES.winBonusPerCharacterCap;
 
+const RIVAL_NAMES = Object.freeze({ 1: '꾸벅봇', 2: '방전봇', 3: '과열봇', 4: '블랙아웃봇' });
+
 function createSide() {
   return { cells: BATTERY_RULES.startCells, ecoUntil: 0, heatUntil: 0 };
 }
@@ -101,6 +103,11 @@ export class BatteryEngine extends TargetGameEngine {
 
   currentWeapon() {
     return 'bolt';
+  }
+
+  // 혼자 하기 상대 이름: 레벨마다 다른 방전봇 캐릭터(battery-characters.js의 DRAIN_BOTS와 같은 이름)
+  get rivalName() {
+    return RIVAL_NAMES[this.level] ?? RIVAL_NAMES[2];
   }
 
   sinkPerSecond() {

@@ -3,7 +3,7 @@
 import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
 import { BATTERY_RULES } from './battery-engine.js';
-import { MASCOT_PALETTES, createRig, reactRig, updateRig, drawPhoneMascot, drawDrainBot } from './battery-characters.js';
+import { MASCOT_PALETTES, createRig, reactRig, updateRig, drawPhoneMascot, drawDrainBot, drainBotFor } from './battery-characters.js';
 import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
 
 const BEAM_SECONDS = 0.35;
@@ -712,7 +712,7 @@ export class BatteryRenderer {
         percent, sleeping: state.sleeping, worried: state.worried, result: state.result
       });
     } else {
-      drawDrainBot(context, rig, { paused: state.sleeping, worried: state.worried, result: state.result });
+      drawDrainBot(context, rig, { paused: state.sleeping, worried: state.worried, result: state.result, level: engine.level });
     }
     if (state.sleeping) {
       context.fillStyle = '#c792ea';
@@ -960,7 +960,7 @@ export class BatteryRenderer {
     context.fillStyle = SIDE_STYLE.me.label;
     context.fillText(`${Math.round(ratio('me') * 100)}%`, 64, middle);
 
-    const rivalName = isPvp(engine) ? rivalLabel(engine).slice(0, 8) : '방전봇';
+    const rivalName = isPvp(engine) ? rivalLabel(engine).slice(0, 8) : drainBotFor(engine.level).name;
     this.drawGauge(context, width - 40, middle, ratio('rival'), SIDE_STYLE.rival.label, true);
     context.textAlign = 'right';
     context.fillStyle = SCENE.fog;
