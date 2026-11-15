@@ -51,9 +51,12 @@ export function submitScore(payload) {
   return callApi('/api/scores', { method: 'POST', body: payload });
 }
 
-// level: 난이도별 랭킹 모드(throw·battery)일 때만
-export function fetchBoard(mode = 'practice', level = null) {
-  return callApi(`/api/scores?mode=${encodeURIComponent(mode)}${level ? `&level=${level}` : ''}`);
+// level: 난이도별 랭킹 모드(throw·battery)일 때만. language: 그 언어 기록만
+export function fetchBoard(mode = 'practice', level = null, language = null) {
+  const query = new URLSearchParams({ mode });
+  if (level) query.set('level', level);
+  if (language) query.set('language', language);
+  return callApi(`/api/scores?${query}`);
 }
 
 function readStorage(key, fallbackValue) {
@@ -83,15 +86,26 @@ export const preferences = {
 const localBoardKey = (mode, level) => `${LOCAL_BOARD_PREFIX}${mode === 'practice' ? '' : `${mode}:`}${level && level !== 2 ? `L${level}:` : ''}${getWeekLabel()}`;
 
 export const localBoard = {
-  load(mode = 'practice', level = null) {
+  // 저장은 언어를 섞어 두고(기록마다 language가 있다) 읽을 때 language로 거른다
+  loadAll(mode = 'practice', level = null) {
     const entries = readStorage(localBoardKey(mode, level), []);
     return Array.isArray(entries) ? entries.filter(entry => entry && Number.isFinite(entry.score)) : [];
   },
+  load(mode = 'practice', level = null, language = null) {
+    const entries = this.loadAll(mode, level);
+    return language ? entries.filter(entry => entry.language === language) : entries;
+  },
+  // 언어마다 상위 BOARD_SIZE개씩 남긴다
   save(entry, mode = 'practice', level = null) {
-    const entries = [...this.load(mode, level), entry]
-      .sort((first, second) => second.score - first.score || first.achievedAt - second.achievedAt)
-      .slice(0, BOARD_SIZE);
-    writeStorage(localBoardKey(mode, level), entries);
-    return entries;
+    const sorted = [...this.loadAll(mode, level), entry]
+      .sort((first, second) => second.score - first.score || first.achievedAt - second.achievedAt);
+    const perLanguage = new Map();
+    const kept = sorted.filter(item => {
+      const count = perLanguage.get(item.language) ?? 0;
+      perLanguage.set(item.language, count + 1);
+      return count < BOARD_SIZE;
+    });
+    writeStorage(localBoardKey(mode, level), kept);
+    return kept.filter(item => item.language === entry.language);
   }
 };

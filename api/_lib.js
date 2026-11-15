@@ -43,6 +43,16 @@ export function resolveMode(rawMode) {
 }
 
 export const LEVELS = Object.freeze([1, 2, 3, 4]);
+
+// 랭킹은 언어마다 따로다. 저장 경로는 그대로 두고(예전 기록에도 language가 들어 있다) 읽을 때 언어로 거른다.
+// 값이 없으면 null(모든 언어), 지원하지 않는 언어면 422
+export function resolveLanguage(rawLanguage) {
+  if (rawLanguage === undefined || rawLanguage === null || rawLanguage === '') return null;
+  if (!LANGUAGE_KEYS.includes(rawLanguage)) throw new HttpError(422, 'invalid_language', '지원하지 않는 언어입니다');
+  return rawLanguage;
+}
+
+export const filterByLanguage = (entries, language) => (language ? entries.filter(entry => entry.language === language) : entries);
 // 난이도를 나누기 전 기록은 Lv.2(보통) 랭킹으로 이어 쓴다(예전 경로 그대로)
 const LEGACY_LEVEL = 2;
 

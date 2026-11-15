@@ -95,9 +95,11 @@ const boardMode = () => (isTimeAttack() ? 'timeattack' : settings.mode);
 // 휴대폰 던지기·배터리 구조는 난이도마다 랭킹이 따로다(그 외 모드는 null)
 const LEVELED_BOARDS = Object.freeze(['throw', 'battery']);
 const boardLevel = (mode = boardMode()) => (LEVELED_BOARDS.includes(mode) ? settings.level : null);
-const boardLabel = (mode = boardMode(), level = boardLevel(mode)) => {
-  const label = BOARD_LABELS[mode] ?? mode;
-  return level ? `${label} · ${DIFFICULTY_LEVELS[level]?.label ?? `Lv.${level}`}` : label;
+// 랭킹은 언어마다 따로다: 제목에 언어도 붙인다
+const boardLabel = (mode = boardMode(), level = boardLevel(mode), language = settings.languageKey) => {
+  const parts = [BOARD_LABELS[mode] ?? mode, LANGUAGES[language]?.label ?? language];
+  if (level) parts.push(DIFFICULTY_LEVELS[level]?.label ?? `Lv.${level}`);
+  return parts.join(' · ');
 };
 // 배터리 구조 PvP(친구와 1:1). 연결·경기 단계는 pvp 객체 하나에 모은다
 const isPvp = () => settings.mode === 'battery' && settings.batteryVariant === 'pvp';
@@ -447,16 +449,17 @@ function saveLocally(summary, name, mode, level = null) {
 async function refreshBoard() {
   const mode = boardMode();
   const level = boardLevel(mode);
-  const modeLabel = boardLabel(mode, level);
-  // 응답이 오는 사이 모드·난이도를 바꿨으면 그리지 않는다
-  const stale = () => mode !== boardMode() || level !== boardLevel();
+  const language = settings.languageKey;
+  const modeLabel = boardLabel(mode, level, language);
+  // 응답이 오는 사이 모드·난이도·언어를 바꿨으면 그리지 않는다
+  const stale = () => mode !== boardMode() || level !== boardLevel() || language !== settings.languageKey;
   try {
-    const result = await fetchBoard(mode, level);
+    const result = await fetchBoard(mode, level, language);
     if (stale()) return;
     ui.renderBoard(result.entries, { week: result.week, isLive: true, highlightId: run.highlightId, modeLabel });
   } catch (error) {
     if (stale()) return;
-    ui.renderBoard(localBoard.load(mode, level), { week: getWeekLabel(), isLive: false, highlightId: run.highlightId, modeLabel });
+    ui.renderBoard(localBoard.load(mode, level, language), { week: getWeekLabel(), isLive: false, highlightId: run.highlightId, modeLabel });
   }
 }
 
@@ -1594,6 +1597,7 @@ function bindSettings() {
     settings.languageKey = ui.elements.languageSelect.value;
     preferences.set('lang', settings.languageKey);
     resetGame();
+    refreshBoard();
   });
   sound.setEnabled(preferences.get('sound', true));
   const renderSoundToggle = () => {
