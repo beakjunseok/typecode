@@ -7,7 +7,7 @@ import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING, SKIN
 import { THROW_RULES } from './throw-engine.js';
 import {
   setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont,
-  loadArt, drawCoverArt } from './game-view.js';
+  loadArt, drawCoverArt, Juice } from './game-view.js';
 
 // 서버실 복도 그림(AI 생성, public/art/throw-stage.webp). 소실점이 화면 가운데 위로 오게 깐다
 const STAGE_ART = loadArt('/art/throw-stage.webp');
@@ -38,6 +38,8 @@ export class ThrowRenderer {
   constructor(canvas) {
     this.surface = setupCanvas(canvas);
     this.particles = new ParticleSystem();
+    this.juice = new Juice();
+    this.lastWallSeconds = null;
     this.lastGameTime = 0;
     this.accent = '#36e2ff';
     this.lanes = THROW_RULES.lanes;
@@ -113,18 +115,41 @@ export class ThrowRenderer {
       const scale = this.depthScale(robot.x);
       const x = this.columnX(robot.lane);
       const y = this.toY(robot.x) - (style.height * scale) / 2;
+      const heavy = payload.weapon === 'laptop' || robot.maxHp > 1;
       if (type === 'kill') {
+        this.juice.shake(heavy ? 0.45 : 0.3);
+        this.juice.ring(x, y, { color: style.eye, radius: (heavy ? 90 : 64) * scale, width: 5 });
+        this.juice.ring(x, y, { color: '#ffffff', radius: 34 * scale, life: 0.22, width: 3 });
+        this.juice.popup(x, y - 24 * scale, `+${payload.bounty}`, { color: '#ffe08a', size: heavy ? 24 : 20 });
         this.particles.burst(x, y, { color: style.bodyLight, count: 18, speed: 240, life: 0.8, size: 4, gravity: 420 });
         this.particles.burst(x, y, { color: style.eye, count: 14, speed: 160, life: 0.5, size: 2.5 });
         this.particles.burst(x, y, { color: '#ffffff', count: 8, speed: 90, life: 0.25, size: 5 });
       } else {
+        this.juice.shake(payload.weapon === 'laptop' ? 0.3 : 0.18);
+        this.juice.ring(x, y, { color: '#ffcb6b', radius: 40 * scale, life: 0.25, width: 3 });
+        if (robot.hp > 0) this.juice.popup(x + 22 * scale, y - 10, `HP ${robot.hp}`, { color: '#ffcb6b', size: 15, rise: 28, life: 0.6 });
         this.particles.burst(x, y + 10, { color: '#ffcb6b', count: 10, speed: 150, life: 0.35, size: 2.5 });
       }
     } else if (type === 'item') {
       const item = payload.item;
       this.particles.burst(this.columnX(item.lane), this.toY(item.x) - 14, { color: ITEM_STYLE[item.item].color, count: 32, speed: 220, life: 0.8 });
+      this.juice.flash(ITEM_STYLE[item.item].color, 0.18, 0.3);
+      this.juice.ring(this.columnX(item.lane), this.toY(item.x) - 14, { color: ITEM_STYLE[item.item].color, radius: 110, life: 0.5, width: 6 });
+      this.juice.popup(this.columnX(item.lane), this.toY(item.x) - 40, item.item === 'laptop' ? '💻 위력 ×3!' : '🔋 +1', { color: ITEM_STYLE[item.item].color, size: 22 });
+    } else if (type === 'goal') {
+      this.juice.flash('#ffffff', 0.55, 0.5);
+      this.juice.shake(0.6);
+      this.juice.popup(this.surface.width / 2, this.surface.height * 0.45, 'MISSION CLEAR!', { color: '#4df0a6', size: 34, rise: 30, life: 1.6 });
+    } else if (type === 'throw' && payload.combo > 0 && payload.combo % 10 === 0) {
+      const { x, y } = this.playerPosition();
+      this.juice.popup(x, y - 70, `${payload.combo} COMBO!`, { color: this.accent, size: 24, life: 1.1 });
+    } else if (type === 'mistake') {
+      this.juice.shake(0.12);
     } else if (type === 'damage') {
       this.player.hurt.kick(30);
+      this.juice.shake(0.75);
+      this.juice.flash('#ff2846', 0.32, 0.35);
+      this.juice.popup(this.columnX(payload.cause.robot.lane), this.dangerY - 18, '-1 🔋', { color: '#ff5d73', size: 22 });
       this.particles.burst(this.columnX(payload.cause.robot.lane), this.dangerY, { color: '#ff4d6d', count: 26, speed: 200, life: 0.6, gravity: 300 });
     }
   }
@@ -140,10 +165,15 @@ export class ThrowRenderer {
     this.particles.update(frameSeconds);
     this.visuals.step(frameSeconds, new Set([...engine.robots, ...engine.items].map(entity => entity.id)));
     this.player.hurt.step(frameSeconds);
+    const wallNow = performance.now() / 1000;
+    this.juice.step(this.lastWallSeconds == null ? 0 : wallNow - this.lastWallSeconds);
+    this.lastWallSeconds = wallNow;
+    this.juice.setDanger(engine.status === 'running' && engine.lives === 1 ? 1 : 0);
     this.updateBodyMotion(engine, frameSeconds);
 
     const { width, height } = this.surface;
     context.clearRect(0, 0, width, height);
+    this.juice.beginShake(context);
     this.drawBackground(context, width, height, engine);
     // 먼 것(위)부터 그려 가까운 로봇이 앞을 가리게 한다
     const sorted = [...engine.robots].sort((first, second) => second.x - first.x);
@@ -154,6 +184,8 @@ export class ThrowRenderer {
     this.drawPlayer(context, engine);
     for (const projectile of engine.projectiles) this.drawProjectile(context, projectile, engine);
     this.particles.draw(context);
+    this.juice.endShake(context);
+    this.juice.drawOverlay(context, width, height);
     this.drawHud(context, engine);
   }
 

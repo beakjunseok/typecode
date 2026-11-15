@@ -335,7 +335,7 @@ export class ThrowEngine extends TargetGameEngine {
     this.kills[robot.type]++;
     this.score += bounty;
     this.releaseTargetIf(robot.id, 'robot-destroyed');
-    this.emit('kill', { robot, bounty });
+    this.emit('kill', { robot, bounty, weapon: projectile.weapon });
     this.checkGoal();
   }
 

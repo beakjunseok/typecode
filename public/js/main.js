@@ -223,11 +223,14 @@ function handleArcadeEvent(type, payload) {
       {
         const combo = run.engine?.combo ?? 1;
         sound.play(battery ? 'explode' : 'robotKill', { type: payload.robot.type, combo, tier: getTierIndex(combo) });
+        // 타격 정지: 큰 놈·노트북일수록 조금 더 길게 멈춘다
+        run.engine?.hitStop?.(payload.weapon === 'laptop' || payload.robot.maxHp > 1 ? 0.085 : 0.05);
       }
       ui.log('ok', `${ROBOT_TYPES[payload.robot.type].label} 처치 (+${payload.bounty})`);
       break;
     case 'goal':
       sound.play('newRecord');
+      run.engine?.hitStop?.(0.22);
       pulseClass(ui.elements.arcadeStage, 'tier-flash', 900);
       ui.log('ok', `🤖 로봇 ${payload.kills}대 처치 — 미션 클리어!`);
       break;
@@ -268,11 +271,13 @@ function handleArcadeEvent(type, payload) {
       break;
     case 'stage-clear':
       sound.play('newRecord');
+      run.engine?.hitStop?.(0.18);
       pulseClass(ui.elements.arcadeStage, 'tier-flash', 800);
       ui.log('ok', `STAGE ${payload.stage} CLEAR — ${payload.how === 'charged' ? '100% 충전 구조' : '방전봇 침몰'} (+${payload.bonus})`);
       break;
     case 'damage':
       sound.play(battery ? 'sink' : 'lifeLost');
+      run.engine?.hitStop?.(0.12);
       if (!battery) sound.play('glassCrack');
       pulseClass(ui.elements.arcadeStage, 'shake', 300);
       ui.log('err', battery ? (payload.cause.how === 'sunk' ? '배터리 0% — 방전의 바다에 빠졌습니다' : '방전봇이 먼저 100% 충전했습니다')
