@@ -1,6 +1,9 @@
 // 리듬 모드 화면: 4레인(손가락 구역), 위에서 떨어지는 큰 원 글자 노트, 아래 판정선, 맨 위에 지금 만드는 낱말.
 // 노트 위치 = 판정선 − (정박 시각 − 게임 시간) ÷ 떨어지는 시간 × 레인 높이. 게임 시간은 오디오 시계를 따른다.
-import { setupCanvas, roundedRect, ParticleSystem, canvasFont, CANVAS_FONTS } from './game-view.js';
+import { setupCanvas, roundedRect, ParticleSystem, canvasFont, CANVAS_FONTS, Juice } from './game-view.js';
+
+// 리듬 손맛: 박자를 읽어야 하므로 타격 정지는 없고 흔들림은 아주 약하게. 콤보 마디마다 큰 글씨
+const COMBO_MILESTONE = 25;
 import { RHYTHM_LANES, RHYTHM_RULES } from './rhythm-engine.js';
 import { TOKEN_KINDS } from './tokens.js';
 
@@ -30,6 +33,8 @@ export class RhythmRenderer {
   constructor(canvas) {
     this.surface = setupCanvas(canvas);
     this.particles = new ParticleSystem();
+    this.juice = new Juice();
+    this.lastWallSeconds = null;
     this.laneFlash = RHYTHM_LANES.map(() => ({ amount: 0, color: '#ffffff' }));
     this.popup = null;
     this.wordFlash = null;
@@ -90,6 +95,7 @@ export class RhythmRenderer {
       flash.amount = 1;
       flash.color = style.color;
       this.popup = { ...style, at: performance.now(), combo: payload.combo, delta: payload.delta };
+      this.juiceJudge(payload, layout);
       if (payload.judgement !== 'bad') {
         this.particles.burst(this.laneCenter(payload.lane, layout), layout.judgeY, { color: style.color, count: payload.judgement === 'perfect' ? 24 : 14, speed: 220, life: 0.5, gravity: 280 });
       }
@@ -98,6 +104,8 @@ export class RhythmRenderer {
       flash.amount = 0.8;
       flash.color = JUDGEMENT_STYLE.miss.color;
       this.popup = { ...JUDGEMENT_STYLE.miss, at: performance.now(), combo: 0, delta: null };
+      this.juice.shake(0.12);
+      this.juice.flash('#ff2846', 0.12, 0.2);
     } else if (type === 'hold') {
       // 막대 끝: 성공이면 레인 색 불꽃, 끊기면 BREAK
       const flash = this.laneFlash[payload.lane];
@@ -108,7 +116,28 @@ export class RhythmRenderer {
       if (payload.success) this.particles.burst(this.laneCenter(payload.lane, layout), layout.judgeY, { color, count: 20, speed: 240, life: 0.5, gravity: 260 });
     } else if (type === 'word') {
       this.wordFlash = { word: payload.word, clean: payload.clean, bonus: payload.bonus, at: performance.now() };
-      if (payload.clean) this.particles.burst(layout.width / 2, HUD_HEIGHT + WORD_AREA / 2, { color: '#ffe066', count: 30, speed: 260, life: 0.7 });
+      if (payload.clean) {
+        this.particles.burst(layout.width / 2, HUD_HEIGHT + WORD_AREA / 2, { color: '#ffe066', count: 30, speed: 260, life: 0.7 });
+        this.juice.ring(layout.width / 2, HUD_HEIGHT + WORD_AREA / 2, { color: '#ffe066', radius: 120, life: 0.45, width: 4 });
+        this.juice.popup(layout.width / 2, HUD_HEIGHT + WORD_AREA + 8, `+${payload.bonus}`, { color: '#ffe066', size: 18, rise: 30, life: 0.8 });
+      }
+    }
+  }
+
+  // 판정 손맛: PERFECT는 레인 고리 두 겹, GREAT는 한 겹. 콤보가 마디(25)에 닿으면 가운데 큰 COMBO와 번쩍임
+  juiceJudge(payload, layout) {
+    const x = this.laneCenter(payload.lane, layout);
+    const color = JUDGEMENT_STYLE[payload.judgement].color;
+    if (payload.judgement === 'perfect') {
+      this.juice.ring(x, layout.judgeY, { color, radius: layout.radius * 2.6, life: 0.32, width: 4 });
+      this.juice.ring(x, layout.judgeY, { color: '#ffffff', radius: layout.radius * 1.6, life: 0.18, width: 2 });
+    } else if (payload.judgement === 'great') {
+      this.juice.ring(x, layout.judgeY, { color, radius: layout.radius * 2, life: 0.26, width: 3 });
+    }
+    if (payload.combo > 0 && payload.combo % COMBO_MILESTONE === 0) {
+      this.juice.popup(layout.width / 2, layout.judgeY - layout.radius * 5, `${payload.combo} COMBO!`, { color: '#ffe066', size: 30, rise: 40, life: 1.2 });
+      this.juice.flash('#ffe066', 0.12, 0.35);
+      this.juice.shake(0.15);
     }
   }
 
@@ -123,6 +152,9 @@ export class RhythmRenderer {
     this.lastGameTime = engine.gameTime;
     this.particles.update(frameSeconds);
     for (const flash of this.laneFlash) flash.amount = Math.max(0, flash.amount - frameSeconds * 3.5);
+    const wallNow = performance.now() / 1000;
+    this.juice.step(this.lastWallSeconds == null ? 0 : wallNow - this.lastWallSeconds);
+    this.lastWallSeconds = wallNow;
 
     const beatPhase = engine.status === 'running' ? ((engine.gameTime / engine.beatSeconds) % 1 + 1) % 1 : 0.5;
     const pulse = Math.max(0, 1 - beatPhase * 3.5);
@@ -130,6 +162,7 @@ export class RhythmRenderer {
 
     context.fillStyle = '#05070c';
     context.fillRect(0, 0, width, height);
+    this.juice.beginShake(context);
     this.drawStage(context, width, height, pulse);
 
     // 레인 바탕 + 맞힌 레인 번쩍임
@@ -211,6 +244,8 @@ export class RhythmRenderer {
       }
     }
     this.particles.draw(context);
+    this.juice.endShake(context);
+    this.juice.drawOverlay(context, width, height);
 
     this.drawHud(context, engine, layout);
     this.drawWord(context, engine, layout);

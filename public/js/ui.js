@@ -1,5 +1,6 @@
 // 화면 렌더링 전담. 게임 규칙은 모르고, 엔진 상태와 요약 값을 받아 그리기만 한다.
 import { LANGUAGES, TOKEN_KINDS } from './tokens.js';
+import { prefersReducedMotion } from './effects.js';
 
 export const TIER_COLORS = Object.freeze(['#36e2ff', '#ffb547', '#ff4fd8']);
 const CONSOLE_LINES = 6;
@@ -56,12 +57,20 @@ export function createUi(root = document) {
   }
 
   // 현재 토큰: 맞은 글자는 종류 색, 틀린 글자는 빨강, 지운 글자는 다시 기본색. O(L)
+  // 방금 맞게 친 글자 하나만 톡 튀게(pop) 한다. 지울 때·토큰이 바뀔 때는 튀지 않는다
+  let lastCorrectCount = 0;
+  let lastTokenNumber = null;
   function renderCurrentToken(engine) {
     const { text, kind } = engine.current;
     const color = kindColor(kind);
     const states = engine.getCharacterStates();
+    const correctCount = states.filter(state => state === 'correct').length;
+    const sameToken = engine.tokenNumber === lastTokenNumber;
+    const poppedIndex = sameToken && correctCount > lastCorrectCount ? states.lastIndexOf('correct') : -1;
+    lastCorrectCount = correctCount;
+    lastTokenNumber = engine.tokenNumber;
     const spans = [...text].map((character, index) => {
-      const span = element('span', `ch ${states[index]}${character === ' ' ? ' space' : ''}`, character === ' ' ? '·' : character);
+      const span = element('span', `ch ${states[index]}${character === ' ' ? ' space' : ''}${index === poppedIndex ? ' pop' : ''}`, character === ' ' ? '·' : character);
       if (states[index] === 'correct') span.style.color = color;
       return span;
     });
@@ -112,7 +121,7 @@ export function createUi(root = document) {
     elements.timerFill.style.transform = `scaleX(${Math.max(0, Math.min(1, barRatio))})`;
     elements.wpmValue.textContent = snapshot.charactersPerMinute ?? snapshot.wordsPerMinute * 5;
     elements.accuracyValue.textContent = `${snapshot.accuracy}%`;
-    elements.comboValue.textContent = snapshot.combo;
+    renderCombo(snapshot.combo);
     elements.multiplierValue.textContent = `×${snapshot.multiplier.toFixed(1)}`;
     elements.scoreValue.textContent = snapshot.score.toLocaleString();
     elements.comboFill.style.transform = `scaleX(${snapshot.tierProgress.ratio})`;
@@ -251,8 +260,57 @@ export function createUi(root = document) {
     elements.saveButton.disabled = disabled;
   }
 
+  // 콤보 숫자: 오를 때마다 통 튀고, 콤보가 클수록(50에서 최대) 숫자가 커지고 색이 달아오른다.
+  // 5 이상에서 끊기면 금 가듯 흔들린다
+  let shownCombo = 0;
+  function renderCombo(combo) {
+    const value = elements.comboValue;
+    if (combo === shownCombo) return;
+    value.textContent = combo;
+    value.style.setProperty('--combo-heat', Math.min(1, combo / 50).toFixed(3));
+    const className = combo > shownCombo ? 'bump' : shownCombo >= 5 ? 'broke' : null;
+    shownCombo = combo;
+    if (!className) return;
+    value.classList.remove('bump', 'broke');
+    void value.offsetWidth;
+    value.classList.add(className);
+  }
+
+  // 토큰을 끝내면 그 글자들이 하나씩 위로 튀어 오르며 흩어진다(화면에 떠 있는 복제본, 끝나면 제거).
+  // 깨끗하게 쳤으면 종류 색, 아니면 회색. 콤보 10마다 가운데 위로 'N COMBO' 글씨. 글자 수 L에 대해 O(L)
+  function celebrateToken({ clean, combo, color }) {
+    if (prefersReducedMotion()) return;
+    const letters = [...elements.currentView.querySelectorAll('.ch')];
+    const fragment = document.createDocumentFragment();
+    letters.forEach((letter, index) => {
+      const rect = letter.getBoundingClientRect();
+      if (!rect.width) return;
+      const flyer = element('span', 'fly-letter', letter.textContent);
+      flyer.style.left = `${rect.left}px`;
+      flyer.style.top = `${rect.top}px`;
+      flyer.style.color = clean ? color : 'var(--ghost)';
+      flyer.style.setProperty('--fly-x', `${(index - (letters.length - 1) / 2) * 6 + (Math.random() - 0.5) * 24}px`);
+      flyer.style.setProperty('--fly-y', `${-60 - Math.random() * 40 - Math.min(combo, 40)}px`);
+      flyer.style.setProperty('--fly-rotate', `${(Math.random() - 0.5) * 50}deg`);
+      flyer.style.animationDelay = `${index * 18}ms`;
+      flyer.addEventListener('animationend', () => flyer.remove(), { once: true });
+      setTimeout(() => flyer.remove(), 1400);
+      fragment.append(flyer);
+    });
+    if (clean && combo > 0 && combo % 10 === 0) {
+      const rect = elements.currentView.getBoundingClientRect();
+      const banner = element('div', 'combo-burst', `${combo} COMBO`);
+      banner.style.left = `${rect.left + rect.width / 2}px`;
+      banner.style.top = `${rect.top - 8}px`;
+      banner.addEventListener('animationend', () => banner.remove(), { once: true });
+      setTimeout(() => banner.remove(), 1600);
+      fragment.append(banner);
+    }
+    document.body.append(fragment);
+  }
+
   return {
-    elements, populateLanguages, renderToken, renderStats, setFocusState, log, renderBoard,
+    elements, populateLanguages, celebrateToken, renderToken, renderStats, setFocusState, log, renderBoard,
     showResult, hideResult, showTimeBonus, setSaveStatus, setSaveButton, kindColor
   };
 }
