@@ -97,7 +97,7 @@ export class BatteryRenderer {
       sub: `${payload.wins.mine} : ${payload.wins.theirs} · ${payload.how === 'charged' ? '100% 충전' : '상대 방전'}`,
       at: wallSeconds(), color: payload.mine ? '#4df0a6' : '#ff5d73'
     };
-    else if (type === 'stage-clear') this.banner = { text: `STAGE ${payload.stage} CLEAR`, sub: payload.how === 'charged' ? '100% 충전 완료! 충전 드론이 구조했습니다' : '방전봇 침몰!', at: wallSeconds() };
+    else if (type === 'stage-clear') this.banner = { text: payload.how === 'charged' ? 'RESCUED!' : 'YOU WIN!', sub: payload.how === 'charged' ? '100% 충전 완료! 충전 드론이 구조했습니다' : '방전봇 침몰!', at: wallSeconds() };
 
     if (!this.context) return;
     const now = wallSeconds();

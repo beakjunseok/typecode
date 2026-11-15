@@ -37,6 +37,9 @@ export const THROW_RULES = Object.freeze({
   laneGap: 0.15,
   spawnRetrySeconds: 0.25,
   firstItemAt: [18, 26],
+  // 로봇을 이만큼 처치하면 승리로 판이 끝난다. 마지막 처치 연출을 winPauseSeconds만큼 보여 준 뒤 finish
+  goalKills: 50,
+  winPauseSeconds: 1.2,
   itemInterval: [22, 32],
   maxFrameSeconds: ARCADE_RULES.maxFrameSeconds
 });
@@ -59,6 +62,8 @@ export class ThrowEngine extends TargetGameEngine {
     this.nextItemAt = randomBetween(this.random, THROW_RULES.firstItemAt);
     this.nextBatteryAt = Infinity;
     this.kills = { basic: 0, fast: 0, tank: 0 };
+    this.outcome = null;
+    this.winAt = null;
   }
 
   targetables() {
@@ -94,9 +99,38 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   step(frameSeconds) {
+    if (this.winAt != null && this.gameTime >= this.winAt) {
+      this.finish();
+      return;
+    }
     this.moveEntities(frameSeconds);
     this.removeFinished();
-    if (this.status === 'running') this.spawnIfDue();
+    if (this.status === 'running' && this.winAt == null) this.spawnIfDue();
+  }
+
+  totalKills() {
+    return this.kills.basic + this.kills.fast + this.kills.tank;
+  }
+
+  // 목표 처치 수를 채우면 남은 로봇은 그대로 두고(더 나오지 않음) 잠시 뒤 승리로 끝낸다
+  checkGoal() {
+    if (this.winAt != null || this.totalKills() < THROW_RULES.goalKills) return;
+    this.outcome = 'cleared';
+    this.winAt = this.gameTime + THROW_RULES.winPauseSeconds;
+    this.clearBuffer();
+    this.emit('goal', { kills: this.totalKills() });
+  }
+
+  // 승리 연출 중에는 입력도, 로봇이 선을 넘어 생명이 깎이는 것도 막는다
+  input(character, nowMs) {
+    if (this.winAt != null) return { accepted: false, reason: 'finished' };
+    return super.input(character, nowMs);
+  }
+
+  loseLife(cause) {
+    if (this.winAt != null) return;
+    super.loseLife(cause);
+    if (this.status === 'finished') this.outcome = 'overrun';
   }
 
   // ---------- 스폰 ----------
@@ -300,6 +334,7 @@ export class ThrowEngine extends TargetGameEngine {
     this.score += bounty;
     this.releaseTargetIf(robot.id, 'robot-destroyed');
     this.emit('kill', { robot, bounty });
+    this.checkGoal();
   }
 
   snapshotExtras() {
@@ -307,6 +342,6 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   summaryExtras() {
-    return { kills: { ...this.kills }, totalKills: this.kills.basic + this.kills.fast + this.kills.tank };
+    return { kills: { ...this.kills }, totalKills: this.totalKills(), goalKills: THROW_RULES.goalKills, outcome: this.outcome ?? 'overrun' };
   }
 }

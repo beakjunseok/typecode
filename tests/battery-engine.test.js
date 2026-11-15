@@ -110,7 +110,7 @@ test('뺏을 게 없으면 뺏지 못한다 (거의 바닥난 상대에게서 0.
   typeText(engine, clock, engine.rivalWord.token.text);
   advance(engine, clock, 0.3);
   assert.ok(engine.me.cells - meBefore <= 0.31);
-  assert.equal(engine.stage, 2, '상대 0 → 스테이지 클리어');
+  assert.equal(engine.outcome, 'rival-sunk', '상대 0 → 승리');
 });
 
 test('아이템 효과: 저전력(내 방전 감속)·발열(상대 가속)·화면 꺼짐(AI 정지)', () => {
@@ -135,10 +135,9 @@ test('아이템 효과: 저전력(내 방전 감속)·발열(상대 가속)·화
   assert.ok(engine.ai.pausedUntil > engine.gameTime + 2.5);
 });
 
-test('8칸 충전 → 스테이지 클리어, 탑 초기화, 다음 스테이지는 더 빠르다', () => {
+test('8칸 충전 → 구조 승리, 클리어 연출 뒤 게임 종료(그동안 입력 무시)', () => {
   const { engine, clock, events } = setup();
   freezeAi(engine); noSpawns(engine);
-  const sinkBefore = engine.sinkPerSecond();
   engine.correctKeystrokes = 100;
   engine.me.cells = BATTERY_RULES.goalCells - 0.1;
   const item = engine.spawnItem('powerbank', 0.3, 1);
@@ -147,9 +146,12 @@ test('8칸 충전 → 스테이지 클리어, 탑 초기화, 다음 스테이지
   const clear = events.find(event => event.type === 'stage-clear');
   assert.ok(clear);
   assert.equal(clear.payload.how, 'charged');
-  assert.equal(engine.stage, 2);
-  assert.equal(engine.me.cells, BATTERY_RULES.startCells);
-  assert.ok(engine.sinkPerSecond() > sinkBefore);
+  assert.equal(engine.outcome, 'rescued');
+  assert.equal(engine.status, 'running', '연출 중');
+  assert.equal(engine.input('x', clock.now).accepted, false);
+  advance(engine, clock, BATTERY_RULES.stageClearPause + 0.2);
+  assert.equal(engine.status, 'finished');
+  assert.equal(engine.summary().outcome, 'rescued');
 });
 
 test('스테이지 보너스는 이번 스테이지에 친 글자 수로 상한 (가만히 있어도 점수 폭증 없음)', () => {
@@ -157,7 +159,7 @@ test('스테이지 보너스는 이번 스테이지에 친 글자 수로 상한 
   freezeAi(engine); noSpawns(engine);
   engine.rival.cells = 0.01;
   advance(engine, clock, 0.5);
-  assert.equal(engine.stage, 2);
+  assert.equal(engine.outcome, 'rival-sunk');
   assert.equal(engine.score, 0);
 });
 
@@ -186,8 +188,9 @@ test('긴 플레이: 점수 상한 유지, 아이템은 겹치지 않는 높이�
     const ys = engine.items.filter(item => !item.consumed).map(item => item.y).sort((a, b) => a - b);
     for (let index = 1; index < ys.length; index++) assert.ok(ys[index] - ys[index - 1] >= BATTERY_RULES.itemGap - 1e-9);
   }
-  assert.ok(engine.throws > 30);
-  assert.ok(engine.stagesCleared >= 1, `클리어 ${engine.stagesCleared}`);
+  assert.ok(engine.throws > 5, `던짐 ${engine.throws}`);
+  assert.equal(engine.status, 'finished');
+  assert.ok(['rescued', 'rival-sunk'].includes(engine.summary().outcome), `결과 ${engine.summary().outcome}`);
   assert.ok(engine.score <= engine.correctKeystrokes * BATTERY_MAX_POINTS_PER_CHARACTER);
   assert.ok(Object.keys(BATTERY_ITEMS).every(key => key in engine.summary().collected));
 });
