@@ -9,14 +9,19 @@ export const COSTS = Object.freeze({ single: 100, multi: 900, multiCount: 10 });
 // 맞게 친 글자가 20개 미만이면(바로 끝낸 판) 0P
 // 판마다 적립: 맞게 친 글자 3개당 1P × 정확도², 최대 콤보 10마다 5P. 300자·100%·25콤보 ≈ 110P(1회 뽑기 100P)
 export const EARNING = Object.freeze({ charactersPerPoint: 3, comboStep: 10, comboPoints: 5, maxPerGame: 800, minimumCharacters: 15 });
+// 리듬: 곡이 짧고 글자 수가 적어서 타자 포인트를 두 배로 주고, 클리어·풀콤보(FC)·올퍼펙트(AP)에 보너스
+export const RHYTHM_EARNING = Object.freeze({ typingFactor: 2, clear: 30, marks: Object.freeze({ FC: 40, AP: 80 }) });
 
 export function pointsForGame(summary) {
   const correct = Number(summary?.correctKeystrokes) || 0;
   if (correct < EARNING.minimumCharacters) return 0;
   const accuracy = Math.max(0, Math.min(100, Number(summary.accuracy) || 0)) / 100;
-  const typing = Math.floor(correct / EARNING.charactersPerPoint * accuracy * accuracy);
+  const rhythm = summary.mode === 'rhythm';
+  const typing = Math.floor(correct / EARNING.charactersPerPoint * accuracy * accuracy * (rhythm ? RHYTHM_EARNING.typingFactor : 1));
   const combo = Math.floor((Number(summary.maxCombo) || 0) / EARNING.comboStep) * EARNING.comboPoints;
-  return Math.min(EARNING.maxPerGame, typing + combo);
+  const bonus = rhythm && summary.outcome === 'cleared'
+    ? RHYTHM_EARNING.clear + (RHYTHM_EARNING.marks[summary.clearMark] ?? 0) : 0;
+  return Math.min(EARNING.maxPerGame, typing + combo + bonus);
 }
 const FIRST_DRAW_MINIMUM = 'rare';
 

@@ -146,6 +146,12 @@ test('게임 포인트: 판 결과로 적립, 1회 100P·10회 900P, 10회는 �
   assert.equal(pointsForGame({ correctKeystrokes: 300, accuracy: 50, maxCombo: 0 }), 25, '정확도² 반영');
   assert.equal(pointsForGame({ correctKeystrokes: 99999, accuracy: 100, maxCombo: 999 }), EARNING.maxPerGame);
   assert.equal(pointsForGame(null), 0);
+  // 리듬: 타자 포인트 두 배 + 클리어 30 + FC 40 / AP 80
+  const song = { mode: 'rhythm', correctKeystrokes: 300, accuracy: 100, maxCombo: 0 };
+  assert.equal(pointsForGame({ ...song, outcome: 'failed' }), 200);
+  assert.equal(pointsForGame({ ...song, outcome: 'cleared' }), 230);
+  assert.equal(pointsForGame({ ...song, outcome: 'cleared', clearMark: 'FC' }), 270);
+  assert.equal(pointsForGame({ ...song, outcome: 'cleared', clearMark: 'AP' }), 310);
 
   let state = addPoints(createGachaState(), 950);
   assert.equal(state.points, 950);

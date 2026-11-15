@@ -14,7 +14,7 @@ export const RHYTHM_RULES = Object.freeze({
   // 판정 창(초, 정박 기준 ±). 그 밖이지만 missAfter 안에 치면 BAD, 지나가면 MISS
   windows: Object.freeze({ perfect: 0.05, great: 0.1, good: 0.15 }),
   missAfter: 0.25,
-  // 판정 창보다 일찍(원이 오기 전) 맞는 키를 눌러도 이만큼 앞이면 인정한다(GOOD). 틀린 키는 그 범위에서 무시
+  // 판정 창보다 일찍(원이 오기 전) 맞는 키를 눌러도 이만큼 앞이면 인정한다(GOOD). 다음 글자가 아닌 키는 언제 눌러도 오타
   earlyAccept: 0.6,
   // 글자 하나의 점수(× 콤보 배율). 낱말의 모든 글자를 GOOD 이상으로, 오타 없이 치면 글자당 wordBonus 추가
   points: Object.freeze({ perfect: 100, great: 70, good: 40, bad: 10 }),
@@ -433,25 +433,29 @@ export class RhythmEngine extends TargetGameEngine {
     if (this.activeHold && matchesNote(character, this.activeHold.character)) return { accepted: false, reason: 'holding' };
     if (!head) return { accepted: false, reason: 'too_early' };
     const ahead = head.hitTime - (this.gameTime - this.offset);
+    // 다음 글자가 아닌 키: 원이 오기 전이든 판정선에 있든 오타
+    if (!matchesNote(character, head.character)) return this.wrongKey(head, character);
     if (ahead > RHYTHM_RULES.missAfter) {
-      // 원이 오기 전: 맞는 키면 GOOD으로 받아 주고(콤보 유지), 다른 키는 벌점 없이 무시
-      if (ahead <= RHYTHM_RULES.earlyAccept && matchesNote(character, head.character)) return this.hit(head, null, 'good');
+      // 원이 오기 전 맞는 키: 가까우면 GOOD으로 받아 주고(콤보 유지), 너무 이르면 무시
+      if (ahead <= RHYTHM_RULES.earlyAccept) return this.hit(head, null, 'good');
       return { accepted: false, reason: 'too_early' };
     }
-    if (!matchesNote(character, head.character)) {
-      head.word.mistakes++;
-      this.wrongKeystrokes++;
-      const comboLost = this.combo;
-      this.combo = 0;
-      this.breakFever();
-      this.noteWeak(head.word);
-      const payload = { typed: character, expected: head.character, target: head.word, note: head, comboLost, position: head.charIndex };
-      this.emit('mistake', payload);
-      this.changeHealth(RHYTHM_RULES.health.wrong);
-      this.checkStrict('wrong');
-      return { accepted: true, correct: false, ...payload };
-    }
     return this.hit(head);
+  }
+
+  // 오타: 콤보·피버가 끊기고 체력이 깎인다. 노트는 그대로 남는다(제때 다시 치면 된다)
+  wrongKey(head, character) {
+    head.word.mistakes++;
+    this.wrongKeystrokes++;
+    const comboLost = this.combo;
+    this.combo = 0;
+    this.breakFever();
+    this.noteWeak(head.word);
+    const payload = { typed: character, expected: head.character, target: head.word, note: head, comboLost, position: head.charIndex };
+    this.emit('mistake', payload);
+    this.changeHealth(RHYTHM_RULES.health.wrong);
+    this.checkStrict('wrong');
+    return { accepted: true, correct: false, ...payload };
   }
 
   hit(note, fixedDelta = null, forcedJudgement = null) {
