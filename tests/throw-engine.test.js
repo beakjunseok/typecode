@@ -131,6 +131,27 @@ test('탱크 로봇: 휴대폰 3번, 맞을 때마다 새 토큰', () => {
   assert.equal(engine.kills.tank, 1);
 });
 
+test('달팽봇: 탱크보다도 느리고, 휴대폰은 낱말 두 개(맞으면 새 낱말), 노트북은 한 방', () => {
+  assert.ok(ROBOT_TYPES.slow.speed < ROBOT_TYPES.tank.speed);
+  const { engine } = createEngine();
+  const clock = { now: 0 };
+  const snail = startWithRobot(engine, clock, 'slow');
+  const first = snail.token.text;
+  typeText(engine, clock, first);
+  advance(engine, clock, 0.3);
+  assert.equal(snail.hp, 1);
+  assert.equal(snail.state, 'walking');
+  typeText(engine, clock, snail.token.text);
+  advance(engine, clock, 0.3);
+  assert.equal(engine.kills.slow, 1);
+
+  engine.laptopUntil = engine.gameTime + 8;
+  const armored = engine.spawnRobot('slow', 1);
+  assert.equal(typeText(engine, clock, armored.token.text).weapon, 'laptop');
+  advance(engine, clock, 0.3);
+  assert.equal(engine.kills.slow, 2, '노트북 한 방');
+});
+
 test('노트북 아이템: 맞히면 8초간 노트북(피해 3), 탱크 한 방', () => {
   const { engine, events } = createEngine();
   const clock = { now: 0 };
@@ -210,7 +231,7 @@ test('긴 플레이에서도 점수는 정타 × 글자당 상한 이하 (서버
   assert.ok(engine.score <= engine.correctKeystrokes * MAX_POINTS_PER_CHARACTER);
   const summary = engine.summary();
   assert.equal(summary.wordsPerMinuteTimeline.length, Math.max(1, Math.ceil(engine.gameTime)));
-  assert.equal(summary.totalKills, summary.kills.basic + summary.kills.fast + summary.kills.tank);
+  assert.equal(summary.totalKills, Object.values(summary.kills).reduce((sum, count) => sum + count, 0));
 });
 
 test('같은 줄의 로봇·아이템은 나올 때도, 빠른 로봇이 따라와도 서로 겹치지 않는다', () => {
@@ -251,7 +272,7 @@ test('시간이 지나면 빠른 로봇·탱크 로봇이 등장한다', () => {
     now += 50;
     engine.update(now);
   }
-  assert.deepEqual([...seen].sort(), ['basic', 'fast', 'tank']);
+  assert.deepEqual([...seen].sort(), ['basic', 'fast', 'slow', 'tank']);
 });
 
 test('건전지 아이템: 생명이 깎이면 몇 초 뒤 나오고 1칸 회복, 가득 차면 더 안 나온다', () => {
