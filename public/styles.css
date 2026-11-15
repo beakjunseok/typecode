@@ -1232,3 +1232,17 @@ header { position: relative; }
 @media (prefers-reduced-motion: reduce) {
   .current .ch.pop, #comboValue.bump, #comboValue.broke { animation: none; }
 }
+
+/* ---------- 휴대폰으로 게임 중(body.mobile-play): 화면 키보드가 가리지 않게 게임 화면만 남긴다 ---------- */
+body.mobile-play header,
+body.mobile-play .timer-bar,
+body.mobile-play #arcadeStage > .tabbar,
+body.mobile-play .keyboard-section,
+body.mobile-play .board,
+body.mobile-play .log { display: none !important; }
+body.mobile-play .app { padding-top: 4px; }
+body.mobile-play .stats { margin-bottom: 4px; }
+body.mobile-play .stats .stat { padding: 3px 6px 4px; }
+body.mobile-play .stats .label { font-size: 10px; }
+body.mobile-play .stats .value { margin-top: 1px; font-size: 16px; }
+body.mobile-play #arcadeStage { margin-top: 0; }
