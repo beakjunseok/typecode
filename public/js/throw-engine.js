@@ -42,7 +42,10 @@ export const ITEM_TYPES = Object.freeze({
 });
 
 // 시간이 지나면 로봇이 빨라진다: seconds초에 걸쳐 최대 (1 + max)배
-const SPEED_RAMP = Object.freeze({ seconds: 180, max: 0.8 });
+const SPEED_RAMP = Object.freeze({ seconds: 240, max: 0.5 });
+
+// 로봇 나오는 간격(초): start에서 시작해 1초에 perSecond씩 줄어 floor까지. 레벨 배율·±20% 흔들림을 곱한다
+const SPAWN_PACE = Object.freeze({ start: 3.4, perSecond: 0.012, floor: 1.5 });
 
 export const WEAPONS = Object.freeze({
   phone: Object.freeze({ label: '휴대폰', damage: 1 }),
@@ -53,7 +56,7 @@ export const THROW_RULES = Object.freeze({
   lanes: 4,
   playerX: 0.09,
   spawnX: 1.04,
-  maxRobots: 9,
+  maxRobots: 6,
   dyingSeconds: 0.5,
   laptopSeconds: 8,
   // 건전지(회복)는 노트북과 따로, 생명이 깎여 있을 때만 가끔 나온다
@@ -136,7 +139,8 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   spawnInterval() {
-    return Math.max(0.85, 2.6 - this.gameTime * 0.025) * this.difficulty.spawn * (0.8 + this.random() * 0.4);
+    const base = Math.max(SPAWN_PACE.floor, SPAWN_PACE.start - this.gameTime * SPAWN_PACE.perSecond);
+    return base * this.difficulty.spawn * (0.8 + this.random() * 0.4);
   }
 
   step(frameSeconds) {
