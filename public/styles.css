@@ -316,6 +316,19 @@ button.icon.off { opacity: 0.4; }
 .song-record-score { font: 400 18px/1 var(--font-display); color: var(--paper); }
 .song-row { grid-template-columns: 44px minmax(0, 1fr) auto 32px; }
 .clear-mark { font: 700 10px/1 var(--font-ui); letter-spacing: 0.3px; padding: 3px 5px; border-radius: 4px; }
+.clear-lamp { font: 700 10px/1 var(--font-ui); letter-spacing: 0.3px; padding: 3px 5px; border-radius: 4px; border: 1px solid currentColor; }
+.clear-lamp:empty { padding: 0; border: 0; }
+.clear-lamp.lamp-FAILED { color: #6b7686; }
+.clear-lamp.lamp-ASSIST { color: #c792ea; }
+.clear-lamp.lamp-EASY { color: #39ff88; }
+.clear-lamp.lamp-CLEAR { color: #36e2ff; }
+.clear-lamp.lamp-HARD { color: #ff4d6d; }
+.clear-lamp.lamp-FC { color: #ffb547; background: rgba(255, 181, 71, 0.1); }
+.clear-lamp.lamp-AP { color: #ffe066; background: rgba(255, 224, 102, 0.14); box-shadow: 0 0 8px rgba(255, 224, 102, 0.35); }
+.song-record-ex { font: 600 12px/1 var(--font-ui); color: #8a98aa; }
+.option-gauge { padding: 6px 9px; font: 700 11px/1 var(--font-ui); color: var(--gauge); background: transparent; border: 1px solid color-mix(in srgb, var(--gauge) 45%, transparent); border-radius: 6px; cursor: pointer; }
+.option-gauge.on { color: #0a0d16; background: var(--gauge); border-color: var(--gauge); }
+.option-gauge:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .clear-mark:empty { padding: 0; }
 .clear-mark.mark-FC { color: #36e2ff; border: 1px solid rgba(54, 226, 255, 0.5); }
 .clear-mark.mark-AP { color: #ffe066; border: 1px solid rgba(255, 224, 102, 0.6); background: rgba(255, 224, 102, 0.1); }
@@ -1256,3 +1269,5 @@ body.mobile-play .stats .stat { padding: 3px 6px 4px; }
 body.mobile-play .stats .label { font-size: 10px; }
 body.mobile-play .stats .value { margin-top: 1px; font-size: 16px; }
 body.mobile-play #arcadeStage { margin-top: 0; }
+
+.ai-badge.chord-badge { color: #0a0d16; background: #ffb547; }

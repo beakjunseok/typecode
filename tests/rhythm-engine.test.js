@@ -75,11 +75,18 @@ test('악보: 곡 선율 위에 글자를 얹고, 난이도가 높을수록 촘�
         assert.equal(word.noteIds.map(id => engine.findEntity(id).character).join(''), word.token.text);
       }
       for (let index = 1; index < engine.notes.length; index++) {
+        if (engine.notes[index].chordPartner) {
+          const head = engine.notes[index - 1];
+          assert.equal(engine.notes[index].chordWith, head, '동시 노트는 바로 앞 글자와 짝');
+          assert.ok(engine.notes[index].lane > head.lane, '오른쪽 레인 = 낱말에서 뒤 글자');
+          assert.equal(engine.notes[index].hitTime, head.hitTime);
+          continue;
+        }
         const gap = engine.notes[index].hitTime - engine.notes[index - 1].hitTime;
         assert.ok(gap >= chart.minGap - 1e-6, `${song.id}/${difficulty} 노트 간격 ${gap}`);
       }
-      assert.ok(engine.autoNotes.length > 0, '글자 없는 선율 음은 자동 연주');
-      assert.equal(engine.melodyNotes.length, engine.autoNotes.length + engine.notes.filter(note => Number.isFinite(note.midi)).length, '글자 얹은 음도 반주가 연주');
+      assert.ok(engine.autoNotes.length > 0 || engine.notes.some(note => note.chordPartner), '글자 없는 선율 음은 자동 연주(느린 곡 EXPERT는 전부 칠 수도)');
+      assert.equal(engine.melodyNotes.length, engine.autoNotes.length + engine.notes.filter(note => Number.isFinite(note.midi) && !note.chordPartner).length, '글자 얹은 음도 반주가 연주(동시 노트 짝은 제외)');
       perMinute.push(engine.notes.length / ((engine.endTime - engine.leadInBeats * engine.beatSeconds) / 60));
       levels.push(engine.levelNumber());
     }
@@ -206,7 +213,7 @@ function startEngine(options) {
 }
 
 test('옵션 정리: 깨진 값은 기본값, 노페일은 서든데스·퍼펙트를 끄고 히든·페이드인은 함께 못 켠다', () => {
-  assert.deepEqual({ ...normalizeRhythmOptions('junk') }, { speed: 1, offsetMs: 0, noFail: false, suddenDeath: false, perfectOnly: false, hidden: false, fadeIn: false, mirror: false, autoPlay: false });
+  assert.deepEqual({ ...normalizeRhythmOptions('junk') }, { speed: 1, offsetMs: 0, gauge: 'normal', noFail: false, suddenDeath: false, perfectOnly: false, hidden: false, fadeIn: false, mirror: false, autoPlay: false });
   const options = normalizeRhythmOptions({ speed: 2, offsetMs: 433, noFail: true, suddenDeath: true, hidden: true, fadeIn: true });
   assert.equal(options.speed, 2);
   assert.equal(options.offsetMs, 200);
@@ -243,12 +250,13 @@ test('자동 연주: 전부 PERFECT로 끝나지만 클리어 마크·입력은 
 
 test('서든데스: MISS 하나면 실패 / 노페일: HP 0이어도 끝까지, 점수 절반', () => {
   const sudden = startEngine({ rhythmOptions: { suddenDeath: true } });
-  advanceTo(sudden.engine, sudden.engine.notes[0].hitTime + RULES.missAfter + 0.05, sudden.state);
+  advanceTo(sudden.engine, sudden.engine.notes[0].hitTime + sudden.engine.missAfter + 0.05, sudden.state);
   assert.equal(sudden.engine.outcome, 'failed');
-  const noFail = startEngine({ rhythmOptions: { noFail: true } });
+  const noFail = startEngine({ rhythmOptions: { noFail: true, gauge: 'hard' } });
   advanceTo(noFail.engine, noFail.engine.endTime + 1, noFail.state);
   assert.equal(noFail.engine.health, 0);
   assert.equal(noFail.engine.outcome, 'cleared');
+  assert.equal(noFail.engine.clearLamp(), 'ASSIST');
 });
 
 test('퍼펙트 온리: GREAT가 나오면 실패', () => {
@@ -264,7 +272,7 @@ test('피버: PERFECT가 이어지면 레벨이 오르고 배율이 붙으며, M
   for (const note of engine.notes.slice(0, 25)) playNote(engine, note, 0, state);
   assert.ok(engine.fever.level >= 1, `피버 레벨 ${engine.fever.level}`);
   assert.ok(engine.feverMultiplier() > 1);
-  advanceTo(engine, engine.notes[25].hitTime + RULES.missAfter + 0.05, state);
+  advanceTo(engine, engine.notes[25].hitTime + engine.missAfter + 0.05, state);
   assert.equal(engine.fever.level, 0);
 
   const perfect = startEngine({});
@@ -294,6 +302,7 @@ test('원이 오기 전에 누르면 다음 글자여도 오타, 곡 시작 전(
   assert.equal(engine.input(note.character, state.ms).correct, false, '판정 범위 밖에서 누른 다음 글자도 오타');
   assert.equal(engine.input(other(note.character), state.ms).correct, false);
   assert.equal(engine.wrongKeystrokes, 2);
+  assert.equal(engine.emptyPoors, 2, '공POOR로 센다');
   assert.equal(note.state, 'pending', '노트는 그대로');
   advanceTo(engine, note.hitTime - 0.2, state);
   const early = engine.input(note.character, state.ms);
@@ -350,4 +359,130 @@ test('롱노트: 길게 끄는 음은 막대가 되고, 꼬리까지 누르면 �
     assert.equal(third.holdState, 'done', '떼는 신호 없이 꼬리를 지나면 자동 성공');
   }
   assert.equal(engine.holdStats.broken, 1);
+});
+
+// ---------- 게이지 · 공POOR · 램프 · EX · 롱노트 꼬리 · 난이도별 판정 창 ----------
+import { RHYTHM_GAUGES, judgeRelease, rankFromExRate, CLEAR_LAMPS, lampOrder, RHYTHM_WINDOW_SCALES } from '../public/js/rhythm-engine.js';
+
+function playAll(engine, state, offsetOf = () => 0) {
+  engine.notes.forEach((note, index) => {
+    if (engine.status === 'running') playNote(engine, note, offsetOf(index, note), state);
+  });
+  advanceTo(engine, engine.endTime + 1, state);
+  return engine.summary();
+}
+
+test('노멀 게이지: 22에서 시작, 중간에 떨어지지 않고 끝에서 75% 이상이면 클리어', () => {
+  const missAll = startEngine({});
+  assert.equal(missAll.engine.health, RHYTHM_GAUGES.normal.start);
+  advanceTo(missAll.engine, missAll.engine.endTime * 0.6, missAll.state);
+  assert.equal(missAll.engine.status, 'running', '게이지가 바닥이어도 곡은 계속');
+  assert.equal(missAll.engine.health, RHYTHM_GAUGES.normal.floor);
+  advanceTo(missAll.engine, missAll.engine.endTime + 1, missAll.state);
+  assert.equal(missAll.engine.outcome, 'failed');
+  assert.equal(missAll.engine.clearLamp(), 'FAILED');
+
+  const good = startEngine({});
+  const summary = playAll(good.engine, good.state, index => (index % 4 === 0 ? 0.15 : 0));
+  assert.equal(summary.outcome, 'cleared');
+  assert.ok(summary.gaugeEnd >= 75);
+});
+
+test('하드 게이지: 0이 되면 바로 실패 · 이지는 기준선 60%', () => {
+  const hard = startEngine({ rhythmOptions: { gauge: 'hard' } });
+  assert.equal(hard.engine.health, 100);
+  advanceTo(hard.engine, hard.engine.endTime + 1, hard.state);
+  assert.equal(hard.engine.outcome, 'failed');
+  assert.ok(hard.engine.gameTime < hard.engine.endTime, '곡 중간에 끝남');
+  const easy = startEngine({ rhythmOptions: { gauge: 'easy' } });
+  assert.equal(easy.engine.gauge.clearAt, 60);
+  const summary = playAll(easy.engine, easy.state, index => (index % 3 === 0 ? 0.08 : 0));
+  assert.equal(summary.clearLamp, 'FC');
+  const easyClear = startEngine({ rhythmOptions: { gauge: 'easy' } });
+  const plain = playAll(easyClear.engine, easyClear.state, index => (index === 2 ? 0.5 : 0));
+  assert.equal(plain.clearLamp, 'EASY', 'MISS가 있으면 게이지 종류의 램프');
+});
+
+test('공POOR: 콤보·피버·풀콤보는 그대로, 게이지만 조금', () => {
+  const { engine, state } = startEngine({});
+  for (const note of engine.notes.slice(0, 6)) playNote(engine, note, 0, state);
+  const next = engine.headNote();
+  advanceTo(engine, next.hitTime - 0.05, state);
+  const combo = engine.combo;
+  const health = engine.health;
+  const result = engine.input(next.character === 'q' ? 'z' : 'q', state.ms);
+  assert.equal(result.emptyPoor, true);
+  assert.equal(engine.combo, combo, '콤보 유지');
+  assert.ok(engine.health < health && engine.health >= health - 1.01);
+  for (const note of engine.notes.slice(6)) playNote(engine, note, 0, state);
+  advanceTo(engine, engine.endTime + 1, state);
+  assert.equal(engine.summary().clearMark, 'AP', '공POOR가 있어도 AP');
+});
+
+test('EX 점수: PERFECT 2 · GREAT 1, 랭크는 EX 비율로', () => {
+  const { engine, state } = startEngine({});
+  const summary = playAll(engine, state, index => (index % 2 ? 0.08 : 0));
+  const expected = summary.judgements.perfect * 2 + summary.judgements.great + engine.holdStats.perfect * 2 + engine.holdStats.great;
+  assert.equal(summary.exScore, expected);
+  assert.equal(summary.exMax, (engine.notes.length + engine.holdCount) * 2);
+  assert.equal(summary.rank, rankFromExRate(summary.exRate));
+  assert.equal(rankFromExRate(100), 'S');
+  assert.equal(rankFromExRate(88.9), 'S');
+  assert.equal(rankFromExRate(80), 'A');
+  assert.equal(rankFromExRate(10), 'D');
+});
+
+test('롱노트 꼬리: 일찍 뗀 정도로 판정, 너무 이르면 끊김', () => {
+  assert.equal(judgeRelease(0), 'perfect');
+  assert.equal(judgeRelease(0.15), 'great');
+  assert.equal(judgeRelease(0.25), 'good');
+  assert.equal(judgeRelease(0.4), null);
+  const { engine, state } = startEngine({});
+  const hold = engine.notes.find(note => note.holdEnd);
+  assert.ok(hold, '롱노트가 있는 곡');
+  for (const note of engine.notes) {
+    if (note === hold) break;
+    playNote(engine, note, 0, state);
+  }
+  playNote(engine, hold, 0, state);
+  advanceTo(engine, hold.holdEnd - 0.15, state);
+  const release = engine.release([hold.character], state.ms);
+  assert.equal(release.judgement, 'great');
+  assert.equal(hold.holdJudgement, 'great');
+  assert.equal(engine.holdStats.great, 1);
+});
+
+test('난이도별 판정 창: EASY는 넓고 EXPERT는 좁다 · 램프 순서', () => {
+  assert.equal(judgeTiming(0.06, RHYTHM_WINDOW_SCALES.easy), 'perfect');
+  assert.equal(judgeTiming(0.045, RHYTHM_WINDOW_SCALES.expert), 'great');
+  const easy = create({ songId: 'ode-to-joy', difficulty: 'easy' });
+  const expert = create({ songId: 'ode-to-joy', difficulty: 'expert' });
+  assert.ok(easy.missAfter > RHYTHM_RULES.missAfter && expert.missAfter < RHYTHM_RULES.missAfter);
+  assert.deepEqual(CLEAR_LAMPS, ['FAILED', 'ASSIST', 'EASY', 'CLEAR', 'HARD', 'FC', 'AP']);
+  assert.ok(lampOrder('HARD') > lampOrder('CLEAR') && lampOrder('nope') === -1);
+});
+
+test('동시 입력: 강세 곡 강박에 낱말의 이웃 두 글자가 한 박에, 오른쪽 레인 = 뒤 글자, 어느 쪽을 먼저 쳐도 된다', () => {
+  const engine = create({ songId: 'can-can', difficulty: 'hard' });
+  const partner = engine.notes.find(note => note.chordPartner);
+  assert.ok(partner, '캉캉 HARD에는 동시 노트가 있다');
+  const head = partner.chordWith;
+  assert.equal(partner.charIndex, head.charIndex + 1);
+  assert.equal(partner.word, head.word);
+  assert.ok(partner.lane > head.lane);
+  assert.equal(create({ songId: 'can-can', difficulty: 'easy' }).notes.some(note => note.chord), false, 'EASY는 동시 노트 없음');
+
+  const state = { ms: 0 };
+  const run = create({ songId: 'can-can', difficulty: 'hard' });
+  run.input('x', state.ms);
+  const target = run.notes.find(note => note.chordPartner);
+  for (const note of run.notes) {
+    if (note === target.chordWith) break;
+    playNote(run, note, 0, state);
+  }
+  assert.deepEqual(run.targetables(), [target.chordWith, target], '두 글자 모두 칠 차례');
+  const second = playNote(run, target, 0, state);
+  assert.equal(second.judgement, 'perfect', '오른쪽(뒤) 글자를 먼저 쳐도 맞다');
+  assert.equal(run.input(target.chordWith.character, state.ms).judgement, 'perfect');
+  assert.equal(run.counts.perfect >= 2, true);
 });
