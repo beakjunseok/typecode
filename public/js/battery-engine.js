@@ -73,6 +73,7 @@ export class BatteryEngine extends TargetGameEngine {
     this.drains = 0;
     this.stolen = 0;
     this.outcome = null;
+    this.winAt = null;
   }
 
   // ---------- 목표 ----------
@@ -115,6 +116,10 @@ export class BatteryEngine extends TargetGameEngine {
 
   // ---------- 진행 ----------
   step(frameSeconds) {
+    if (this.winAt != null) {
+      if (this.gameTime >= this.winAt) this.finish();
+      return;
+    }
     if (this.gameTime < this.pauseUntil) return;
     this.drainTowers(frameSeconds);
     if (this.status !== 'running' || this.gameTime < this.pauseUntil) return;
@@ -131,7 +136,14 @@ export class BatteryEngine extends TargetGameEngine {
     this.checkOutcome();
   }
 
+  // 승리 연출 중에는 입력을 받지 않는다(판이 이미 끝남)
+  input(character, nowMs) {
+    if (this.winAt != null) return { accepted: false, reason: 'finished' };
+    return super.input(character, nowMs);
+  }
+
   checkOutcome() {
+    if (this.winAt != null) return null;
     if (this.me.cells >= BATTERY_RULES.goalCells) return this.clearStage('charged');
     if (this.rival.cells <= 0) return this.clearStage('sunk');
     if (this.me.cells <= 0) return this.loseMatch('sunk');
@@ -146,19 +158,10 @@ export class BatteryEngine extends TargetGameEngine {
     this.score += Math.round(bonus);
     this.stagesCleared++;
     this.emit('stage-clear', { stage: this.stage, how, bonus: Math.round(bonus) });
-    this.stage++;
-    this.stageStartKeystrokes = this.correctKeystrokes;
-    this.me = createSide();
-    this.rival = createSide();
-    this.items = [];
-    this.projectiles = [];
+    // 혼자 하기는 구조되거나 방전봇이 가라앉으면 그 판 승리로 끝난다. 클리어 연출을 잠깐 보여 준 뒤 finish
+    this.outcome = how === 'charged' ? 'rescued' : 'rival-sunk';
+    this.winAt = this.gameTime + BATTERY_RULES.stageClearPause;
     this.clearBuffer();
-    this.ai = { targetId: null, progress: 0, thinkUntil: this.gameTime + BATTERY_RULES.stageClearPause + 0.8, pausedUntil: 0 };
-    this.hiddenUntil = 0;
-    this.pauseUntil = this.gameTime + BATTERY_RULES.stageClearPause;
-    this.nextItemAt = this.pauseUntil + 0.4;
-    this.rivalWord.token = this.pickToken(this.rivalWord.id);
-    this.myWord.token = this.drawWeightedToken();
     return how;
   }
 

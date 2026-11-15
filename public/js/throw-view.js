@@ -926,6 +926,10 @@ export class ThrowRenderer {
       const state = index >= engine.lives ? 'empty' : engine.lives === 1 ? 'low' : 'full';
       this.drawLifeBattery(context, 10 + index * 30, HUD_HEIGHT / 2, state, engine.gameTime);
     }
+    // 가운데: 목표까지 처치 수
+    context.textAlign = 'center';
+    context.fillStyle = engine.winAt != null ? '#4df0a6' : '#e6e9f5';
+    context.fillText(`🤖 ${Math.min(engine.totalKills(), THROW_RULES.goalKills)} / ${THROW_RULES.goalKills}`, width / 2, HUD_HEIGHT / 2);
     const laptop = engine.laptopRemaining();
     context.textAlign = 'right';
     context.font = canvasFont(12);

@@ -320,3 +320,21 @@ test('게임 모드도 타수를 계산한다(스냅샷·요약)', async () => {
   assert.equal(engine.snapshot().charactersPerMinute, calculateCharactersPerMinute(engine.correctKeystrokes, engine.gameTime));
   assert.equal(typeof engine.summary().charactersPerMinute, 'number');
 });
+
+test('로봇 목표 수를 처치하면 승리 연출 뒤 끝나고, 그동안 생명·입력·스폰이 멈춘다', () => {
+  const engine = new ThrowEngine({ tokenPool: getTokenPool('python'), level: 2, random: () => 0.5 });
+  engine.start(0);
+  engine.kills.basic = THROW_RULES.goalKills - 1;
+  const robot = { id: 999, type: 'basic', hp: 1, incomingDamage: 1, state: 'walking', x: 0.5, lane: 0, token: engine.robots[0]?.token };
+  engine.robots.push(robot);
+  engine.damageRobot(robot, { damage: 1, weapon: 'phone' });
+  assert.equal(engine.outcome, 'cleared');
+  assert.equal(engine.input('a', 0).accepted, false);
+  const lives = engine.lives;
+  engine.loseLife({});
+  assert.equal(engine.lives, lives);
+  for (let now = 100; now <= (THROW_RULES.winPauseSeconds + 0.5) * 1000; now += 100) engine.update(now);
+  assert.equal(engine.status, 'finished');
+  assert.equal(engine.summary().outcome, 'cleared');
+  assert.equal(engine.summary().totalKills, THROW_RULES.goalKills);
+});

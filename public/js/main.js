@@ -226,6 +226,11 @@ function handleArcadeEvent(type, payload) {
       }
       ui.log('ok', `${ROBOT_TYPES[payload.robot.type].label} 처치 (+${payload.bounty})`);
       break;
+    case 'goal':
+      sound.play('newRecord');
+      pulseClass(ui.elements.arcadeStage, 'tier-flash', 900);
+      ui.log('ok', `🤖 로봇 ${payload.kills}대 처치 — 미션 클리어!`);
+      break;
     case 'item-spawn':
       sound.play('itemSpawn');
       if (!battery) ui.log('info', payload.item.item === 'battery' ? '🔋 건전지 등장 — 치면 생명 1칸 회복' : '💻 노트북 상자 등장');
@@ -400,11 +405,11 @@ function arcadeSubtitle(summary) {
   }
   const base = `${LANGUAGES[settings.languageKey].label} · ${DIFFICULTY_LEVELS[summary.level].label} · 생존 ${summary.survivedSeconds}s`;
   if (summary.mode === 'battery') {
-    const cause = summary.outcome === 'rival-charged' ? '방전봇 선충전' : '방전';
-    return `${base} · 클리어 ${summary.stagesCleared}스테이지 · 공격 ${summary.drains} · 아이템 ${summary.itemsCollected} · 뺏김 ${summary.stolen} · 패배: ${cause}`;
+    const result = { rescued: '승리: 100% 충전 구조', 'rival-sunk': '승리: 방전봇 침몰', 'rival-charged': '패배: 방전봇 선충전' }[summary.outcome] ?? '패배: 방전';
+    return `${base} · 공격 ${summary.drains} · 아이템 ${summary.itemsCollected} · 뺏김 ${summary.stolen} · ${result}`;
   }
   const { basic, fast, tank } = summary.kills;
-  return `${base} · 처치 ${summary.totalKills} (기본 ${basic} · 빠른 ${fast} · 헤비 ${tank}) · 아이템 ${summary.itemsCollected}`;
+  return `${base} · 처치 ${summary.totalKills}/${summary.goalKills} (기본 ${basic} · 빠른 ${fast} · 헤비 ${tank}) · 아이템 ${summary.itemsCollected}`;
 }
 
 function timeAttackSubtitle(summary) {
@@ -420,6 +425,11 @@ function pvpSubtitle(summary) {
   return `vs ${opponent} · 라운드 ${wins.mine}:${wins.theirs} · 공격 ${summary.drains} · 아이템 ${summary.itemsCollected} · 뺏김 ${summary.stolen}`;
 }
 
+// 아케이드 승리 조건: 배터리는 구조되거나 방전봇이 가라앉음, 던지기는 목표 처치 수 달성
+const ARCADE_WIN_OUTCOMES = Object.freeze(['rescued', 'rival-sunk', 'cleared']);
+const ARCADE_WIN_TITLES = Object.freeze({ battery: 'RESCUED 🚁', throw: 'MISSION CLEAR 🏆' });
+const arcadeWon = summary => ARCADE_WIN_OUTCOMES.includes(summary.outcome);
+
 // 결과창 제목·부제(모드별). PvP는 랭킹 등록 폼을 숨긴다
 function resultHeading(summary) {
   if (summary.mode === 'battery-pvp') return { title: PVP_RESULT_TITLES[summary.outcome] ?? 'PvP', subtitle: pvpSubtitle(summary), saveable: false };
@@ -429,7 +439,7 @@ function resultHeading(summary) {
     const title = summary.autoPlay ? 'AUTO PLAY' : summary.outcome === 'cleared' ? `STAGE CLEAR · ${summary.rank}${mark}` : 'STAGE FAILED';
     return { title, subtitle: arcadeSubtitle(summary), ...(summary.autoPlay ? { saveable: false, unsavedNote: '자동 연주는 랭킹·최고 기록에 남지 않아요.' } : {}) };
   }
-  if (isArcade()) return { title: modeConfig().resultTitle, subtitle: arcadeSubtitle(summary) };
+  if (isArcade()) return { title: arcadeWon(summary) ? ARCADE_WIN_TITLES[summary.mode] : modeConfig().resultTitle, subtitle: arcadeSubtitle(summary) };
   return {};
 }
 
@@ -447,15 +457,17 @@ function endSound(summary, newBest) {
   if (isPvp()) return summary.outcome === 'win' ? 'victory' : 'defeat';
   if (newBest) return 'victory';
   if (summary.mode === 'rhythm') return summary.outcome === 'cleared' ? 'finish' : 'defeat';
-  return isArcade() ? 'defeat' : 'finish';
+  if (isArcade()) return arcadeWon(summary) ? 'victory' : 'defeat';
+  return 'finish';
 }
 
-// 결과창 그림 고르기: 대결은 승패, 리듬은 클리어 여부, 아케이드는 목숨이 다해 끝나니 항상 패배 그림.
+// 결과창 그림 고르기: 대결은 승패, 리듬은 클리어 여부, 아케이드는 승리 조건을 채웠는지.
 // 최고 기록 여부는 그림이 아니라 부제(🏆)로만 알린다. 연습처럼 끝까지 친 판은 승리 그림
 function resultMood(summary) {
   if (isPvp()) return summary.outcome === 'win' ? 'win' : 'lose';
   if (summary.mode === 'rhythm') return summary.outcome === 'cleared' ? 'win' : 'lose';
-  return isArcade() ? 'lose' : 'win';
+  if (isArcade()) return arcadeWon(summary) ? 'win' : 'lose';
+  return 'win';
 }
 
 function handleFinish(summary) {
