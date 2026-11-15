@@ -536,7 +536,7 @@ const SOUNDS = {
   // 로봇 처치 — 명중음 바로 뒤에 이어지는 0.45초: 저음 '쿵'(80→40Hz) + 필터가 닫히는 잡음 '콰광' + 팝콘처럼 튀는 '타닥' 3번
   // + 보상음(콤보 배율 단계마다 '띠리링' → '띠리리링' → '띠리리리링'). O(1)
   robotKill(engine, context, time, { type = 'basic', combo = 1, tier = 0, withReward = true } = {}) {
-    const big = type === 'tank' ? 1.3 : 1;
+    const big = type === 'tank' ? 1.3 : type === 'slow' ? 1.15 : 1;
     engine.tone(context, { frequency: 80, sweepTo: 40, startTime: time, peak: 0.13 * big, decay: 0.2 * big, attack: 0.003 });
     engine.noise(context, { startTime: time, peak: 0.12 * big, decay: 0.32 * big, filterType: 'lowpass', frequency: 2200, sweepTo: 150 });
     for (let index = 0; index < 3; index++) {
@@ -612,7 +612,7 @@ const SOUNDS = {
   },
   // 로봇 등장: 작은 '삐-뽀' (자주 나오므로 아주 작게)
   spawnRobot(engine, context, time, { type = 'basic' }) {
-    const base = { basic: 660, fast: 990, tank: 330 }[type] ?? 660;
+    const base = { basic: 660, fast: 990, tank: 330, slow: 440 }[type] ?? 660;
     engine.tone(context, { frequency: base, startTime: time, peak: 0.016, decay: 0.05, waveform: 'square', filter: { type: 'lowpass', frequency: 2000 } });
     engine.tone(context, { frequency: base * 0.75, startTime: time + 0.06, peak: 0.016, decay: 0.06, waveform: 'square', filter: { type: 'lowpass', frequency: 2000 } });
   },

@@ -15,6 +15,7 @@ const STAGE_ART = loadArt('/art/throw-stage.webp');
 const ROBOT_STYLE = {
   basic: { name: '버그봇', body: '#2f5d72', bodyLight: '#4b8aa6', trim: '#7fdbca', eye: '#36e2ff', width: 40, height: 46, stride: 7 },
   fast: { name: '스피드봇', body: '#b14a2c', bodyLight: '#e0703f', trim: '#ffcb6b', eye: '#ffe08a', width: 32, height: 40, stride: 14 },
+  slow: { name: '달팽봇', body: '#3f6b3a', bodyLight: '#6fae5c', trim: '#c9f29b', eye: '#b6ff6b', shell: '#c7834a', shellLight: '#f0b878', width: 54, height: 44, stride: 3 },
   tank: { name: '헤비봇', body: '#353d49', bodyLight: '#566273', trim: '#8a98aa', eye: '#ff4d6d', width: 60, height: 56, stride: 4 }
 };
 const ITEM_STYLE = {
@@ -401,6 +402,7 @@ export class ThrowRenderer {
     context.scale(scale * (1 + squash), scale * (1 - squash));
     if (robot.type === 'basic') this.drawBugBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
     else if (robot.type === 'fast') this.drawSpeedBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
+    else if (robot.type === 'slow') this.drawSnailBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
     else this.drawHeavyBot(context, style, walkPhase, engine, robot, hitFlash, stunned);
     context.restore();
   }
@@ -623,6 +625,77 @@ export class ThrowRenderer {
     for (let pip = 0; pip < robot.maxHp; pip++) {
       context.fillStyle = pip < robot.hp ? '#ff4d6d' : '#2b3442';
       roundedRect(context, -width / 2 + 3 + pip * pipWidth, -height - 9, pipWidth - 3, 5, 2);
+      context.fill();
+    }
+  }
+
+  // 느린 로봇 '달팽봇'(정면): 납작한 몸이 꿈틀대며 기어오고, 등에 소용돌이 껍데기, 더듬이 끝에 눈.
+  // 한 방 맞으면 껍데기에 금이 간다. 머리 위 칸은 남은 체력(휴대폰 두 방)
+  drawSnailBot(context, style, phase, engine, robot, hitFlash, stunned) {
+    const { width, height } = style;
+    const crawl = Math.sin(phase) * 2;
+    // 몸통(바닥에 붙은 납작한 발)
+    context.fillStyle = hitFlash ? '#ffffff' : style.body;
+    roundedRect(context, -width / 2 - crawl / 2, -12, width + crawl, 12, 6);
+    context.fill();
+    // 껍데기
+    const shellRadius = height * 0.42;
+    const shellY = -12 - shellRadius * 0.85;
+    const shellGradient = context.createRadialGradient(-6, shellY - 6, 2, 0, shellY, shellRadius);
+    shellGradient.addColorStop(0, style.shellLight);
+    shellGradient.addColorStop(1, style.shell);
+    context.fillStyle = hitFlash ? '#ffffff' : shellGradient;
+    context.beginPath();
+    context.arc(0, shellY, shellRadius, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = 'rgba(70, 40, 18, 0.75)';
+    context.lineWidth = 2.5;
+    context.beginPath();
+    for (let step = 0; step <= 40; step++) {
+      const angle = step * 0.42 + engine.gameTime * 0.6;
+      const radius = shellRadius * 0.85 * (1 - step / 44);
+      const pointX = Math.cos(angle) * radius;
+      const pointY = shellY + Math.sin(angle) * radius;
+      if (step === 0) context.moveTo(pointX, pointY);
+      else context.lineTo(pointX, pointY);
+    }
+    context.stroke();
+    if (robot.hp < robot.maxHp) {
+      context.strokeStyle = '#2a1608';
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(-shellRadius * 0.2, shellY - shellRadius);
+      context.lineTo(shellRadius * 0.05, shellY - shellRadius * 0.45);
+      context.lineTo(-shellRadius * 0.25, shellY - shellRadius * 0.1);
+      context.lineTo(shellRadius * 0.15, shellY + shellRadius * 0.4);
+      context.stroke();
+    }
+    // 앞머리와 더듬이 눈
+    context.fillStyle = hitFlash ? '#ffffff' : style.bodyLight;
+    roundedRect(context, -13, -24, 26, 16, 7);
+    context.fill();
+    context.strokeStyle = style.bodyLight;
+    context.lineWidth = 3;
+    context.lineCap = 'round';
+    const sway = Math.sin(engine.gameTime * 2 + robot.id) * 3;
+    const eyes = [[-9 + sway, -40], [9 + sway, -40]];
+    for (const [eyeX, eyeY] of eyes) {
+      context.beginPath();
+      context.moveTo(eyeX * 0.6 - sway * 0.5, -22);
+      context.lineTo(eyeX, eyeY);
+      context.stroke();
+    }
+    context.fillStyle = '#0b1017';
+    for (const [eyeX, eyeY] of eyes) {
+      context.beginPath();
+      context.arc(eyeX, eyeY, 4.5, 0, Math.PI * 2);
+      context.fill();
+    }
+    this.drawEyes(context, eyes, 3, style.eye, { blink: this.isBlinking(engine, robot), stunned });
+    const pipWidth = 34 / robot.maxHp;
+    for (let pip = 0; pip < robot.maxHp; pip++) {
+      context.fillStyle = pip < robot.hp ? style.eye : '#2b3442';
+      roundedRect(context, -17 + pip * pipWidth, -height - 10, pipWidth - 3, 5, 2);
       context.fill();
     }
   }

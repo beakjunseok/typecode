@@ -6,7 +6,9 @@ import { TargetGameEngine, ARCADE_RULES, filterArcadeTokens, randomBetween } fro
 export const ROBOT_TYPES = Object.freeze({
   basic: Object.freeze({ label: '기본 로봇', hp: 1, speed: 0.075, bounty: 50, unlockAt: 0, weight: 1 }),
   fast: Object.freeze({ label: '빠른 로봇', hp: 1, speed: 0.15, bounty: 80, unlockAt: 15, weight: 0.45 }),
-  tank: Object.freeze({ label: '탱크 로봇', hp: 3, speed: 0.042, bounty: 150, unlockAt: 35, weight: 0.3 })
+  tank: Object.freeze({ label: '탱크 로봇', hp: 3, speed: 0.042, bounty: 150, unlockAt: 35, weight: 0.3 }),
+  // 느린 로봇: 휴대폰은 낱말 두 개(두 방), 노트북(피해 3)은 한 방
+  slow: Object.freeze({ label: '달팽봇', hp: 2, speed: 0.036, bounty: 100, unlockAt: 8, weight: 0.4 })
 });
 
 export const ITEM_TYPES = Object.freeze({
@@ -61,7 +63,7 @@ export class ThrowEngine extends TargetGameEngine {
     this.nextSpawnAt = 0.4;
     this.nextItemAt = randomBetween(this.random, THROW_RULES.firstItemAt);
     this.nextBatteryAt = Infinity;
-    this.kills = { basic: 0, fast: 0, tank: 0 };
+    this.kills = Object.fromEntries(Object.keys(ROBOT_TYPES).map(type => [type, 0]));
     this.outcome = null;
     this.winAt = null;
   }
@@ -109,7 +111,7 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   totalKills() {
-    return this.kills.basic + this.kills.fast + this.kills.tank;
+    return Object.values(this.kills).reduce((sum, count) => sum + count, 0);
   }
 
   // 목표 처치 수를 채우면 남은 로봇은 그대로 두고(더 나오지 않음) 잠시 뒤 승리로 끝낸다

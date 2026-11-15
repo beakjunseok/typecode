@@ -408,8 +408,8 @@ function arcadeSubtitle(summary) {
     const result = { rescued: '승리: 100% 충전 구조', 'rival-sunk': '승리: 방전봇 침몰', 'rival-charged': '패배: 방전봇 선충전' }[summary.outcome] ?? '패배: 방전';
     return `${base} · 공격 ${summary.drains} · 아이템 ${summary.itemsCollected} · 뺏김 ${summary.stolen} · ${result}`;
   }
-  const { basic, fast, tank } = summary.kills;
-  return `${base} · 처치 ${summary.totalKills}/${summary.goalKills} (기본 ${basic} · 빠른 ${fast} · 헤비 ${tank}) · 아이템 ${summary.itemsCollected}`;
+  const { basic = 0, fast = 0, slow = 0, tank = 0 } = summary.kills;
+  return `${base} · 처치 ${summary.totalKills}/${summary.goalKills} (기본 ${basic} · 빠른 ${fast} · 달팽 ${slow} · 헤비 ${tank}) · 아이템 ${summary.itemsCollected}`;
 }
 
 function timeAttackSubtitle(summary) {
