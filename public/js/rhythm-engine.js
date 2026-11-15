@@ -20,7 +20,8 @@ export const RHYTHM_RULES = Object.freeze({
   points: Object.freeze({ perfect: 100, great: 70, good: 40, bad: 10 }),
   wordBonus: 30,
   // 체력 0~100: 0이 되면 스테이지 실패
-  health: Object.freeze({ start: 100, perfect: 1, great: 0.8, good: 0.3, bad: -3, miss: -8, wrong: -2 }),
+  // 오타(wrong)는 콤보·피버만 끊고 체력은 깎지 않는다: 틀려도 곡이 멈추지 않게. 체력은 BAD·MISS로만 준다
+  health: Object.freeze({ start: 100, perfect: 1, great: 0.8, good: 0.3, bad: -3, miss: -8, wrong: 0 }),
   // 노트가 끝나고 이만큼 지나면 스테이지 클리어
   outroSeconds: 1.6,
   // 피버(DJMAX식 자동 피버): GOOD 이상으로 게이지가 차고, 가득 차면 피버 레벨이 1 오른다(최대 5).
