@@ -6,8 +6,8 @@ import { TargetGameEngine, ARCADE_RULES, filterArcadeTokens, randomBetween } fro
 export const ROBOT_TYPES = Object.freeze({
   basic: Object.freeze({ label: '기본 로봇', hp: 1, speed: 0.075, bounty: 50, unlockAt: 0, weight: 1 }),
   fast: Object.freeze({ label: '빠른 로봇', hp: 1, speed: 0.15, bounty: 80, unlockAt: 15, weight: 0.45 }),
-  tank: Object.freeze({ label: '탱크 로봇', hp: 3, speed: 0.042, bounty: 150, unlockAt: 35, weight: 0.3 }),
-  // 느린 로봇: 휴대폰은 낱말 두 개(두 방), 노트북(피해 3)은 한 방
+  tank: Object.freeze({ label: '탱크 로봇', hp: 2, speed: 0.042, bounty: 150, unlockAt: 35, weight: 0.3 }),
+  // 느린 로봇: 휴대폰은 낱말 두 개(두 방), 노트북(두 개씩 던짐)은 한 번에
   slow: Object.freeze({ label: '달팽봇', hp: 2, speed: 0.036, bounty: 100, unlockAt: 8, weight: 0.4 }),
   // 마지막 웨이브 보스: 무작위로는 안 나오고(weight 0) 목표 처치 수를 채우면 한 번 등장. 속도는 시간 가속을 받지 않는다
   boss: Object.freeze({ label: '보스 서버봇', hp: 10, speed: 0.017, bounty: 1000, unlockAt: Infinity, weight: 0, boss: true })
@@ -37,7 +37,7 @@ export const BOSS_RULES = Object.freeze({
 });
 
 export const ITEM_TYPES = Object.freeze({
-  laptop: Object.freeze({ label: '노트북', effect: '8초간 노트북 투척(피해 3)' }),
+  laptop: Object.freeze({ label: '노트북', effect: '8초간 노트북 두 개씩 투척' }),
   battery: Object.freeze({ label: '건전지', effect: '생명(건전지) 1칸 회복' })
 });
 
@@ -47,10 +47,13 @@ const SPEED_RAMP = Object.freeze({ seconds: 240, max: 0.5 });
 // 로봇 나오는 간격(초): start에서 시작해 1초에 perSecond씩 줄어 floor까지. 레벨 배율·±20% 흔들림을 곱한다
 const SPAWN_PACE = Object.freeze({ start: 3.4, perSecond: 0.012, floor: 1.5 });
 
+// shots: 낱말 하나에 던지는 개수. 노트북은 두 개 — 목표가 한 방이면 두 번째는 옆 로봇에게 간다(없으면 하나만)
 export const WEAPONS = Object.freeze({
-  phone: Object.freeze({ label: '휴대폰', damage: 1 }),
-  laptop: Object.freeze({ label: '노트북', damage: 3 })
+  phone: Object.freeze({ label: '휴대폰', damage: 1, shots: 1 }),
+  laptop: Object.freeze({ label: '노트북', damage: 1, shots: 2 })
 });
+// 두 번째 노트북이 첫 번째보다 늦게 손을 떠나는 시간(초)
+const SECOND_SHOT_DELAY = 0.1;
 
 export const THROW_RULES = Object.freeze({
   lanes: 4,
@@ -74,12 +77,12 @@ export const THROW_RULES = Object.freeze({
   maxFrameSeconds: ARCADE_RULES.maxFrameSeconds
 });
 
-// 서버 점수 검증용 상한: 글자당 (최대 배율 타격 점수) + (한 방에 줄 수 있는 처치 보너스 / 최소 토큰 길이).
-// 보스 보너스는 한 판에 한 번이고 보스까지 가려면 최소 goalKills × 최소 토큰 길이만큼 쳐야 하므로 그만큼 나눠 더한다
-export const MAX_POINTS_PER_CHARACTER = SCORING.basePoints * MAX_MULTIPLIER + Math.max(
-  ...Object.values(ROBOT_TYPES).filter(type => !type.boss)
-    .map(type => type.bounty / (ARCADE_RULES.minTokenLength * Math.ceil(type.hp / WEAPONS.laptop.damage)))
-) + ROBOT_TYPES.boss.bounty / (THROW_RULES.goalKills * ARCADE_RULES.minTokenLength);
+// 서버 점수 검증용 상한: 글자당 (최대 배율 타격 점수) + (낱말 하나로 얻을 수 있는 처치 보너스 / 최소 토큰 길이).
+// 노트북은 낱말 하나에 최대 shots대를 처치할 수 있다(목표 + 옆 로봇). 보스 보너스는 한 판에 한 번이고
+// 보스까지 가려면 최소 goalKills × 최소 토큰 길이만큼 쳐야 하므로 그만큼 나눠 더한다
+export const MAX_POINTS_PER_CHARACTER = SCORING.basePoints * MAX_MULTIPLIER
+  + (WEAPONS.laptop.shots * Math.max(...Object.values(ROBOT_TYPES).filter(type => !type.boss).map(type => type.bounty))) / ARCADE_RULES.minTokenLength
+  + ROBOT_TYPES.boss.bounty / (THROW_RULES.goalKills * ARCADE_RULES.minTokenLength);
 
 export const filterThrowTokens = filterArcadeTokens;
 
@@ -465,16 +468,48 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   // ---------- 발사·명중 ----------
+  // 아이템·패드는 한 개로 끝. 로봇에게는 무기의 shots만큼 던진다: 목표가 아직 안 죽으면 같은 목표에,
+  // 이미 죽을 만큼 맞았으면 옆 로봇에게. 옆 로봇도 없으면 남은 것은 던지지 않는다
   onFire(target, projectile) {
-    projectile.damage = WEAPONS[projectile.weapon].damage;
+    const weapon = WEAPONS[projectile.weapon];
+    projectile.damage = weapon.damage;
     projectile.lane = target.lane;
     if (target.kind === 'item' || target.kind === 'pad') {
       target.consumed = true;
       return;
     }
-    target.incomingDamage += projectile.damage;
-    if (target.hp - target.incomingDamage > 0) target.token = this.pickToken(target.id);
-    else target.doomed = true;
+    this.applyIncoming(target, projectile);
+    for (let shot = 1; shot < weapon.shots; shot++) {
+      const next = target.hp - target.incomingDamage > 0 ? target : this.neighborRobot(target);
+      if (!next) break;
+      const extra = { id: this.nextId++, targetId: next.id, weapon: projectile.weapon, damage: weapon.damage,
+        lane: next.lane, launchedAt: this.gameTime + SECOND_SHOT_DELAY * shot, extra: true };
+      this.projectiles.push(extra);
+      this.applyIncoming(next, extra);
+    }
+  }
+
+  // 날아가는 중인 피해를 미리 셈해 두고, 다 죽을 만큼이면 조준에서 빼고(doomed), 아니면 새 낱말을 준다
+  applyIncoming(robot, projectile) {
+    robot.incomingDamage += projectile.damage;
+    if (robot.hp - robot.incomingDamage > 0) robot.token = this.pickToken(robot.id);
+    else robot.doomed = true;
+  }
+
+  // 목표 옆 로봇: 아직 걷고 있고 죽을 만큼 맞지 않은 다른 로봇 가운데 목표와 화면에서 가장 가까운 것.
+  // 거리 = 줄 차이 × 0.25 + 앞뒤 거리. O(로봇 수)
+  neighborRobot(target) {
+    let best = null;
+    let bestDistance = Infinity;
+    for (const robot of this.robots) {
+      if (robot === target || robot.state !== 'walking' || robot.hp - robot.incomingDamage <= 0) continue;
+      const distance = Math.abs(robot.lane - target.lane) * 0.25 + Math.abs(robot.x - target.x);
+      if (distance < bestDistance) {
+        best = robot;
+        bestDistance = distance;
+      }
+    }
+    return best;
   }
 
   onProjectileLanded(entity, projectile) {

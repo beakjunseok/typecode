@@ -83,7 +83,7 @@ test('아케이드 제출 검증: 생존 시간은 서버 경과 시간 이하, 
   assert.throws(() => lib.validateSubmission(session, base, session.startedAt + 30_000), error => error.code === 'too_early');
   assert.throws(() => lib.validateSubmission(session, { ...base, survivedSeconds: 2 }, session.startedAt + 62_000), error => error.code === 'invalid_survived_seconds');
   assert.throws(() => lib.validateSubmission(session, { ...base, survivedSeconds: undefined }, session.startedAt + 62_000), error => error.status === 422);
-  assert.throws(() => lib.validateSubmission(session, { ...base, score: 300 * 106 }, session.startedAt + 62_000), error => error.code === 'implausible_score');
+  assert.throws(() => lib.validateSubmission(session, { ...base, score: 300 * 181 }, session.startedAt + 62_000), error => error.code === 'implausible_score');
 
   const battery = lib.issueSessionToken({ mode: 'battery', language: 'go' }).session;
   assert.throws(() => lib.validateSubmission(battery, { ...base, score: 300 * 36 }, battery.startedAt + 62_000), error => error.code === 'implausible_score');
