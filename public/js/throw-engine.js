@@ -8,7 +8,19 @@ export const ROBOT_TYPES = Object.freeze({
   fast: Object.freeze({ label: '빠른 로봇', hp: 1, speed: 0.15, bounty: 80, unlockAt: 15, weight: 0.45 }),
   tank: Object.freeze({ label: '탱크 로봇', hp: 3, speed: 0.042, bounty: 150, unlockAt: 35, weight: 0.3 }),
   // 느린 로봇: 휴대폰은 낱말 두 개(두 방), 노트북(피해 3)은 한 방
-  slow: Object.freeze({ label: '달팽봇', hp: 2, speed: 0.036, bounty: 100, unlockAt: 8, weight: 0.4 })
+  slow: Object.freeze({ label: '달팽봇', hp: 2, speed: 0.036, bounty: 100, unlockAt: 8, weight: 0.4 }),
+  // 마지막 웨이브 보스: 무작위로는 안 나오고(weight 0) 목표 처치 수를 채우면 한 번 등장. 속도는 시간 가속을 받지 않는다
+  boss: Object.freeze({ label: '보스 서버봇', hp: 10, speed: 0.024, bounty: 1000, unlockAt: Infinity, weight: 0, boss: true })
+});
+
+// 보스전: 경고 뒤 등장, 맞으면 조금 밀려나고, 졸개(기본·빠른 로봇)를 주기적으로 부른다. 책상에 닿으면 즉시 패배
+export const BOSS_RULES = Object.freeze({
+  warningSeconds: 2.5,
+  // 몸집이 커서 문 앞이 아니라 조금 앞(아래)에서 나타난다. 밀려나도 이 지점보다 뒤로는 안 간다
+  spawnX: 0.8,
+  knockback: 0.035,
+  minionInterval: [3.2, 4.4],
+  minionTypes: Object.freeze(['basic', 'basic', 'fast', 'slow'])
 });
 
 export const ITEM_TYPES = Object.freeze({
@@ -47,9 +59,11 @@ export const THROW_RULES = Object.freeze({
 });
 
 // 서버 점수 검증용 상한: 글자당 (최대 배율 타격 점수) + (한 방에 줄 수 있는 처치 보너스 / 최소 토큰 길이).
+// 보스 보너스는 한 판에 한 번이고 보스까지 가려면 최소 goalKills × 최소 토큰 길이만큼 쳐야 하므로 그만큼 나눠 더한다
 export const MAX_POINTS_PER_CHARACTER = SCORING.basePoints * MAX_MULTIPLIER + Math.max(
-  ...Object.values(ROBOT_TYPES).map(type => type.bounty / (ARCADE_RULES.minTokenLength * Math.ceil(type.hp / WEAPONS.laptop.damage)))
-);
+  ...Object.values(ROBOT_TYPES).filter(type => !type.boss)
+    .map(type => type.bounty / (ARCADE_RULES.minTokenLength * Math.ceil(type.hp / WEAPONS.laptop.damage)))
+) + ROBOT_TYPES.boss.bounty / (THROW_RULES.goalKills * ARCADE_RULES.minTokenLength);
 
 export const filterThrowTokens = filterArcadeTokens;
 
@@ -66,6 +80,11 @@ export class ThrowEngine extends TargetGameEngine {
     this.kills = Object.fromEntries(Object.keys(ROBOT_TYPES).map(type => [type, 0]));
     this.outcome = null;
     this.winAt = null;
+    // 보스전 상태: null → 'warning'(경고 중) → 'fight'(보스 등장) → 'defeated'
+    this.bossPhase = null;
+    this.bossAt = Infinity;
+    this.nextMinionAt = Infinity;
+    this.bossId = null;
   }
 
   targetables() {
@@ -92,6 +111,10 @@ export class ThrowEngine extends TargetGameEngine {
     return Math.max(0, this.laptopUntil - this.gameTime);
   }
 
+  boss() {
+    return this.bossId == null ? null : this.robots.find(robot => robot.id === this.bossId) ?? null;
+  }
+
   speedMultiplier() {
     return (1 + Math.min(this.gameTime / SPEED_RAMP.seconds, SPEED_RAMP.max)) * this.difficulty.speed;
   }
@@ -107,20 +130,58 @@ export class ThrowEngine extends TargetGameEngine {
     }
     this.moveEntities(frameSeconds);
     this.removeFinished();
-    if (this.status === 'running' && this.winAt == null) this.spawnIfDue();
+    if (this.status !== 'running' || this.winAt != null) return;
+    if (this.bossPhase) this.stepBossWave();
+    else this.spawnIfDue();
+  }
+
+  // 보스전 동안에는 일반 로봇 대신: 경고가 끝나면 보스 등장, 이후 졸개를 간격마다 부르고 아이템은 계속 나온다
+  stepBossWave() {
+    if (this.bossPhase === 'warning' && this.gameTime >= this.bossAt) this.spawnBoss();
+    if (this.bossPhase !== 'fight') return;
+    if (this.gameTime >= this.nextMinionAt) {
+      const crowded = this.robots.filter(robot => robot.state === 'walking').length >= THROW_RULES.maxRobots;
+      const typeKey = BOSS_RULES.minionTypes[Math.floor(this.random() * BOSS_RULES.minionTypes.length)];
+      const lane = crowded ? null : this.chooseLane(ROBOT_TYPES[typeKey].speed, true, this.boss()?.lane);
+      if (lane !== null) {
+        this.spawnRobot(typeKey, lane);
+        this.emit('boss-summon', { boss: this.boss() });
+      }
+      this.nextMinionAt = this.gameTime + (lane === null ? THROW_RULES.spawnRetrySeconds : randomBetween(this.random, BOSS_RULES.minionInterval));
+    }
+    this.spawnItemsIfDue();
+  }
+
+  // 보스는 가운데 쪽 줄에서 나온다(줄이 짝수면 가운데 둘 중 하나)
+  spawnBoss() {
+    const middle = this.lanes % 2 === 0 ? this.lanes / 2 - 1 + Math.floor(this.random() * 2) : (this.lanes - 1) / 2;
+    const boss = this.spawnRobot('boss', middle);
+    boss.x = BOSS_RULES.spawnX;
+    this.bossId = boss.id;
+    this.bossPhase = 'fight';
+    this.nextMinionAt = this.gameTime + randomBetween(this.random, BOSS_RULES.minionInterval);
+    this.emit('boss-appear', { boss });
   }
 
   totalKills() {
     return Object.values(this.kills).reduce((sum, count) => sum + count, 0);
   }
 
-  // 목표 처치 수를 채우면 남은 로봇은 그대로 두고(더 나오지 않음) 잠시 뒤 승리로 끝낸다
+  // 목표 처치 수를 채우면 마지막 웨이브(보스전)가 시작된다. 일반 로봇은 더 나오지 않는다
   checkGoal() {
-    if (this.winAt != null || this.totalKills() < THROW_RULES.goalKills) return;
+    if (this.bossPhase || this.totalKills() < THROW_RULES.goalKills) return;
+    this.bossPhase = 'warning';
+    this.bossAt = this.gameTime + BOSS_RULES.warningSeconds;
+    this.emit('boss-warning', { kills: this.totalKills(), seconds: BOSS_RULES.warningSeconds });
+  }
+
+  // 보스를 쓰러뜨리면 남은 졸개는 그대로 두고 잠시 뒤 승리로 끝낸다
+  winBossFight() {
+    this.bossPhase = 'defeated';
     this.outcome = 'cleared';
     this.winAt = this.gameTime + THROW_RULES.winPauseSeconds;
     this.clearBuffer();
-    this.emit('goal', { kills: this.totalKills() });
+    this.emit('goal', { kills: this.totalKills(), boss: true });
   }
 
   // 승리 연출 중에는 입력도, 로봇이 선을 넘어 생명이 깎이는 것도 막는다
@@ -178,8 +239,9 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   // 겹치지 않는 줄 가운데 무작위. 그런 줄이 없으면 null(조금 뒤 다시 시도)
-  chooseLane(speed = ROBOT_TYPES.basic.speed, isRobot = true) {
-    const lanes = [...Array(this.lanes).keys()].filter(lane => this.laneFits(lane, speed, isRobot));
+  // excludedLane: 보스가 있는 줄(졸개가 보스 몸에 가려지지 않게)
+  chooseLane(speed = ROBOT_TYPES.basic.speed, isRobot = true, excludedLane = null) {
+    const lanes = [...Array(this.lanes).keys()].filter(lane => lane !== excludedLane && this.laneFits(lane, speed, isRobot));
     if (!lanes.length) return null;
     return lanes[Math.floor(this.random() * lanes.length)];
   }
@@ -205,6 +267,10 @@ export class ThrowEngine extends TargetGameEngine {
       if (spawn) this.spawnRobot(spawn.typeKey, spawn.lane);
       this.nextSpawnAt = this.gameTime + (spawn || crowded ? this.spawnInterval() : THROW_RULES.spawnRetrySeconds);
     }
+    this.spawnItemsIfDue();
+  }
+
+  spawnItemsIfDue() {
     if (this.gameTime >= this.nextBatteryAt && !this.items.some(item => !item.consumed && item.item === 'battery')) {
       const lane = this.chooseLane(THROW_RULES.itemSpeed, false);
       if (lane === null) this.nextBatteryAt = this.gameTime + THROW_RULES.spawnRetrySeconds;
@@ -263,7 +329,8 @@ export class ThrowEngine extends TargetGameEngine {
     const multiplier = this.speedMultiplier();
     for (const robot of this.robots) {
       if (robot.state !== 'walking') continue;
-      robot.x -= ROBOT_TYPES[robot.type].speed * multiplier * frameSeconds;
+      const type = ROBOT_TYPES[robot.type];
+      robot.x -= type.speed * (type.boss ? this.difficulty.speed : multiplier) * frameSeconds;
       if (robot.x <= THROW_RULES.playerX) this.robotReachedPlayer(robot);
       if (this.status !== 'running') return;
     }
@@ -282,6 +349,13 @@ export class ThrowEngine extends TargetGameEngine {
     robot.state = 'crashed';
     robot.stateAt = this.gameTime;
     this.releaseTargetIf(robot.id, 'robot-crashed');
+    // 보스가 책상에 닿으면 남은 생명과 상관없이 끝
+    if (ROBOT_TYPES[robot.type].boss) {
+      this.emit('boss-reached', { boss: robot });
+      this.lives = Math.min(this.lives, 1);
+      this.loseLife({ robot, boss: true });
+      return;
+    }
     this.loseLife({ robot });
     if (this.status === 'running' && this.nextBatteryAt === Infinity) this.scheduleBattery(THROW_RULES.batteryFirstDelay);
   }
@@ -328,7 +402,11 @@ export class ThrowEngine extends TargetGameEngine {
     robot.incomingDamage = Math.max(0, robot.incomingDamage - projectile.damage);
     robot.hitAt = this.gameTime;
     this.emit('hit', { robot, weapon: projectile.weapon, damage: projectile.damage });
-    if (robot.hp > 0) return;
+    if (robot.hp > 0) {
+      // 보스는 맞을 때마다 뒤로 조금 밀려난다(출현 지점은 넘지 않게)
+      if (ROBOT_TYPES[robot.type].boss) robot.x = Math.min(BOSS_RULES.spawnX, robot.x + BOSS_RULES.knockback * projectile.damage);
+      return;
+    }
     robot.state = 'dying';
     robot.stateAt = this.gameTime;
     const bounty = ROBOT_TYPES[robot.type].bounty;
@@ -336,14 +414,15 @@ export class ThrowEngine extends TargetGameEngine {
     this.score += bounty;
     this.releaseTargetIf(robot.id, 'robot-destroyed');
     this.emit('kill', { robot, bounty, weapon: projectile.weapon });
-    this.checkGoal();
+    if (robot.id === this.bossId) this.winBossFight();
+    else this.checkGoal();
   }
 
   snapshotExtras() {
-    return { laptopRemaining: this.laptopRemaining(), powerRemaining: this.laptopRemaining(), powerSeconds: THROW_RULES.laptopSeconds };
+    return { laptopRemaining: this.laptopRemaining(), powerRemaining: this.laptopRemaining(), powerSeconds: THROW_RULES.laptopSeconds, bossPhase: this.bossPhase };
   }
 
   summaryExtras() {
-    return { kills: { ...this.kills }, totalKills: this.totalKills(), goalKills: THROW_RULES.goalKills, outcome: this.outcome ?? 'overrun' };
+    return { kills: { ...this.kills }, totalKills: this.totalKills(), goalKills: THROW_RULES.goalKills, bossDefeated: this.bossPhase === 'defeated', outcome: this.outcome ?? 'overrun' };
   }
 }
