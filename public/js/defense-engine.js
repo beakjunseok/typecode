@@ -1,6 +1,7 @@
 // 컴퓨터 디펜스: 해킹 공격(패킷·스팸 메일·악성 파일·랜섬웨어)이 지그재그 길을 따라 아래 컴퓨터로 온다.
 // 공격 위 낱말을 치면 패치가 날아가 맞힌다. 낱말로 번 코인으로 상점 낱말을 치면:
-//   firewall · antivirus → 길 옆 빈 설치 자리마다 짧은 낱말이 뜨고, 그 낱말을 치면 그 자리에 타워(빈 자리가 없으면 같은 타워 업그레이드)
+//   firewall · antivirus → 설치 모드: 길이 아닌 곳이면 어디든(누르거나 탭) 타워를 세운다. 추천 자리·같은 타워 위에는
+//   짧은 낱말이 떠서 키보드만으로도 고를 수 있다(같은 타워를 고르면 업그레이드)
 //   patch → 컴퓨터 체력 회복
 // 웨이브 1~5, 웨이브마다 배경음악 BPM이 오르고(110→130), 컴퓨터 체력이 30% 아래면 음악이 먹먹해진다(로우패스).
 // 수치 근거(조사 보고서): 단어 코인 (2+글자 수)×웨이브 배율×콤보 배율, 웨이브 보너스 50+25×웨이브(무피해 +30%),
@@ -30,17 +31,29 @@ export const DEFENSE_RULES = Object.freeze({
   waveBonus: Object.freeze({ base: 50, perWave: 25, noDamageFactor: 1.3 }),
   waveScore: 200,
   repairAmount: 25,
-  slots: 6,
+  maxTowers: 12,
   maxTowerLevel: 3,
+  // 키보드용 추천 자리 수
+  suggestions: 5,
   // 설치 모드: 이 시간 안에 자리를 고르지 않으면 취소. 자리 낱말은 이 길이 이하
   buildModeSeconds: 10,
   spotTokenMaxLength: 4
 });
 
-// 길(화면 들판을 0~1 정사각형으로 본 좌표): 왼쪽 위에서 들어와 지그재그로 내려가 아래 가운데 컴퓨터(돔)로
+// 길(화면 들판을 0~1로 본 좌표): 왼쪽 위에서 들어와 지그재그로 내려가, 컴퓨터 바로 위(방패 돔 꼭대기)에서 끝난다.
+// 길이 컴퓨터를 덮지 않도록 컴퓨터는 길 끝보다 아래(DEFENSE_COMPUTER)에 따로 둔다
 export const DEFENSE_PATH = Object.freeze([
-  [0.1, 0], [0.1, 0.2], [0.88, 0.2], [0.88, 0.46], [0.14, 0.46], [0.14, 0.7], [0.5, 0.7], [0.5, 0.9]
+  [0.08, 0], [0.08, 0.16], [0.92, 0.16], [0.92, 0.38], [0.08, 0.38], [0.08, 0.58], [0.5, 0.58]
 ].map(([x, y]) => Object.freeze({ x, y })));
+export const DEFENSE_COMPUTER = Object.freeze({ x: 0.5, y: 0.84 });
+
+// 설치 규칙(들판 좌표, 가로·세로 반지름이 다른 타원으로 잰다): 길과 띄울 거리, 타워끼리 띄울 거리, 컴퓨터 둘레
+export const PLACEMENT = Object.freeze({
+  pathClear: Object.freeze({ x: 0.075, y: 0.085 }),
+  towerGap: Object.freeze({ x: 0.075, y: 0.095 }),
+  computerZone: Object.freeze({ x: 0.5, y: 0.84, rx: 0.2, ry: 0.27 }),
+  margin: 0.035
+});
 
 // 길 위 비율 s(0~1) → 좌표. 구간 길이를 미리 재 두고 선형 보간. O(구간 수)
 const PATH_SEGMENTS = DEFENSE_PATH.slice(1).map((point, index) => {
@@ -81,11 +94,41 @@ export const SHOP_ITEMS = Object.freeze({
   patch: Object.freeze({ kind: 'repair', word: 'patch', price: 80 })
 });
 
-// 타워 설치 자리(길 사이 빈 땅, 들판 0~1 좌표). 길 굽이마다 양쪽을 닿게 놓았다
-export const TOWER_SLOTS = Object.freeze([
-  Object.freeze({ x: 0.32, y: 0.1 }), Object.freeze({ x: 0.68, y: 0.33 }), Object.freeze({ x: 0.32, y: 0.33 }),
-  Object.freeze({ x: 0.7, y: 0.58 }), Object.freeze({ x: 0.32, y: 0.58 }), Object.freeze({ x: 0.72, y: 0.82 })
-]);
+// 점과 선분 사이 거리(타원 단위: x는 rx, y는 ry로 나눠 잰다). O(1)
+function ellipseDistanceToSegment(point, from, to, radii) {
+  const px = point.x / radii.x, py = point.y / radii.y;
+  const ax = from.x / radii.x, ay = from.y / radii.y, bx = to.x / radii.x, by = to.y / radii.y;
+  const dx = bx - ax, dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSquared)) : 0;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+// 길 위(또는 길에 너무 가까운) 점인가. O(구간 수)
+export function isOnPath(point) {
+  return PATH_SEGMENTS.some(segment => ellipseDistanceToSegment(point, segment.from, segment.to, PLACEMENT.pathClear) < 1);
+}
+
+// 키보드 추천 자리 후보: 0.07 간격 격자 중 길·컴퓨터를 피한 곳, 길을 많이 덮는(사거리 안 길 표본이 많은) 순.
+// 처음 한 번만 계산한다. O(격자 수 × 길 표본 수)
+const PATH_SAMPLES = Array.from({ length: 80 }, (_, index) => pointOnPath(index / 79));
+const CANDIDATE_SPOTS = (() => {
+  const candidates = [];
+  for (let y = 0.06; y <= 0.95; y += 0.07) {
+    for (let x = 0.06; x <= 0.95; x += 0.07) {
+      const point = { x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 };
+      if (isOnPath(point) || inComputerZone(point)) continue;
+      const coverage = PATH_SAMPLES.filter(sample => Math.hypot(sample.x - point.x, sample.y - point.y) <= 0.26).length;
+      candidates.push({ ...point, coverage });
+    }
+  }
+  return Object.freeze(candidates.sort((first, second) => second.coverage - first.coverage));
+})();
+
+function inComputerZone(point) {
+  const zone = PLACEMENT.computerZone;
+  return ((point.x - zone.x) / zone.rx) ** 2 + ((point.y - zone.y) / zone.ry) ** 2 < 1;
+}
 
 // 웨이브 BPM: 레벨 시작 BPM + 5 × (웨이브 - 1). O(1)
 export function bpmForWave(level, wave) {
@@ -142,7 +185,7 @@ export class DefenseEngine extends TargetGameEngine {
     this.outcome = null;
     this.winAt = null;
     this.buildMode = null;
-    this.spots = TOWER_SLOTS.map((slot, index) => ({ id: this.nextId++, kind: 'spot', slot: index, token: null }));
+    this.spots = [];
     this.shop = Object.entries(SHOP_ITEMS).map(([key, item]) => ({ id: this.nextId++, kind: 'shop', item: key, token: { text: item.word, kind: 'keyword', weight: 1 } }));
   }
 
@@ -176,9 +219,9 @@ export class DefenseEngine extends TargetGameEngine {
     if (!item) return Infinity;
     const factor = DEFENSE_RULES.priceFactor[this.level] ?? 1;
     if (item.kind === 'repair') return Math.round(item.price * factor);
-    const { slots } = this.buildableSlots(item.tower);
-    if (!slots.length) return Infinity;
-    return Math.min(...slots.map(slot => this.priceAt(item.tower, slot)));
+    if (this.canBuildNew()) return this.priceAt(item.tower, null);
+    const upgradable = this.upgradableTowers(item.tower);
+    return upgradable.length ? Math.min(...upgradable.map(tower => this.priceAt(item.tower, tower))) : Infinity;
   }
 
   isDanger() {
@@ -285,9 +328,8 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   inRange(tower, bug) {
-    const slot = TOWER_SLOTS[tower.slot];
     const range = TOWER_TYPES[tower.type].range + 0.04 * (tower.level - 1);
-    return Math.hypot(slot.x - bug.x, slot.y - bug.y) <= range;
+    return Math.hypot(tower.x - bug.x, tower.y - bug.y) <= range;
   }
 
   moveBugs(frameSeconds) {
@@ -331,7 +373,7 @@ export class DefenseEngine extends TargetGameEngine {
         .sort((first, second) => second.progress - first.progress)[0];
       if (!target) continue;
       tower.readyAt = this.gameTime + TOWER_TYPES[tower.type].cooldown * 0.75 ** (tower.level - 1);
-      this.towerShots.push({ towerId: tower.id, slot: tower.slot, bugId: target.id, x: target.x, y: target.y, at: this.gameTime, type: tower.type });
+      this.towerShots.push({ towerId: tower.id, fromX: tower.x, fromY: tower.y, bugId: target.id, x: target.x, y: target.y, at: this.gameTime, type: tower.type });
       this.emit('tower-shot', { tower, bug: target });
       this.damageBug(target, 'tower');
       if (this.status !== 'running') return;
@@ -395,7 +437,7 @@ export class DefenseEngine extends TargetGameEngine {
     if (target.kind === 'shop' || target.kind === 'spot') {
       this.projectiles = this.projectiles.filter(entry => entry !== projectile);
       if (target.kind === 'shop') this.selectShopItem(target.item);
-      else this.placeAt(target.slot);
+      else this.placeAtSpot(target);
       return;
     }
     target.incomingDamage++;
@@ -409,21 +451,46 @@ export class DefenseEngine extends TargetGameEngine {
     this.damageBug(bug, 'typing');
   }
 
-  // 지금 지을 수 있는 자리: 빈 자리, 빈 자리가 없으면 같은 종류 타워 중 최대 레벨이 아닌 자리
-  buildableSlots(towerKey) {
-    const empty = this.spots.map(spot => spot.slot).filter(slot => !this.towers.some(tower => tower.slot === slot));
-    if (empty.length) return { slots: empty, upgrade: false };
-    const upgradable = this.towers.filter(tower => tower.type === towerKey && tower.level < DEFENSE_RULES.maxTowerLevel).map(tower => tower.slot);
-    return { slots: upgradable, upgrade: true };
+  // ---------- 설치 ----------
+  // 이 점에 새 타워를 세울 수 있나: 들판 안, 길·컴퓨터 둘레가 아니고 다른 타워와 겹치지 않음. 이유를 돌려준다. O(타워 + 구간)
+  placementProblem(point) {
+    const { margin, towerGap } = PLACEMENT;
+    if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return 'outside';
+    if (point.x < margin || point.x > 1 - margin || point.y < margin || point.y > 1 - margin) return 'outside';
+    if (isOnPath(point)) return 'path';
+    if (inComputerZone(point)) return 'computer';
+    if (this.towers.some(tower => Math.hypot((tower.x - point.x) / towerGap.x, (tower.y - point.y) / towerGap.y) < 1)) return 'blocked';
+    return null;
   }
 
-  priceAt(towerKey, slot) {
+  canBuildNew() {
+    return this.towers.length < DEFENSE_RULES.maxTowers && CANDIDATE_SPOTS.some(point => !this.placementProblem(point));
+  }
+
+  upgradableTowers(towerKey) {
+    return this.towers.filter(tower => tower.type === towerKey && tower.level < DEFENSE_RULES.maxTowerLevel);
+  }
+
+  // 키보드 추천 자리: 길을 많이 덮는 후보부터, 서로 떨어지게 최대 suggestions개. O(후보 × 추천 수)
+  suggestedSpots() {
+    if (this.towers.length >= DEFENSE_RULES.maxTowers) return [];
+    const chosen = [];
+    for (const point of CANDIDATE_SPOTS) {
+      if (chosen.length >= DEFENSE_RULES.suggestions) break;
+      if (this.placementProblem(point)) continue;
+      if (chosen.some(other => Math.hypot((other.x - point.x) / 0.16, (other.y - point.y) / 0.16) < 1)) continue;
+      chosen.push(point);
+    }
+    return chosen;
+  }
+
+  // 새 타워면 기본가, 업그레이드면 기본가 × 1.5^레벨, 난이도 배율. tower가 null이면 새 타워
+  priceAt(towerKey, tower) {
     const factor = DEFENSE_RULES.priceFactor[this.level] ?? 1;
-    const tower = this.towers.find(entry => entry.slot === slot);
     return Math.round(TOWER_TYPES[towerKey].price * factor * 1.5 ** (tower ? tower.level : 0));
   }
 
-  // 상점 낱말: 패치는 바로 수리, 타워는 설치 모드(자리마다 짧은 낱말). 같은 타워를 다시 치면 취소
+  // 상점 낱말: 패치는 바로 수리, 타워는 설치 모드(추천 자리·같은 타워 위에 짧은 낱말, 화면을 눌러도 됨). 같은 타워를 다시 치면 취소
   selectShopItem(itemKey) {
     const item = SHOP_ITEMS[itemKey];
     if (!item) return { bought: false, reason: 'unknown' };
@@ -441,22 +508,26 @@ export class DefenseEngine extends TargetGameEngine {
       return { bought: true };
     }
     if (this.buildMode?.tower === item.tower) return this.cancelBuild('toggle');
-    const { slots, upgrade } = this.buildableSlots(item.tower);
-    if (!slots.length) return deny('no-slot', Infinity);
-    const cheapest = Math.min(...slots.map(slot => this.priceAt(item.tower, slot)));
+    const canBuild = this.canBuildNew();
+    const upgradable = this.upgradableTowers(item.tower);
+    if (!canBuild && !upgradable.length) return deny('no-slot', Infinity);
+    const cheapest = Math.min(canBuild ? this.priceAt(item.tower, null) : Infinity, ...upgradable.map(tower => this.priceAt(item.tower, tower)));
     if (this.coins < cheapest) return deny('coins', cheapest);
     this.cancelBuild('switch', { silent: true });
-    this.buildMode = { tower: item.tower, upgrade, until: this.gameTime + DEFENSE_RULES.buildModeSeconds };
-    for (const spot of this.spots) {
-      if (slots.includes(spot.slot)) spot.token = this.pickSpotToken(spot.id);
-    }
-    this.emit('build-mode', { tower: item.tower, upgrade, slots });
+    this.buildMode = { tower: item.tower, upgrade: !canBuild, until: this.gameTime + DEFENSE_RULES.buildModeSeconds };
+    const spots = [
+      ...(canBuild ? this.suggestedSpots().map(point => ({ x: point.x, y: point.y, towerId: null })) : []),
+      ...upgradable.map(tower => ({ x: tower.x, y: tower.y, towerId: tower.id }))
+    ];
+    this.spots = spots.map(spot => ({ id: this.nextId++, kind: 'spot', ...spot, token: null }));
+    for (const spot of this.spots) spot.token = this.pickSpotToken(spot.id);
+    this.emit('build-mode', { tower: item.tower, upgrade: !canBuild, spots: this.spots.length });
     return { bought: false, buildMode: true };
   }
 
   // 자리 낱말은 짧게(빨리 고를 수 있게), 다른 목표와 첫 글자가 겹치지 않게
   pickSpotToken(excludeId) {
-    const used = new Set(this.targetables().filter(entity => entity.id !== excludeId).map(entity => entity.token.text[0]));
+    const used = new Set(this.targetables().filter(entity => entity.id !== excludeId && entity.token).map(entity => entity.token.text[0]));
     for (let attempt = 0; attempt < 60; attempt++) {
       const token = this.drawWeightedToken();
       if (token.text.length <= DEFENSE_RULES.spotTokenMaxLength && !used.has(token.text[0])) return token;
@@ -467,46 +538,67 @@ export class DefenseEngine extends TargetGameEngine {
   cancelBuild(reason, { silent = false } = {}) {
     if (!this.buildMode) return { bought: false, reason: 'none' };
     this.buildMode = null;
-    for (const spot of this.spots) {
-      if (spot.token && this.targetId === spot.id) this.clearBuffer();
-      spot.token = null;
-    }
+    if (this.spots.some(spot => spot.id === this.targetId)) this.clearBuffer();
+    this.spots = [];
     if (!silent) this.emit('build-cancel', { reason });
     return { bought: false, reason };
   }
 
-  // 설치 자리 낱말을 쳤을 때: 빈 자리면 새 타워, 같은 종류 타워가 있는 자리면 업그레이드
-  placeAt(slot) {
+  // 자리 낱말을 쳤을 때
+  placeAtSpot(spot) {
+    if (spot.towerId != null) return this.upgradeTower(this.towers.find(tower => tower.id === spot.towerId));
+    return this.placeAtPoint({ x: spot.x, y: spot.y });
+  }
+
+  // 화면을 누른 점(들판 좌표)에: 같은 종류 타워를 누르면 업그레이드, 빈 땅이면 새 타워, 길·컴퓨터·겹침이면 거절
+  placeAtPoint(point) {
     const mode = this.buildMode;
     if (!mode) return { bought: false, reason: 'no-mode' };
-    const price = this.priceAt(mode.tower, slot);
-    if (this.coins < price) {
-      this.cancelBuild('coins', { silent: true });
-      this.emit('shop-denied', { item: mode.tower, price, coins: this.coins, reason: 'coins' });
-      return { bought: false, reason: 'coins' };
+    const { towerGap } = PLACEMENT;
+    const touched = this.towers.find(tower => Math.hypot((tower.x - point.x) / towerGap.x, (tower.y - point.y) / towerGap.y) < 0.6);
+    if (touched) {
+      if (touched.type === mode.tower && touched.level < DEFENSE_RULES.maxTowerLevel) return this.upgradeTower(touched);
+      return this.denyPlace(touched.type === mode.tower ? 'max-level' : 'blocked', point);
     }
+    if (this.towers.length >= DEFENSE_RULES.maxTowers) return this.denyPlace('max-towers', point);
+    const problem = this.placementProblem(point);
+    if (problem) return this.denyPlace(problem, point);
+    const price = this.priceAt(mode.tower, null);
+    if (this.coins < price) return this.denyPlace('coins', point, price);
     this.coins -= price;
-    const existing = this.towers.find(tower => tower.slot === slot);
     this.cancelBuild('placed', { silent: true });
-    if (existing) {
-      existing.level = Math.min(DEFENSE_RULES.maxTowerLevel, existing.level + 1);
-      existing.upgradedAt = this.gameTime;
-      this.emit('tower-upgraded', { tower: existing, price });
-      return { bought: true, tower: existing };
-    }
-    const tower = { id: this.nextId++, type: mode.tower, slot, level: 1, readyAt: this.gameTime + 0.5, builtAt: this.gameTime };
+    const tower = { id: this.nextId++, type: mode.tower, x: point.x, y: point.y, level: 1, readyAt: this.gameTime + 0.5, builtAt: this.gameTime };
     this.towers.push(tower);
     this.towersBuilt++;
     this.emit('tower-built', { tower, price });
     return { bought: true, tower };
   }
 
-  // 테스트·도구용: 상점 낱말을 고르고 첫 자리에 바로 짓는다
-  buy(itemKey, slot = null) {
+  upgradeTower(tower) {
+    const mode = this.buildMode;
+    if (!mode || !tower) return { bought: false, reason: 'no-mode' };
+    const price = this.priceAt(mode.tower, tower);
+    if (this.coins < price) return this.denyPlace('coins', tower, price);
+    this.coins -= price;
+    this.cancelBuild('placed', { silent: true });
+    tower.level = Math.min(DEFENSE_RULES.maxTowerLevel, tower.level + 1);
+    tower.upgradedAt = this.gameTime;
+    this.emit('tower-upgraded', { tower, price });
+    return { bought: true, tower };
+  }
+
+  // 놓을 수 없는 자리: 설치 모드는 그대로 두고(다시 고르면 됨) 이유만 알린다. 코인 부족이면 모드를 끝낸다
+  denyPlace(reason, point, price = null) {
+    if (reason === 'coins') this.cancelBuild('coins', { silent: true });
+    this.emit('place-denied', { reason, x: point.x, y: point.y, price, coins: this.coins });
+    return { bought: false, reason };
+  }
+
+  // 테스트·도구용: 상점 낱말을 고르고 첫 추천 자리(없으면 업그레이드 자리)에 바로 짓는다
+  buy(itemKey, spotIndex = 0) {
     const result = this.selectShopItem(itemKey);
     if (!result.buildMode) return result;
-    const target = slot ?? this.spots.find(spot => spot.token)?.slot;
-    return this.placeAt(target);
+    return this.placeAtSpot(this.spots[spotIndex] ?? this.spots[0]);
   }
 
   // 승리 연출 중에는 입력을 받지 않는다

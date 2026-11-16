@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DefenseEngine, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, pointOnPath, bpmForWave, wordCoins, waveBonusCoins, comboCoinFactor } from '../public/js/defense-engine.js';
+import { DefenseEngine, isOnPath, DEFENSE_COMPUTER, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, pointOnPath, bpmForWave, wordCoins, waveBonusCoins, comboCoinFactor } from '../public/js/defense-engine.js';
 import { rewardBreakdown } from '../public/js/rewards.js';
 
 const POOL = ['let', 'var', 'map', 'if', 'do', 'go', 'use', 'mut', 'xor', 'nil', 'new', 'try', 'int', 'out', 'end']
@@ -77,7 +77,7 @@ test('공격이 컴퓨터에 닿으면 체력이 깎이고, 0이면 해킹당해
   assert.equal(engine.health, 0);
 });
 
-test('상점: 코인이 모자라면 거절, 있으면 설치 자리마다 낱말이 뜨고 그 낱말을 치면 그 자리에 타워', () => {
+test('상점: 코인이 모자라면 거절, 있으면 추천 자리마다 낱말이 뜨고 그 낱말을 치면 그 자리에 타워', () => {
   const { engine, events, clock } = setup();
   typeWord(engine, clock, 'firewall');
   assert.ok(events.some(event => event.type === 'shop-denied' && event.payload.reason === 'coins'), '시작 코인 60 < 120');
@@ -85,38 +85,54 @@ test('상점: 코인이 모자라면 거절, 있으면 설치 자리마다 낱�
   engine.coins = 1000;
   typeWord(engine, clock, 'antivirus');
   assert.equal(engine.buildMode.tower, 'antivirus');
-  const spots = engine.spots.filter(spot => spot.token);
-  assert.equal(spots.length, DEFENSE_RULES.slots, '빈 자리 6곳 모두 낱말');
-  assert.ok(spots.every(spot => spot.token.text.length <= DEFENSE_RULES.spotTokenMaxLength));
+  assert.equal(engine.spots.length, DEFENSE_RULES.suggestions, '추천 자리 5곳');
+  assert.ok(engine.spots.every(spot => spot.token.text.length <= DEFENSE_RULES.spotTokenMaxLength));
+  assert.ok(engine.spots.every(spot => !isOnPath(spot)), '추천 자리는 길 밖');
   assert.equal(new Set(engine.targetables().map(entity => entity.token.text[0])).size, engine.targetables().length, '첫 글자가 모두 다름');
-  const chosen = spots[3];
+  const chosen = engine.spots[3];
   typeWord(engine, clock, chosen.token.text);
   assert.equal(engine.towers.length, 1);
-  assert.equal(engine.towers[0].slot, chosen.slot, '고른 자리에 선다');
+  assert.deepEqual([engine.towers[0].x, engine.towers[0].y], [chosen.x, chosen.y], '고른 자리에 선다');
   assert.equal(engine.buildMode, null);
-  assert.ok(engine.spots.every(spot => !spot.token), '자리 낱말은 사라진다');
+  assert.equal(engine.spots.length, 0, '자리 낱말은 사라진다');
   assert.equal(engine.coins, 1000 - TOWER_TYPES.antivirus.price);
   advance(engine, clock, 40, 0.1);
   assert.ok(events.some(event => event.type === 'tower-shot'), '타워가 쏜다');
   assert.ok(events.some(event => event.type === 'bug-kill' && event.payload.source === 'tower'));
 });
 
-test('자리가 다 차면 같은 타워 위에 낱말이 떠서 업그레이드, 다시 치면 취소, 패치는 체력을 고친다', () => {
+test('길이 아닌 곳은 어디든(누른 점) 설치, 길·컴퓨터·겹침은 거절, 같은 타워를 누르면 업그레이드', () => {
+  const { engine, events, clock } = setup({ level: 3 });
+  engine.coins = 100000;
+  typeWord(engine, clock, 'firewall');
+  assert.equal(engine.placeAtPoint({ x: 0.5, y: 0.16 }).reason, 'path', '길 위');
+  assert.equal(engine.placeAtPoint({ x: 0.5, y: 0.86 }).reason, 'computer', '컴퓨터 둘레');
+  assert.ok(engine.buildMode, '거절돼도 설치 모드는 그대로');
+  assert.equal(engine.placeAtPoint({ x: 0.3, y: 0.27 }).bought, true, '길 사이 빈 땅');
+  typeWord(engine, clock, 'firewall');
+  assert.equal(engine.placeAtPoint({ x: 0.31, y: 0.28 }).bought, true, '같은 타워를 누르면 업그레이드');
+  assert.equal(engine.towers[0].level, 2);
+  typeWord(engine, clock, 'antivirus');
+  assert.equal(engine.placeAtPoint({ x: 0.33, y: 0.29 }).reason, 'blocked', '다른 타워 위');
+  assert.equal(engine.placeAtPoint({ x: 0.75, y: 0.27 }).bought, true);
+  assert.ok(events.some(event => event.type === 'place-denied' && event.payload.reason === 'path'));
+  assert.equal(DEFENSE_PATH.at(-1).y < DEFENSE_COMPUTER.y, true, '길은 컴퓨터 위에서 끝난다');
+});
+
+test('같은 타워 위에도 낱말이 떠서 업그레이드, 다시 치면 취소, 패치는 체력을 고친다', () => {
   const { engine, clock } = setup({ level: 3 });
   engine.coins = 100000;
-  for (let index = 0; index < DEFENSE_RULES.slots; index++) {
-    typeWord(engine, clock, 'firewall');
-    typeWord(engine, clock, engine.spots.find(spot => spot.token).token.text);
-  }
-  assert.equal(engine.towers.length, DEFENSE_RULES.slots);
   typeWord(engine, clock, 'firewall');
-  assert.equal(engine.buildMode.upgrade, true);
+  typeWord(engine, clock, engine.spots[0].token.text);
+  typeWord(engine, clock, 'firewall');
+  const upgradeSpot = engine.spots.find(spot => spot.towerId != null);
+  assert.ok(upgradeSpot, '기존 방화벽 위에 낱말');
   typeWord(engine, clock, 'firewall');
   assert.equal(engine.buildMode, null, '같은 상점 낱말을 다시 치면 취소');
   const before = engine.coins;
   typeWord(engine, clock, 'firewall');
-  typeWord(engine, clock, engine.spots.find(spot => spot.token).token.text);
-  assert.equal(engine.towers.filter(tower => tower.level === 2).length, 1, '업그레이드');
+  typeWord(engine, clock, engine.spots.find(spot => spot.towerId != null).token.text);
+  assert.equal(engine.towers[0].level, 2, '업그레이드');
   assert.equal(before - engine.coins, Math.round(TOWER_TYPES.firewall.price * 1.08 * 1.5), 'Lv.3 상점가 ×1.08, 업그레이드 ×1.5');
   engine.health = 10;
   typeWord(engine, clock, 'patch');

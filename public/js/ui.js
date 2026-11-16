@@ -213,6 +213,7 @@ export function createUi(root = document) {
   // mood: 'win'이면 축하 그림, 'lose'면 좌절 그림을 결과창 위에 깐다
   function showResult(summary, { languageKey, playerName, title = 'BUILD FINISHED', subtitle = null, saveable = true, unsavedNote = null, mood = 'win' }) {
     elements.resultModal.dataset.mood = mood === 'lose' ? 'lose' : 'win';
+    elements.resultModal.dataset.game = summary?.mode ?? '';
     elements.saveForm.querySelector('label').hidden = !saveable;
     elements.playerName.hidden = !saveable;
     elements.saveButton.hidden = !saveable;

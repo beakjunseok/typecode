@@ -674,6 +674,30 @@ function startFrameLoop() {
 // C major 한 옥타브: 낱말 안 몇 번째 글자인지로 음을 고른다(도레미…)
 const C_MAJOR_MIDI = Object.freeze([72, 74, 76, 77, 79, 81, 83, 84]);
 
+// 컴퓨터 디펜스 설치 모드: 마우스는 유령 타워 미리보기, 누르거나 탭하면 그 자리에 설치(길·컴퓨터 둘레·다른 타워 위는 거절).
+// 입력창 포커스는 그대로 두어 키보드로 계속 칠 수 있게 한다
+function bindDefensePointer(canvas) {
+  if (!canvas) return;
+  const localPoint = event => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+  const activeRenderer = () => (settings.mode === 'defense' && run.engine?.buildMode && run.engine.status === 'running' ? renderers.defense : null);
+  canvas.addEventListener('pointermove', event => {
+    const renderer = activeRenderer();
+    renderers.defense?.setPointer(renderer ? localPoint(event) : null);
+  });
+  canvas.addEventListener('pointerleave', () => renderers.defense?.setPointer(null));
+  canvas.addEventListener('pointerdown', event => {
+    const renderer = activeRenderer();
+    if (!renderer) return;
+    event.preventDefault();
+    const point = localPoint(event);
+    run.engine.placeAtPoint(renderer.toField(point.x, point.y));
+    renderer.setPointer(event.pointerType === 'mouse' ? point : null);
+  });
+}
+
 // 컴퓨터 디펜스 전용 이벤트(소리·로그). 처리했으면 true, 공통 처리(lock·mistake 등)는 false
 function handleDefenseEvent(type, payload) {
   switch (type) {
@@ -714,7 +738,11 @@ function handleDefenseEvent(type, payload) {
       return true;
     case 'build-mode':
       sound.play('lock');
-      ui.log('info', `🛠 ${TOWER_TYPES[payload.tower].label} ${payload.upgrade ? '업그레이드' : '설치'} — 자리 위 낱말을 치세요`);
+      ui.log('info', `🛠 ${TOWER_TYPES[payload.tower].label} ${payload.upgrade ? '업그레이드' : '설치'} — 길이 아닌 곳을 누르거나, 자리 위 낱말을 치세요`);
+      return true;
+    case 'place-denied':
+      sound.play('error');
+      ui.log('warn', { path: '길 위에는 세울 수 없어요', computer: '컴퓨터 바로 옆에는 세울 수 없어요', blocked: '다른 타워와 겹쳐요', outside: '들판 밖이에요', 'max-level': '이미 최고 레벨이에요', 'max-towers': `타워는 ${DEFENSE_RULES.maxTowers}개까지예요`, coins: `코인이 모자라요 (${payload.price}🪙)` }[payload.reason] ?? '여기에는 세울 수 없어요');
       return true;
     case 'build-cancel':
       ui.log('info', '설치 취소');
@@ -1857,6 +1885,7 @@ function bindEvents() {
   elements.arcadeOverlay.addEventListener('click', focusTypingArea);
   elements.stage.addEventListener('click', focusTypingArea);
   elements.arcadeStage.addEventListener('click', focusTypingArea);
+  bindDefensePointer(elements.arcadeCanvas);
   elements.hiddenInput.addEventListener('keydown', handleKeyDown);
   // 리듬 롱노트: 키를 떼는 순간을 알려 준다(한글 자판이어도 키 자리로 글자를 찾는다)
   document.addEventListener('keyup', handleRhythmKeyUp);
