@@ -21,7 +21,8 @@ import { BgmEngine } from './bgm.js';
 import { emitSparks, pulseClass } from './effects.js';
 import { createKeyboard } from './keyboard.js';
 import { createKeyboardCollection } from './gacha-view.js';
-import { pointsForGame, EARNING } from './gacha.js';
+import { EARNING } from './gacha.js';
+import { rewardBreakdown, describeReward } from './rewards.js';
 import { requestSession, submitScore, fetchBoard, localBoard, preferences } from './api.js';
 import { createUi, TIER_COLORS } from './ui.js';
 import { getWeekLabel } from './week.js';
@@ -572,12 +573,14 @@ function handleFinish(summary) {
   let earned = 0;
   try {
     // 판마다 키보드 뽑기 포인트 적립(결과창에 표시)
-    earned = autoPlay ? 0 : collection.earnPoints(pointsForGame(summary));
+    // 난이도·진행도·첫 클리어를 반영한 포인트(rewards.js). 내역을 결과창에 그대로 보여 준다
+    const reward = autoPlay ? null : rewardBreakdown({ ...summary, autoPlay }, { firstClears: collection.firstClears() });
+    earned = reward ? collection.earnPoints(reward.total, reward.firstClearKey) : 0;
     const pointsLine = document.getElementById('resultPoints');
     if (pointsLine) {
       pointsLine.hidden = false;
       pointsLine.innerHTML = earned
-        ? `🎁 뽑기 포인트 <b>+${earned}P</b> · 보유 ${collection.points()}P`
+        ? `🎁 뽑기 포인트 <b>+${earned}P</b> · 보유 ${collection.points()}P<br><small>${describeReward(reward)}</small>`
         : autoPlay ? `🎁 자동 연주는 포인트가 없어요 · 보유 ${collection.points()}P`
           : `🎁 이번 판은 포인트가 없어요(맞게 친 글자 ${EARNING.minimumCharacters}개 이상부터) · 보유 ${collection.points()}P`;
     }

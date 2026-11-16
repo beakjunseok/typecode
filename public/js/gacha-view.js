@@ -4,7 +4,7 @@ import { SKIN_BOARDS } from './skin-boards.js';
 import { createKeyboard } from './keyboard.js';
 import { SKINS, COLLECTIBLE_SKINS, RARITIES, RARITY_ORDER, getSkin, unlockedLedModes, skinsWithLedMode, MATERIALS } from './keyboard-skins.js';
 import { AMBIENT_NAMES, REACTIVE_NAMES, LED_LABELS } from './keyboard-led.js';
-import { normalizeGachaState, canDraw, draw, drawWithPoints, addPoints, buy, equip, dayKey, PITY, COSTS, legendaryChance } from './gacha.js';
+import { normalizeGachaState, canDraw, draw, drawWithPoints, addPoints, markFirstClear, buy, equip, dayKey, PITY, COSTS, legendaryChance } from './gacha.js';
 
 const CHARGE_SECONDS = [1.2, 1.35, 1.6, 1.9, 2.4];
 const STARS = count => '★'.repeat(count) + '☆'.repeat(5 - count);
@@ -622,19 +622,22 @@ export function createKeyboardCollection({ sound, preferences, onSkinChange, onO
   setInterval(refreshButtons, 60000);
 
   // 판이 끝났을 때 포인트 적립
-  function earnPoints(amount) {
-    const next = addPoints(state, amount);
+  // firstClearKey가 있으면 그 첫 클리어 보너스를 받은 것으로 기록한다(같은 저장에서 함께)
+  function earnPoints(amount, firstClearKey = null) {
+    const withClear = markFirstClear(state, firstClearKey);
+    const next = addPoints(withClear, amount);
     if (next === state) return 0;
     state = next;
     save();
     refreshButtons();
-    return amount;
+    return next.points - withClear.points;
   }
 
   return {
     isOpen,
     earnPoints,
     points: () => state.points,
+    firstClears: () => [...state.firstClears],
     openGacha,
     openCollection,
     refresh: refreshButtons,
