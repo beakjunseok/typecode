@@ -572,6 +572,10 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   summaryExtras() {
-    return { kills: { ...this.kills }, totalKills: this.totalKills(), goalKills: THROW_RULES.goalKills, bossDefeated: this.bossPhase === 'defeated', outcome: this.outcome ?? 'overrun' };
+    // bossDamage: 보스에게 입힌 피해 비율(0~1) — 보스전에서 져도 진행 보상에 반영
+    const boss = this.boss();
+    const bossDefeated = this.bossPhase === 'defeated';
+    const bossDamage = bossDefeated ? 1 : boss && boss.maxHp > 0 ? Math.max(0, Math.min(1, 1 - boss.hp / boss.maxHp)) : 0;
+    return { kills: { ...this.kills }, totalKills: this.totalKills(), goalKills: THROW_RULES.goalKills, bossDefeated, bossDamage, outcome: this.outcome ?? 'overrun' };
   }
 }

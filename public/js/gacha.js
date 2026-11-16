@@ -5,28 +5,24 @@ import { SKINS, SKIN_BY_ID, DEFAULT_SKIN_ID, RARITIES, RARITY_ORDER } from './ke
 export const PITY = Object.freeze({ rare: 10, epic: 30, legendary: 60, softStart: 45, softStep: 0.05 });
 // 게임 포인트로 하는 뽑기: 1회 100P, 10회 900P(10회는 희귀 이상 1개 이상 보장)
 export const COSTS = Object.freeze({ single: 100, multi: 900, multiCount: 10 });
-// 한 판에서 받는 포인트: 맞게 친 글자 10개당 1P × 정확도² + 최대 콤보 10마다 2P, 한 판 최대 300P.
-// 맞게 친 글자가 20개 미만이면(바로 끝낸 판) 0P
-// 판마다 적립: 맞게 친 글자 3개당 1P × 정확도², 최대 콤보 10마다 5P. 300자·100%·25콤보 ≈ 110P(1회 뽑기 100P)
-export const EARNING = Object.freeze({ charactersPerPoint: 3, comboStep: 10, comboPoints: 5, maxPerGame: 800, minimumCharacters: 15 });
-// 리듬: 곡이 짧고 글자 수가 적어서 타자 포인트를 두 배로 주고, 클리어·풀콤보(FC)·올퍼펙트(AP)에 보너스
-export const RHYTHM_EARNING = Object.freeze({ typingFactor: 2, clear: 30, marks: Object.freeze({ FC: 40, AP: 80 }) });
+// 한 판에서 받는 포인트는 rewards.js(난이도·진행도 반영)에서 계산한다. 예전 이름도 그대로 쓸 수 있게 다시 내보낸다
+export { EARNING } from './rewards.js';
+import { rewardBreakdown } from './rewards.js';
 
-export function pointsForGame(summary) {
-  const correct = Number(summary?.correctKeystrokes) || 0;
-  if (correct < EARNING.minimumCharacters) return 0;
-  const accuracy = Math.max(0, Math.min(100, Number(summary.accuracy) || 0)) / 100;
-  const rhythm = summary.mode === 'rhythm';
-  const typing = Math.floor(correct / EARNING.charactersPerPoint * accuracy * accuracy * (rhythm ? RHYTHM_EARNING.typingFactor : 1));
-  const combo = Math.floor((Number(summary.maxCombo) || 0) / EARNING.comboStep) * EARNING.comboPoints;
-  const bonus = rhythm && summary.outcome === 'cleared'
-    ? RHYTHM_EARNING.clear + (RHYTHM_EARNING.marks[summary.clearMark] ?? 0) : 0;
-  return Math.min(EARNING.maxPerGame, typing + combo + bonus);
+// 첫 클리어 기록 없이 계산한 포인트(첫 클리어 보너스 포함)
+export function pointsForGame(summary, options) {
+  return rewardBreakdown(summary, options).total;
+}
+
+// 첫 클리어 키를 기록한다(이미 있으면 그대로)
+export function markFirstClear(state, key) {
+  if (typeof key !== 'string' || !key || state.firstClears.includes(key)) return state;
+  return { ...state, firstClears: [...state.firstClears, key] };
 }
 const FIRST_DRAW_MINIMUM = 'rare';
 
 export function createGachaState() {
-  return { owned: [DEFAULT_SKIN_ID], equipped: DEFAULT_SKIN_ID, fragments: 0, points: 0, lastDrawDay: null, draws: 0, pity: { rare: 0, epic: 0, legendary: 0 } };
+  return { owned: [DEFAULT_SKIN_ID], equipped: DEFAULT_SKIN_ID, fragments: 0, points: 0, lastDrawDay: null, draws: 0, pity: { rare: 0, epic: 0, legendary: 0 }, firstClears: [] };
 }
 
 // 저장된 값을 믿지 않고 모양을 바로잡는다(없는 스킨·음수·깨진 값 제거)
@@ -42,7 +38,8 @@ export function normalizeGachaState(saved) {
     points: count(saved.points),
     lastDrawDay: typeof saved.lastDrawDay === 'string' ? saved.lastDrawDay : null,
     draws: count(saved.draws),
-    pity: { rare: count(saved.pity?.rare), epic: count(saved.pity?.epic), legendary: count(saved.pity?.legendary) }
+    pity: { rare: count(saved.pity?.rare), epic: count(saved.pity?.epic), legendary: count(saved.pity?.legendary) },
+    firstClears: Array.isArray(saved.firstClears) ? [...new Set(saved.firstClears.filter(key => typeof key === 'string' && key.length <= 120))] : []
   };
   if (state.owned.includes(saved.equipped)) state.equipped = saved.equipped;
   return state;

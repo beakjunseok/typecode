@@ -156,6 +156,7 @@ export class BatteryEngine extends TargetGameEngine {
 
   checkOutcome() {
     if (this.winAt != null) return null;
+    this.peakCells = Math.max(this.peakCells ?? 0, this.me.cells);
     if (this.me.cells >= BATTERY_RULES.goalCells) return this.clearStage('charged');
     if (this.rival.cells <= 0) return this.clearStage('sunk');
     if (this.me.cells <= 0) return this.loseMatch('sunk');
@@ -370,6 +371,8 @@ export class BatteryEngine extends TargetGameEngine {
     return {
       stage: this.stage,
       stagesCleared: this.stagesCleared,
+      peakCells: Math.max(this.peakCells ?? 0, this.me.cells),
+      goalCells: BATTERY_RULES.goalCells,
       outcome: this.outcome,
       collected: { ...this.collected },
       drains: this.drains,

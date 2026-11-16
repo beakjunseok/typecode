@@ -146,12 +146,12 @@ test('게임 포인트: 판 결과로 적립, 1회 100P·10회 900P, 10회는 �
   assert.equal(pointsForGame({ correctKeystrokes: 300, accuracy: 50, maxCombo: 0 }), 25, '정확도² 반영');
   assert.equal(pointsForGame({ correctKeystrokes: 99999, accuracy: 100, maxCombo: 999 }), EARNING.maxPerGame);
   assert.equal(pointsForGame(null), 0);
-  // 리듬: 타자 포인트 두 배 + 클리어 30 + FC 40 / AP 80
+  // 리듬(보통): 타자 포인트 두 배 + 진행 60(끝까지) + 클리어 30 + FC 40 / AP 80
   const song = { mode: 'rhythm', correctKeystrokes: 300, accuracy: 100, maxCombo: 0 };
-  assert.equal(pointsForGame({ ...song, outcome: 'failed' }), 200);
-  assert.equal(pointsForGame({ ...song, outcome: 'cleared' }), 230);
-  assert.equal(pointsForGame({ ...song, outcome: 'cleared', clearMark: 'FC' }), 270);
-  assert.equal(pointsForGame({ ...song, outcome: 'cleared', clearMark: 'AP' }), 310);
+  assert.equal(pointsForGame({ ...song, outcome: 'failed', gaugeEnd: 0 }), 200);
+  assert.equal(pointsForGame({ ...song, outcome: 'cleared' }), 290);
+  assert.equal(pointsForGame({ ...song, outcome: 'cleared', clearMark: 'FC' }), 330);
+  assert.equal(pointsForGame({ ...song, outcome: 'cleared', clearMark: 'AP' }), 370);
 
   let state = addPoints(createGachaState(), 950);
   assert.equal(state.points, 950);
@@ -172,4 +172,43 @@ test('게임 포인트: 판 결과로 적립, 1회 100P·10회 900P, 10회는 �
   const single = drawWithPoints({ ...state, points: 100 }, 1, { random: seeded(3) });
   assert.ok(single.ok && single.results.length === 1 && single.state.points === 0);
   assert.equal(normalizeGachaState({ points: 120.9 }).points, 120);
+});
+
+// ---------- 난이도·진행도 보상(rewards.js) ----------
+import { rewardBreakdown, progressOf, DIFFICULTY_MULTIPLIERS, FIRST_CLEAR_BONUS, describeReward } from '../public/js/rewards.js';
+import { markFirstClear } from '../public/js/gacha.js';
+
+test('난이도 배율: 같은 판이라도 Lv.1 0.6배 · Lv.3 1.6배', () => {
+  const run = { mode: 'throw', correctKeystrokes: 300, accuracy: 100, maxCombo: 0, totalKills: 25, goalKills: 50, bossDamage: 0, outcome: 'overrun' };
+  const normal = rewardBreakdown({ ...run, level: 2 });
+  const easy = rewardBreakdown({ ...run, level: 1 });
+  const hard = rewardBreakdown({ ...run, level: 3 });
+  assert.equal(easy.total, Math.round((normal.base + normal.progressBonus) * DIFFICULTY_MULTIPLIERS[0]));
+  assert.equal(hard.total, Math.round((normal.base + normal.progressBonus) * DIFFICULTY_MULTIPLIERS[2]));
+  assert.ok(easy.total < normal.total && normal.total < hard.total);
+});
+
+test('진행 보상: 더 멀리 갈수록 볼록하게 늘고, 클리어하면 클리어 보너스', () => {
+  const at = kills => rewardBreakdown({ mode: 'throw', level: 2, correctKeystrokes: 300, accuracy: 100, maxCombo: 0, totalKills: kills, goalKills: 50, bossDamage: 0, outcome: 'overrun' }).progressBonus;
+  assert.ok(at(10) < at(25) && at(25) < at(50));
+  assert.ok(at(50) - at(25) > at(25) - at(0), '뒤로 갈수록 한 걸음의 가치가 크다');
+  const clear = rewardBreakdown({ mode: 'throw', level: 2, correctKeystrokes: 300, accuracy: 100, maxCombo: 0, totalKills: 60, goalKills: 50, bossDefeated: true, outcome: 'cleared' });
+  assert.equal(clear.progressBonus, 100);
+  assert.equal(clear.clearBonus, 60);
+  assert.equal(progressOf({ mode: 'battery', outcome: 'sunk', peakCells: 4, goalCells: 8 }).progress, 0.45);
+});
+
+test('첫 클리어 보너스는 (모드·난이도)마다 한 번 · 어시스트·자동 연주는 없음', () => {
+  const clear = { mode: 'battery', level: 3, correctKeystrokes: 200, accuracy: 100, maxCombo: 0, outcome: 'rescued' };
+  const first = rewardBreakdown(clear);
+  assert.equal(first.firstClearBonus, FIRST_CLEAR_BONUS[2]);
+  assert.equal(first.firstClearKey, 'battery:3');
+  assert.equal(rewardBreakdown(clear, { firstClears: ['battery:3'] }).firstClearBonus, 0);
+  const song = { mode: 'rhythm', difficulty: 'hard', songId: 'canon', correctKeystrokes: 100, accuracy: 100, maxCombo: 0, outcome: 'cleared', clearLamp: 'CLEAR' };
+  assert.equal(rewardBreakdown({ ...song, assist: true }).firstClearBonus, 0);
+  assert.equal(rewardBreakdown({ ...song, autoPlay: true }).total, 0);
+  assert.ok(describeReward(first).includes('첫 클리어'));
+  let state = createGachaState();
+  state = markFirstClear(state, 'battery:3');
+  assert.deepEqual(normalizeGachaState(JSON.parse(JSON.stringify(state))).firstClears, ['battery:3']);
 });
