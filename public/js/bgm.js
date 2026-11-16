@@ -125,6 +125,30 @@ export class BgmEngine {
     this.timerId = null;
     this.ducked = false;
     this.cache = new Map();
+    this.pendingTempoBoost = null;
+    this.filter = null;
+    this.muffled = false;
+  }
+
+  // 곡의 BPM을 바꾼다(다음 마디 첫 박부터, 박이 끊기지 않게). 곡 기본 템포에 대한 비율로 저장
+  setTempoBpm(bpm) {
+    if (!this.song || !Number.isFinite(bpm) || bpm <= 0) return;
+    this.pendingTempoBoost = bpm / this.song.tempo;
+  }
+
+  // 위험 상황 고음 컷: 버스 로우패스를 0.3초 동안 18kHz ↔ 1.2kHz로 옮긴다.
+  // 램프 앞에 지금 값을 setValueAtTime으로 박아 두어야 이전 예약 시각부터 계산돼 튀지 않는다
+  setMuffled(muffled) {
+    const context = this.sound.context;
+    if (!this.filter || !context || this.muffled === Boolean(muffled)) return;
+    this.muffled = Boolean(muffled);
+    const frequency = this.filter.frequency;
+    const now = context.currentTime;
+    try {
+      frequency.cancelScheduledValues(now);
+      frequency.setValueAtTime(frequency.value, now);
+      frequency.linearRampToValueAtTime(this.muffled ? 1200 : 18000, now + 0.3);
+    } catch (error) { /* 무시 */ }
   }
 
   setEnabled(enabled) {
@@ -144,8 +168,16 @@ export class BgmEngine {
     const bus = context.createGain();
     bus.gain.setValueAtTime(0.0001, context.currentTime);
     bus.gain.exponentialRampToValueAtTime(MUSIC_VOLUME, context.currentTime + CROSSFADE_SECONDS);
-    bus.connect(this.sound.master);
+    // 버스 → 로우패스(평소 18kHz로 열어 둠) → 마스터
+    const filter = context.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = this.muffled ? 1200 : 18000;
+    bus.connect(filter);
+    filter.connect(this.sound.master);
     this.bus = bus;
+    this.filter = filter;
+    this.tempoBoost = 1;
+    this.pendingTempoBoost = null;
     this.song = SONGS[songName];
     this.bars = expandForm(this.song);
     this.step = 0;
@@ -165,8 +197,13 @@ export class BgmEngine {
       bus.gain.setValueAtTime(Math.max(bus.gain.value, 0.0001), context.currentTime);
       bus.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + CROSSFADE_SECONDS);
     } catch (error) { /* 무시 */ }
-    setTimeout(() => bus.disconnect(), CROSSFADE_SECONDS * 1000 + 100);
+    const filter = this.filter;
+    setTimeout(() => {
+      bus.disconnect();
+      filter?.disconnect();
+    }, CROSSFADE_SECONDS * 1000 + 100);
     this.bus = null;
+    this.filter = null;
   }
 
   stop() {
@@ -186,9 +223,9 @@ export class BgmEngine {
   }
 
   // intensity 0~2: 층 추가. tempoBoost: 위기 때 템포 상승. power: 아이템 효과 중 필터 개방.
-  setIntensity(intensity, { tempoBoost = 1, power = false } = {}) {
+  setIntensity(intensity, { tempoBoost = null, power = false } = {}) {
     this.intensity = Math.max(0, Math.min(2, intensity));
-    this.tempoBoost = tempoBoost;
+    if (tempoBoost !== null) this.tempoBoost = tempoBoost;
     this.brightness = power ? 5600 : 2400;
   }
 
@@ -211,6 +248,10 @@ export class BgmEngine {
       this.nextStepTime += this.stepSeconds() * swing;
       this.step = (this.step + 1) % 16;
       if (this.step === 0) {
+        if (this.pendingTempoBoost !== null) {
+          this.tempoBoost = this.pendingTempoBoost;
+          this.pendingTempoBoost = null;
+        }
         this.barIndex++;
         if (this.barIndex >= this.bars.length) this.barIndex = this.song.loopFrom ?? 0;
       }

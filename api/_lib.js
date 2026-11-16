@@ -8,6 +8,7 @@ import { getWeekLabel } from '../public/js/week.js';
 import { MAX_POINTS_PER_CHARACTER as THROW_MAX_POINTS_PER_CHARACTER } from '../public/js/throw-engine.js';
 import { BATTERY_MAX_POINTS_PER_CHARACTER } from '../public/js/battery-engine.js';
 import { RHYTHM_MAX_POINTS_PER_CHARACTER } from '../public/js/rhythm-engine.js';
+import { MAX_POINTS_PER_CHARACTER as DEFENSE_MAX_POINTS_PER_CHARACTER } from '../public/js/defense-engine.js';
 
 export { DURATIONS, getWeekLabel };
 export const LANGUAGES = LANGUAGE_KEYS;
@@ -33,7 +34,8 @@ export const MODES = Object.freeze({
   // leveled: 난이도(Lv.1~4)마다 랭킹이 따로다
   throw: Object.freeze({ prefix: 'lb-throw', timed: false, leveled: true, maxPointsPerCharacter: THROW_MAX_POINTS_PER_CHARACTER }),
   battery: Object.freeze({ prefix: 'lb-battery', timed: false, leveled: true, maxPointsPerCharacter: BATTERY_MAX_POINTS_PER_CHARACTER }),
-  rhythm: Object.freeze({ prefix: 'lb-rhythm', timed: false, maxPointsPerCharacter: RHYTHM_MAX_POINTS_PER_CHARACTER })
+  rhythm: Object.freeze({ prefix: 'lb-rhythm', timed: false, maxPointsPerCharacter: RHYTHM_MAX_POINTS_PER_CHARACTER }),
+  defense: Object.freeze({ prefix: 'lb-defense', timed: false, leveled: true, maxPointsPerCharacter: DEFENSE_MAX_POINTS_PER_CHARACTER })
 });
 
 export function resolveMode(rawMode) {

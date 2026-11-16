@@ -22,7 +22,8 @@ export const MODE_REWARDS = Object.freeze({
   throw: Object.freeze({ progress: 100, clear: 60, leveled: true }),
   battery: Object.freeze({ progress: 80, clear: 50, leveled: true }),
   'battery-pvp': Object.freeze({ progress: 60, clear: 40, leveled: false }),
-  rhythm: Object.freeze({ progress: 60, clear: 30, leveled: true, typingFactor: 2 })
+  rhythm: Object.freeze({ progress: 60, clear: 30, leveled: true, typingFactor: 2 }),
+  defense: Object.freeze({ progress: 100, clear: 60, leveled: true })
 });
 // 리듬 클리어 램프 보너스(클리어 보너스에 더함)
 export const RHYTHM_LAMP_BONUS = Object.freeze({ HARD: 20, FC: 40, AP: 80 });
@@ -67,6 +68,13 @@ export function progressOf(summary) {
     const played = clamp01(summary.songProgress ?? 1);
     const gaugeRatio = summary.gauge === 'hard' ? 1 : clamp01((Number(summary.gaugeEnd) || 0) / (Number(summary.gaugeClearAt) || 75));
     return { progress: 0.7 * played * gaugeRatio, cleared: false };
+  }
+  if (mode === 'defense') {
+    if (summary.outcome === 'cleared') return { progress: 1, cleared: true };
+    // 버틴 웨이브 수 + 진 웨이브에서 절반 넘게 잡았으면 반 웨이브(Toilet Tower Defense의 50% 규칙)
+    const waves = Number(summary.waves) || 5;
+    const partial = (Number(summary.waveProgress) || 0) >= 0.5 ? 0.5 : 0;
+    return { progress: clamp01(((Number(summary.wavesCleared) || 0) + partial) / waves), cleared: false };
   }
   if (mode === 'timeattack') return { progress: clamp01((Number(summary.survivedSeconds) || 0) / TIME_ATTACK_FULL_SECONDS), cleared: false };
   return { progress: 0, cleared: false };

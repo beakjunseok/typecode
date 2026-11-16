@@ -120,7 +120,7 @@ test('BGM 3곡(모드별): 모두 2분 넘는 곡 구성, 곡 전체를 오류 �
       assert.ok(bgm.position().barIndex < 8, `${name}: 끝나면 처음 부근으로 루프`);
       assert.ok(stats.oscillators + stats.noises - before > 2000, `${name}: 음 수`);
     }
-    assert.equal(tempos.size, 3, '모드마다 다른 템포');
+    assert.equal(tempos.size, Object.keys(SONGS).filter(name => !['lobby', 'boss'].includes(name)).length, '모드마다 다른 템포');
     assert.deepEqual(stats.errors, []);
   } finally {
     globalThis.setInterval = originalSetInterval;

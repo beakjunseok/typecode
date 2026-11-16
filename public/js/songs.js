@@ -105,6 +105,48 @@ export const SONGS = {
     loopFrom: 1
   },
 
+  // 컴퓨터 디펜스: 사이버 칩튠 행진. E단조, 기본 110BPM(웨이브마다 엔진이 BPM을 올린다).
+  // 위험할 때 BgmEngine이 버스에 로우패스를 걸어 먹먹하게 만든다
+  defense: {
+    title: 'Firewall March',
+    tempo: 110, key: 52, scale: 'minor', swing: 0,
+    kits: {
+      march: { kick: 'x.....x.x...x...', snare: '....x.......x...', hat: 'x.x.x.x.x.x.x.x.' },
+      drive: { kick: 'x...x...x...x...', snare: '....x.......x...', hat: 'xxxxxxxxxxxxxxxx', clap: '....x.......x...' },
+      scan: { kick: 'x.......x.......', hat: '..x...x...x...x.' },
+      build: { kick: 'x...x...x...x...', snare: 'x.x.x.x.xxxxxxxx' }
+    },
+    fill: { snare: '........x.x.xxxx', kick: 'x.......x.......' },
+    sections: {
+      intro: { bars: 4, chords: ['i', 'bVI', 'bVII', 'i'], comp: 'arp', bass: 'R...R...R...R...', drums: 'scan', ping: true, fill: true },
+      verse: {
+        bars: 8, chords: ['i', 'bVI', 'bIII', 'bVII'], drums: 'march', bass: 'R.R.5.R.R.R.O.R.', comp: 'arp', lead: 'chip',
+        melody: ['1...3...5.4.3...', '6...5...3.1.2...', '3...5...8.7.5...', '4.4.5.4.2-------',
+          '1...3...5.4.3...', '6...8...a.8.6...', '5...7...9.8.7...', '7.7.8.7.5-------']
+      },
+      chorus: {
+        bars: 8, chords: ['i', 'bVII', 'bVI', 'V', 'i', 'bVII', 'bVI', 'V'], drums: 'drive', bass: 'RORORORORORORORO',
+        comp: { instrument: 'chipStab', pattern: 'x..x..x...x..x..' }, lead: 'chipBright', crash: true, fill: true,
+        melody: ['8-.8.9.a-.9.8.5.', '7-.7.8.9-.8.7.4.', '6-.6.7.8-.7.6.3.', '7-------5-------',
+          '8-.8.9.a-.9.8.5.', '7-.7.8.9-.b.a.9.', '8---a---c---a---', '9-------7-------']
+      },
+      pre: {
+        bars: 4, chords: ['iv', 'i', 'bVI', 'V'], drums: 'march', bass: 'R.R.R.R.O.O.O.O.', comp: { instrument: 'chipStab', pattern: 'x...x...x...x...' }, lead: 'chip', fill: true,
+        melody: ['4-.4.5.6-.5.4.3.', '5-.5.3.1-.3.5.8.', '6-.6.7.8-.7.6.5.', '7---5---7---9---']
+      },
+      bridge: {
+        bars: 8, chords: ['bVI', 'bVII', 'i', 'i', 'bVI', 'bVII', 'V', 'V'], drums: 'scan', bass: 'R-------5-------', comp: 'pad', lead: 'bell', crash: true,
+        melody: ['3-------5-------', '4-------6-------', '5-------8-------', '7---------------', '6-------8-------', '7-------9-------', '9-------b-------', 'b---------------']
+      },
+      breakdown: { bars: 4, chords: ['bVI', 'bVII', 'i', 'i'], drums: 'scan', bass: 'R-------R-------', comp: 'pad', lead: 'bell', melody: ['3-------5-------', '4-------2-------', '1---------------', '................'] },
+      build: { bars: 4, chords: ['iv', 'v', 'bVI', 'V'], drums: 'build', bass: 'R.R.R.R.R.R.R.R.', comp: 'arp' },
+      outro: { bars: 4, chords: ['i', 'bVII', 'bVI', 'V'], drums: 'march', bass: 'R.R.5.R.R.R.O.R.', comp: 'arp', lead: 'chipBright', melody: ['8-.8.9.a-.9.8.5.', '7-.7.8.9-.8.7.4.', '8---------------', '................'] }
+    },
+    form: ['intro', 'verse', 'pre', 'chorus', 'verse', 'pre', 'chorus', 'bridge', 'breakdown', 'build',
+      { section: 'chorus', transpose: 2 }, { section: 'chorus', transpose: 2 }, { section: 'outro', transpose: 2 }],
+    loopFrom: 1
+  },
+
   // 배터리 구조 SOS: 일렉트로 레이싱. D단조, 오프비트 신스 리드와 점점 차오르는 후렴.
   battery: {
     title: 'Full Charge',
