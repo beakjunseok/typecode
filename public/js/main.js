@@ -22,6 +22,8 @@ import { emitSparks, pulseClass } from './effects.js';
 import { createKeyboard } from './keyboard.js';
 import { createKeyboardCollection } from './gacha-view.js';
 import { EARNING } from './gacha.js';
+import { DefenseEngine, DEFENSE_RULES, TOWER_TYPES } from './defense-engine.js';
+import { DefenseRenderer } from './defense-view.js';
 import { rewardBreakdown, describeReward } from './rewards.js';
 import { requestSession, submitScore, fetchBoard, localBoard, preferences } from './api.js';
 import { createUi, TIER_COLORS } from './ui.js';
@@ -46,8 +48,13 @@ const MODE_CONFIG = Object.freeze({
     hint: '지나가는 셀 낱말로 충전 · 방전봇 탑 낱말로 공격', Renderer: BatteryRenderer,
     createEngine: options => new BatteryEngine({ ...options, maxTokenLength: options.narrow ? 14 : 18 })
   },
+  defense: {
+    label: '컴퓨터 디펜스', arcade: true, title: 'firewall.sys', resultTitle: 'SYSTEM HACKED',
+    hint: '해킹 공격 위 낱말을 쳐서 막기 · firewall/antivirus로 타워 설치', Renderer: DefenseRenderer,
+    createEngine: options => new DefenseEngine({ ...options, maxTokenLength: options.narrow ? 12 : 16 })
+  },
   rhythm: {
-    label: '리듬', arcade: true, title: 'beat-compiler.wav', resultTitle: 'STAGE CLEAR',
+    label: '코딩 리듬', arcade: true, title: 'beat-compiler.wav', resultTitle: 'STAGE CLEAR',
     hint: '떨어지는 글자가 판정선에 닿을 때 그 글자를 치세요', Renderer: RhythmRenderer,
     // 오디오 시계로 박자를 맞춘다(소리를 꺼 두면 성능 시계)
     createEngine: options => new RhythmEngine({ ...options, getAudioContext: () => sound.context })
@@ -56,7 +63,7 @@ const MODE_CONFIG = Object.freeze({
 
 // 연습 모드의 세부 방식: 고정 제한 시간(30·60·120초) 또는 시간 연장(⏳). 랭킹은 따로 집계한다
 const PRACTICE_VARIANTS = Object.freeze(['timed', 'timeattack']);
-const BOARD_LABELS = Object.freeze({ practice: '연습', timeattack: '연습 · 시간 연장', throw: '휴대폰 던지기', battery: '배터리 구조 SOS', rhythm: '리듬' });
+const BOARD_LABELS = Object.freeze({ practice: '연습', timeattack: '연습 · 시간 연장', throw: '휴대폰 던지기', battery: '배터리 구조 SOS', rhythm: '코딩 리듬', defense: '컴퓨터 디펜스' });
 
 const ui = createUi(document);
 const sound = new SoundEngine();
@@ -94,7 +101,7 @@ const isTimeAttack = () => settings.mode === 'practice' && settings.practiceVari
 // 서버·로컬 랭킹에서 쓰는 모드 이름(연습의 시간 연장은 'timeattack')
 const boardMode = () => (isTimeAttack() ? 'timeattack' : settings.mode);
 // 휴대폰 던지기·배터리 구조는 난이도마다 랭킹이 따로다(그 외 모드는 null)
-const LEVELED_BOARDS = Object.freeze(['throw', 'battery']);
+const LEVELED_BOARDS = Object.freeze(['throw', 'battery', 'defense']);
 const boardLevel = (mode = boardMode()) => (LEVELED_BOARDS.includes(mode) ? settings.level : null);
 // 랭킹은 언어마다 따로다: 제목에 언어도 붙인다
 const boardLabel = (mode = boardMode(), level = boardLevel(mode), language = settings.languageKey) => {
@@ -181,6 +188,7 @@ function handlePracticeToken({ token, clean, combo, tier, tierUp, milestone, tim
 function handleArcadeEvent(type, payload) {
   const renderer = renderers[settings.mode];
   renderer?.onEvent(type, payload, run.engine);
+  if (settings.mode === 'defense' && handleDefenseEvent(type, payload)) return;
   const battery = settings.mode === 'battery';
   switch (type) {
     case 'start':
@@ -480,6 +488,10 @@ function arcadeSubtitle(summary) {
     const result = { rescued: '승리: 100% 충전 구조', 'rival-sunk': '승리: 방전봇 침몰', 'rival-charged': '패배: 방전봇 선충전' }[summary.outcome] ?? '패배: 방전';
     return `${base} · 공격 ${summary.drains} · 아이템 ${summary.itemsCollected} · 뺏김 ${summary.stolen} · ${result}`;
   }
+  if (summary.mode === 'defense') {
+    const { packet = 0, spam = 0, malware = 0, ransomware = 0 } = summary.kills;
+    return `${base} · 웨이브 ${summary.wavesCleared}/${summary.waves} 막음 · 처치 패킷 ${packet} · 스팸 ${spam} · 악성 파일 ${malware}${ransomware ? ' · 🔓 랜섬웨어' : ''} · 타워 ${summary.towersBuilt} · 코인 ${summary.coinsEarned}🪙 · 무피해 웨이브 ${summary.noDamageWaves}`;
+  }
   const { basic = 0, fast = 0, slow = 0, tank = 0 } = summary.kills;
   return `${base}${summary.bossDefeated ? ' · 👑 보스 격파' : ''} · 처치 ${summary.totalKills}/${summary.goalKills} (기본 ${basic} · 빠른 ${fast} · 달팽 ${slow} · 헤비 ${tank}) · 아이템 ${summary.itemsCollected}`;
 }
@@ -499,7 +511,7 @@ function pvpSubtitle(summary) {
 
 // 아케이드 승리 조건: 배터리는 구조되거나 방전봇이 가라앉음, 던지기는 목표 처치 수 달성
 const ARCADE_WIN_OUTCOMES = Object.freeze(['rescued', 'rival-sunk', 'cleared']);
-const ARCADE_WIN_TITLES = Object.freeze({ battery: 'RESCUED 🚁', throw: 'BOSS DOWN 🏆' });
+const ARCADE_WIN_TITLES = Object.freeze({ battery: 'RESCUED 🚁', throw: 'BOSS DOWN 🏆', defense: 'SYSTEM SECURE 🛡' });
 const arcadeWon = summary => ARCADE_WIN_OUTCOMES.includes(summary.outcome);
 
 // 결과창 제목·부제(모드별). PvP는 랭킹 등록 폼을 숨긴다
@@ -659,9 +671,117 @@ function startFrameLoop() {
   run.frameId = requestAnimationFrame(loop);
 }
 
+// C major 한 옥타브: 낱말 안 몇 번째 글자인지로 음을 고른다(도레미…)
+const C_MAJOR_MIDI = Object.freeze([72, 74, 76, 77, 79, 81, 83, 84]);
+
+// 컴퓨터 디펜스 전용 이벤트(소리·로그). 처리했으면 true, 공통 처리(lock·mistake 등)는 false
+function handleDefenseEvent(type, payload) {
+  switch (type) {
+    case 'keystroke': {
+      // 타자 연주: 맞게 친 글자마다 C major 음을 올라간다
+      const index = Math.max(0, (run.engine?.typed?.length ?? 1) - 1);
+      sound.play('key', { character: run.lastCharacter });
+      sound.play('rhythmHit', { frequency: midiToFrequency(C_MAJOR_MIDI[index % (C_MAJOR_MIDI.length - 1)]), judgement: 'great' });
+      return true;
+    }
+    case 'throw':
+      sound.play('key', { character: run.lastCharacter });
+      // 낱말 끝: 한 옥타브 위 도로 해결되는 짧은 아르페지오
+      sound.play('rhythmWord', { frequency: midiToFrequency(C_MAJOR_MIDI.at(-1)) });
+      if (payload.target?.kind === 'bug') sound.play('throwPhone');
+      if (payload.tier > run.lastTier) {
+        sound.play('tierUp', { tier: payload.tier });
+        pulseClass(ui.elements.arcadeStage, 'tier-flash', 600);
+      }
+      run.lastTier = payload.tier;
+      return true;
+    case 'spawn':
+      sound.play('spawnRobot', { type: payload.bug.type === 'ransomware' ? 'boss' : 'basic' });
+      return true;
+    case 'bug-hit':
+      sound.play('robotHit', { type: 'tank', weapon: 'phone', remainingHp: payload.bug.hp });
+      return true;
+    case 'bug-kill':
+      sound.play('robotKill', { type: payload.bug.type === 'ransomware' ? 'boss' : 'basic', combo: run.engine?.combo ?? 1, tier: getTierIndex(run.engine?.combo ?? 1), withReward: payload.source === 'typing' });
+      if (payload.source === 'typing') run.engine?.hitStop?.(payload.bug.type === 'ransomware' ? 0.2 : 0.04);
+      if (payload.bug.type === 'ransomware') ui.log('ok', '🔓 랜섬웨어 격파!');
+      return true;
+    case 'tower-shot':
+      sound.play('hit');
+      return true;
+    case 'coins':
+      if (payload.reason !== 'tower') sound.play('itemSpawn');
+      return true;
+    case 'build-mode':
+      sound.play('lock');
+      ui.log('info', `🛠 ${TOWER_TYPES[payload.tower].label} ${payload.upgrade ? '업그레이드' : '설치'} — 자리 위 낱말을 치세요`);
+      return true;
+    case 'build-cancel':
+      ui.log('info', '설치 취소');
+      return true;
+    case 'tower-built':
+    case 'tower-upgraded':
+      sound.play('powerUp');
+      ui.log('ok', `🛡 ${TOWER_TYPES[payload.tower.type].label} ${type === 'tower-built' ? '설치' : `Lv.${payload.tower.level}`} (-${payload.price}🪙)`);
+      return true;
+    case 'repair':
+      sound.play('powerUp');
+      ui.log('ok', `🔧 컴퓨터 수리 — 체력 ${payload.health}`);
+      return true;
+    case 'shop-denied':
+      sound.play('error');
+      ui.log('warn', { coins: `코인이 모자라요 (${payload.price}🪙 필요, ${payload.coins}🪙 보유)`, 'no-slot': '설치·업그레이드할 자리가 없어요', full: '체력이 이미 가득해요' }[payload.reason] ?? '살 수 없어요');
+      return true;
+    case 'wave-intro':
+      sound.play('warning', { remainingSeconds: 1 });
+      bgm.setTempoBpm(payload.bpm);
+      ui.log('warn', `🌊 WAVE ${payload.wave} — BPM ${payload.bpm}`);
+      return true;
+    case 'wave-start':
+      bgm.setTempoBpm(payload.bpm);
+      return true;
+    case 'wave-clear':
+      sound.play('newRecord');
+      ui.log('ok', `WAVE ${payload.wave} CLEAR (+${payload.bonus}🪙${payload.perfect ? ' · 무피해' : ''})`);
+      return true;
+    case 'boss-appear':
+      sound.play('explode');
+      pulseClass(ui.elements.arcadeStage, 'shake', 400);
+      ui.log('err', '🔒 랜섬웨어 등장! 여섯 번 맞혀야 해요');
+      return true;
+    case 'danger':
+      sound.play('warning', { remainingSeconds: 1 });
+      ui.log('err', '⚠ 방화벽 체력 30% 아래 — 수리(patch)하세요');
+      return true;
+    case 'damage':
+      sound.play('lifeLost');
+      sound.play('glassCrack');
+      run.engine?.hitStop?.(0.08);
+      pulseClass(ui.elements.arcadeStage, 'shake', 300);
+      ui.log('err', `해킹 공격이 컴퓨터에 닿음 — 체력 ${payload.health}`);
+      renderInputBar();
+      return true;
+    case 'goal':
+      sound.play('newRecord');
+      run.engine?.hitStop?.(0.22);
+      pulseClass(ui.elements.arcadeStage, 'tier-flash', 900);
+      ui.log('ok', '🛡 모든 웨이브를 막았어요 — 시스템 안전!');
+      return true;
+    default:
+      return false;
+  }
+}
+
 // 게임 상황 → BGM: 던지기는 콤보 단계, 구조는 SLA 위기도. 아이템 효과가 끝나면 종료음.
 function updateArcadeMusic(snapshot) {
   if (settings.mode === 'rhythm') return;
+  if (settings.mode === 'defense') {
+    // 웨이브 BPM(110→130)은 wave 이벤트로, 위험(체력 30% 미만)이면 고음을 깎아 먹먹하게
+    bgm.setIntensity(snapshot.danger ? 2 : Math.min(2, Math.floor((snapshot.wave - 1) / 2)));
+    bgm.setTempoBpm(snapshot.bpm);
+    bgm.setMuffled(snapshot.danger && snapshot.status === 'running');
+    return;
+  }
   const powerActive = snapshot.powerRemaining > 0;
   if (run.powerActive && !powerActive) sound.play('powerDown');
   run.powerActive = powerActive;
@@ -1551,10 +1671,18 @@ function applyInviteLink() {
 // ---------- 모드 · 설정 ----------
 function applyMode() {
   const arcade = isArcade();
+  // 위: 연습 | 게임, 게임을 고르면 아래 줄에 게임 4개(던지기·배터리·리듬·디펜스)
+  const section = settings.mode === 'practice' ? 'practice' : 'game';
+  ui.elements.sectionButtons.forEach(button => {
+    const active = button.dataset.section === section;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  ui.elements.gameTabs.hidden = section !== 'game';
   ui.elements.modeButtons.forEach(button => {
     const active = button.dataset.mode === settings.mode;
     button.classList.toggle('active', active);
-    button.setAttribute('aria-selected', String(active));
+    button.setAttribute('aria-pressed', String(active));
   });
   ui.elements.stage.hidden = arcade;
   ui.elements.arcadeStage.hidden = !arcade;
@@ -1571,6 +1699,7 @@ function applyMode() {
   document.getElementById('throwHint').hidden = settings.mode !== 'throw';
   document.getElementById('batteryHint').hidden = settings.mode !== 'battery';
   document.getElementById('rhythmHint').hidden = settings.mode !== 'rhythm';
+  document.getElementById('defenseHint').hidden = settings.mode !== 'defense';
   document.body.dataset.mode = settings.mode;
   document.getElementById('arcadeOverlayHint').textContent = arcade ? `${modeConfig().hint} · ${settings.mode === 'rhythm' ? '글자 키를 치면 시작' : '첫 글자를 치면 시작'}` : '';
   applyKeyboardVisibility();
@@ -1584,6 +1713,7 @@ function switchMode(mode) {
   songPreview.stop();
   settings.mode = mode;
   preferences.set('mode', mode);
+  if (mode !== 'practice') preferences.set('lastGameMode', mode);
   run.highlightId = null;
   applyMode();
   resetGame();
@@ -1608,6 +1738,12 @@ function bindSettings() {
     refreshBoard();
   });
   ui.elements.modeButtons.forEach(button => button.addEventListener('click', () => switchMode(button.dataset.mode)));
+  // 「게임」은 마지막으로 한 게임으로(처음이면 휴대폰 던지기)
+  ui.elements.sectionButtons.forEach(button => button.addEventListener('click', () => {
+    if (button.dataset.section === 'practice') return switchMode('practice');
+    const lastGame = preferences.get('lastGameMode', 'throw');
+    return switchMode(MODE_CONFIG[lastGame] && lastGame !== 'practice' ? lastGame : 'throw');
+  }));
   // 30·60·120초 = 고정 시간, ⏳연장 = 시간 연장. 바꾸면 랭킹 보드도 해당 방식으로 바뀐다
   const isActiveDuration = button => (button.dataset.variant === 'timeattack'
     ? settings.practiceVariant === 'timeattack'

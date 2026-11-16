@@ -101,6 +101,12 @@ header { display: flex; flex-direction: column; gap: 14px; padding-bottom: 4px; 
   box-shadow: 0 0 0 #080b18, inset 0 2px 6px rgba(0, 0, 0, 0.45), 0 0 18px rgba(255, 181, 71, 0.12);
 }
 .keycap-icon { font-size: 15px; line-height: 1; filter: saturate(0.85); }
+.game-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px; border: 1px solid #262d55; border-radius: 10px; background: rgba(14, 18, 40, 0.6); }
+.game-tabs[hidden] { display: none; }
+.game-tab { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; font: 600 13px/1 var(--font-ui); color: #b8c2e0; background: transparent; border: 1px solid transparent; border-radius: 7px; cursor: pointer; white-space: nowrap; }
+.game-tab:hover { color: var(--paper); border-color: #343d6a; }
+.game-tab.active { color: var(--amber); background: #1b2140; border-color: rgba(255, 181, 71, 0.45); }
+.game-tab:focus-visible, .keycap:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .keycap.active .keycap-icon { filter: none; }
 
 .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
@@ -854,7 +860,9 @@ body:not([data-mode='practice']) .keyboard-section { margin-top: 6px; }
   header { gap: 10px; }
   .brand-row { flex-direction: column; align-items: stretch; gap: 12px; }
   .logo { font-size: 24px; justify-content: center; }
-  .mode-tabs { display: grid; grid-template-columns: 0.8fr 1.3fr 1.15fr 0.8fr; gap: 5px; }
+  .mode-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .game-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; }
+  .game-tab { justify-content: center; padding: 9px 4px; font-size: 12px; }
   .keycap { justify-content: center; gap: 3px; padding: 10px 2px 11px; font-size: 12px; letter-spacing: -0.3px; border-radius: 8px; white-space: nowrap; }
   .keycap-icon { font-size: 13px; }
   .controls { gap: 6px; flex-wrap: wrap; }
