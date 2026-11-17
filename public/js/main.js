@@ -22,7 +22,7 @@ import { emitSparks, pulseClass } from './effects.js';
 import { createKeyboard } from './keyboard.js';
 import { createKeyboardCollection } from './gacha-view.js';
 import { EARNING } from './gacha.js';
-import { DefenseEngine, DEFENSE_RULES, TOWER_TYPES } from './defense-engine.js';
+import { DefenseEngine, DEFENSE_RULES, TOWER_TYPES, ATTACK_TYPES } from './defense-engine.js';
 import { DefenseRenderer } from './defense-view.js';
 import { rewardBreakdown, describeReward } from './rewards.js';
 import { requestSession, submitScore, fetchBoard, localBoard, preferences } from './api.js';
@@ -689,10 +689,19 @@ function bindDefensePointer(canvas) {
   });
   canvas.addEventListener('pointerleave', () => renderers.defense?.setPointer(null));
   canvas.addEventListener('pointerdown', event => {
+    if (settings.mode !== 'defense' || run.engine?.status !== 'running') return;
+    const point = localPoint(event);
+    // 상점 칸을 누르면 그 품목 고르기(타워 → 설치 모드, 수리 → 바로 구매)
+    const shopItem = renderers.defense?.shopItemAt(run.engine, point.x, point.y);
+    if (shopItem) {
+      event.preventDefault();
+      run.engine.selectShopItem(shopItem);
+      ui.elements.hiddenInput?.focus({ preventScroll: true });
+      return;
+    }
     const renderer = activeRenderer();
     if (!renderer) return;
     event.preventDefault();
-    const point = localPoint(event);
     run.engine.placeAtPoint(renderer.toField(point.x, point.y));
     renderer.setPointer(event.pointerType === 'mouse' ? point : null);
   });
@@ -720,15 +729,40 @@ function handleDefenseEvent(type, payload) {
       run.lastTier = payload.tier;
       return true;
     case 'spawn':
-      sound.play('spawnRobot', { type: payload.bug.type === 'ransomware' ? 'boss' : 'basic' });
+      sound.play('spawnRobot', { type: ATTACK_TYPES[payload.bug.type]?.boss ? 'boss' : 'basic' });
+      return true;
+    case 'word-done':
+      sound.play('rhythmWord', { frequency: midiToFrequency(C_MAJOR_MIDI.at(-1)) });
+      sound.play('itemSpawn');
+      return true;
+    case 'boss-phase':
+      sound.play('explode');
+      sound.play('tierUp', { tier: 4 });
+      pulseClass(ui.elements.arcadeStage, 'shake', 500);
+      ui.log('err', `💢 PHASE 2 — ${payload.label}: 빨라지고 졸개를 부르며 타워를 잠가요`);
+      return true;
+    case 'boss-summon':
+      sound.play('spawnRobot', { type: 'basic' });
+      return true;
+    case 'tower-locked':
+      sound.play('error');
+      ui.log('warn', `🔒 ${TOWER_TYPES[payload.tower.type].label}가 ${payload.seconds ?? 3}초 잠겼어요`);
+      return true;
+    case 'air-warning':
+      sound.play('warning', { remainingSeconds: 1 });
+      ui.log('warn', '✈ 드론 출현 — 길을 무시하고 날아와요. 요격포(3)만 맞힐 수 있어요');
+      return true;
+    case 'bug-blocked':
       return true;
     case 'bug-hit':
       sound.play('robotHit', { type: 'tank', weapon: 'phone', remainingHp: payload.bug.hp });
       return true;
     case 'bug-kill':
-      sound.play('robotKill', { type: payload.bug.type === 'ransomware' ? 'boss' : 'basic', combo: run.engine?.combo ?? 1, tier: getTierIndex(run.engine?.combo ?? 1), withReward: payload.source === 'typing' });
-      if (payload.source === 'typing') run.engine?.hitStop?.(payload.bug.type === 'ransomware' ? 0.2 : 0.04);
-      if (payload.bug.type === 'ransomware') ui.log('ok', '🔓 랜섬웨어 격파!');
+      sound.play('robotKill', { type: ATTACK_TYPES[payload.bug.type]?.boss ? 'boss' : 'basic', combo: run.engine?.combo ?? 1, tier: getTierIndex(run.engine?.combo ?? 1), withReward: payload.source === 'typing' });
+      if (ATTACK_TYPES[payload.bug.type]?.boss) {
+        run.engine?.hitStop?.(0.2);
+        ui.log('ok', payload.bug.type === 'rootkit' ? '👑 루트킷 격파! 권한 회수' : '🔓 랜섬웨어 격파!');
+      }
       return true;
     case 'tower-shot':
       sound.play('hit');
@@ -738,7 +772,7 @@ function handleDefenseEvent(type, payload) {
       return true;
     case 'build-mode':
       sound.play('lock');
-      ui.log('info', `🛠 ${TOWER_TYPES[payload.tower].label} ${payload.upgrade ? '업그레이드' : '설치'} — 길이 아닌 곳을 누르거나, 자리 위 낱말을 치세요`);
+      ui.log('info', `🛠 ${TOWER_TYPES[payload.tower].label} ${payload.upgrade ? '업그레이드' : '설치'} — 길이 아닌 곳을 누르거나 자리 번호 키 · Esc 취소`);
       return true;
     case 'place-denied':
       sound.play('error');
@@ -775,7 +809,7 @@ function handleDefenseEvent(type, payload) {
     case 'boss-appear':
       sound.play('explode');
       pulseClass(ui.elements.arcadeStage, 'shake', 400);
-      ui.log('err', '🔒 랜섬웨어 등장! 여섯 번 맞혀야 해요');
+      ui.log('err', payload.bug?.type === 'rootkit' ? '👑 루트킷 등장! 최종 보스 — 체력 절반에서 2페이즈' : '🔒 랜섬웨어 등장! 체력 절반에서 2페이즈');
       return true;
     case 'danger':
       sound.play('warning', { remainingSeconds: 1 });
@@ -1220,9 +1254,25 @@ function handleRhythmKeyUp(event) {
   if (candidates.length) run.engine.release(candidates, now());
 }
 
+// 컴퓨터 디펜스 단축키: 숫자 = 상점 품목(설치 모드에서는 자리 번호), Esc = 설치 취소.
+// 지금 칠 글자가 그 숫자이면 타자로 넘긴다. 처리했으면 true
+function handleDefenseHotkey(event) {
+  const engine = run.engine;
+  if (settings.mode !== 'defense' || engine?.status !== 'running' || event.isComposing) return false;
+  if (event.key === 'Escape' && !engine.buildMode) return false;
+  if (/^[0-9]$/.test(event.key)) {
+    const expected = engine.stream?.[0]?.token.text[engine.typed?.length ?? 0];
+    if (expected === event.key) return false;
+  } else if (event.key !== 'Escape') return false;
+  const handled = engine.hotkey(event.key);
+  if (handled) event.preventDefault();
+  return handled;
+}
+
 function handleKeyDown(event) {
   shiftTracker.record(event);
   if (handleSongSelectKey(event)) return;
+  if (handleDefenseHotkey(event)) return;
   if (event.key === 'Escape') {
     event.preventDefault();
     if (!isPvp()) resetGame();
