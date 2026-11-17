@@ -833,6 +833,20 @@ function handleDefenseEvent(type, payload) {
     case 'air-jammed':
       sound.play('zap', { delay: 0.15 });
       return true;
+    case 'guardian-spawn':
+      sound.play('powerUp');
+      ui.log('ok', payload.respawn ? '🤖 가디언 봇 재출동!' : '🤖 가디언 봇 출동! 컴퓨터 둘레의 적과 싸워요');
+      return true;
+    case 'guardian-hit':
+      sound.play('robotHit', { type: 'basic', weapon: 'laptop', remainingHp: payload.bug.hp });
+      return true;
+    case 'guardian-hurt':
+      sound.play('hit');
+      return true;
+    case 'guardian-down':
+      sound.play('explode');
+      ui.log('warn', `🤖 가디언 봇이 쓰러졌어요 — 8초 뒤 재출동`);
+      return true;
     case 'guard-shot':
       sound.play('throwPhone');
       return true;

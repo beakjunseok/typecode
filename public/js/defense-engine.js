@@ -10,36 +10,37 @@ import { TargetGameEngine, ARCADE_RULES, randomBetween } from './target-game.js'
 import { SCORING, MAX_MULTIPLIER } from './engine.js';
 
 export const DEFENSE_RULES = Object.freeze({
-  waves: 10,
-  // 보스가 나오는 웨이브(그 웨이브 졸개를 다 내보낸 뒤)
-  bossWaves: Object.freeze({ 5: 'ransomware', 10: 'rootkit' }),
+  waves: 25,
+  // 보스가 나오는 웨이브(그 웨이브 졸개를 다 내보낸 뒤). 다시 나올 때마다 체력이 커진다(bossHpGrowth: 처음 나온 웨이브부터 웨이브당 +8%)
+  bossWaves: Object.freeze({ 5: 'ransomware', 10: 'rootkit', 15: 'ransomware', 20: 'rootkit', 25: 'rootkit' }),
+  bossHpGrowth: 0.08,
   // 보스 2페이즈로 바뀔 때 잠깐 무적(초)
   phaseShieldSeconds: 1.5,
   introSeconds: 2.4,
   breakSeconds: 4,
   winPauseSeconds: 1.4,
   // 웨이브 n의 공격 수 = base + step × (n - 1) (+ 보스 웨이브면 보스 1)
-  bugsPerWave: Object.freeze({ base: 6, step: 2 }),
+  bugsPerWave: Object.freeze({ base: 6, step: 1.5 }),
   // 등장 간격(초) = max(min, start - step × (n - 1)) × 난이도 등장 배율
   spawnInterval: Object.freeze({ start: 3, step: 0.2, min: 0.9 }),
   // 레벨(1~4)별: 시작 BPM, 컴퓨터 최대 체력, 상점가 배율
   bpmBase: Object.freeze({ 1: 100, 2: 110, 3: 120, 4: 130 }),
-  bpmStep: 3,
+  bpmStep: 2,
   maxHealth: Object.freeze({ 1: 150, 2: 100, 3: 80, 4: 60 }),
   priceFactor: Object.freeze({ 1: 0.85, 2: 1, 3: 1.08, 4: 1.2 }),
   dangerRatio: 0.3,
   startCoins: 150,
   // 화면에 미리 보여 줄 낱말 수(지금 칠 낱말 포함)
   streamLength: 6,
-  // 공격 체력은 웨이브가 2개 오를 때마다 +1(타워만으로 막으므로 웨이브가 갈수록 단단해진다)
-  hpPerTwoWaves: 1,
+  // 공격 체력은 웨이브가 hpEveryWaves개 오를 때마다 +1(타워만으로 막으므로 웨이브가 갈수록 단단해진다)
+  hpEveryWaves: 3,
   // 단어 코인 = round((wordBase + 글자 수) × (1 + waveStep × (웨이브 - 1)) × 콤보 배율)
   wordCoins: Object.freeze({ wordBase: 2, waveStep: 0.25 }),
   comboCoinSteps: Object.freeze([[30, 2], [20, 1.5], [10, 1.2]]),
   waveBonus: Object.freeze({ base: 50, perWave: 25, noDamageFactor: 1.3 }),
   waveScore: 200,
   repairAmount: 25,
-  maxTowers: 14,
+  maxTowers: 20,
   maxTowerLevel: 3,
   // 키보드용 추천 자리 수
   suggestions: 5,
@@ -55,6 +56,15 @@ export const DEFENSE_PATH = Object.freeze([
 export const DEFENSE_COMPUTER = Object.freeze({ x: 0.5, y: 0.84 });
 // 컴퓨터 대공 포탑(돔 꼭대기): 가까이 온 공중 적에게 코드 조각(방금 친 낱말)을 던진다. 날아가 닿는 순간 피해. 최후 방어선
 export const COMPUTER_GUARD = Object.freeze({ x: 0.5, y: 0.7, range: 0.24, cooldown: 1.6, damage: 1, flightSeconds: 0.32, snippets: Object.freeze(['patch()', '{ }', 'fix;', '0x1F', 'kill -9', '</>']) });
+// 가디언 봇(컴퓨터 Lv.3에서 출동): 컴퓨터 둘레 leash 안의 가장 가까운 적에게 달려가 reach 안에서 cooldown마다 피해.
+// 적이 없으면 컴퓨터 앞(home)으로 돌아온다. 무적. 가로 거리는 0.6으로 나눠 잰다(들판이 가로로 넓어서)
+// 붙잡은 지상 졸개(보스 제외)는 걸음을 멈추고 봇과 싸운다. 붙어 있는 지상 적은 biteEvery초마다 봇을 때린다(enemyHit: 종류별 세기).
+// 체력이 0이면 쓰러졌다가 respawnSeconds 뒤 다시 출동, 집에서 쉬면 초당 regen 회복
+export const GUARDIAN = Object.freeze({
+  home: Object.freeze({ x: 0.5, y: 0.66 }), leash: 0.4, speed: 0.22, reach: 0.045, airReach: 0.07, cooldown: 0.7, damage: 1,
+  maxHp: 40, regen: 3, respawnSeconds: 8, biteEvery: 1, biteWindup: 0.5, biteReach: 0.06,
+  enemyHit: Object.freeze({ packet: 2, spam: 2, malware: 3, drone: 0, ransomware: 8, rootkit: 8 })
+});
 // 컴퓨터 강화(Lv.1~3): 대공 사거리·간격·동시 표적, 최대 체력 보너스, 초당 자동 복구. price = 그 레벨로 올리는 값(난이도 배율 적용)
 export const COMPUTER_LEVELS = Object.freeze([
   null,
@@ -204,6 +214,13 @@ function inComputerZone(point) {
 }
 
 // 웨이브 BPM: 레벨 시작 BPM + 5 × (웨이브 - 1). O(1)
+// 보스 체력: 기본 × (1 + bossHpGrowth × (이 웨이브 - 그 보스가 처음 나오는 웨이브)). 정수. O(보스 웨이브 수)
+export function bossHp(typeKey, wave) {
+  const firstWave = Math.min(...Object.entries(DEFENSE_RULES.bossWaves).filter(([, key]) => key === typeKey).map(([number]) => Number(number)));
+  const extra = Number.isFinite(firstWave) ? Math.max(0, wave - firstWave) : 0;
+  return Math.round(ATTACK_TYPES[typeKey].hp * (1 + DEFENSE_RULES.bossHpGrowth * extra));
+}
+
 export function bpmForWave(level, wave) {
   const base = DEFENSE_RULES.bpmBase[level] ?? DEFENSE_RULES.bpmBase[2];
   const safeWave = Math.min(DEFENSE_RULES.waves, Math.max(1, Math.floor(wave) || 1));
@@ -312,7 +329,7 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   bugsInWave(wave) {
-    return DEFENSE_RULES.bugsPerWave.base + DEFENSE_RULES.bugsPerWave.step * (wave - 1) + (DEFENSE_RULES.bossWaves[wave] ? 1 : 0);
+    return Math.round(DEFENSE_RULES.bugsPerWave.base + DEFENSE_RULES.bugsPerWave.step * (wave - 1)) + (DEFENSE_RULES.bossWaves[wave] ? 1 : 0);
   }
 
   // ---------- 진행 ----------
@@ -335,6 +352,8 @@ export class DefenseEngine extends TargetGameEngine {
     if (this.status !== 'running') return;
     this.fireGuard();
     this.landGuardShots();
+    if (this.status !== 'running') return;
+    this.updateGuardian(frameSeconds);
     this.bugs = this.bugs.filter(bug => bug.state === 'alive' || this.gameTime - bug.resolvedAt < 0.8);
     this.checkWaveClear();
   }
@@ -412,7 +431,7 @@ export class DefenseEngine extends TargetGameEngine {
       hp: 0, maxHp: 0, state: 'alive', spawnedAt: this.gameTime, resolvedAt: null, wave: this.wave,
       phase: 1, shieldUntil: 0, nextSummonAt: Infinity, nextLockAt: Infinity
     };
-    bug.hp = bug.maxHp = type.boss ? type.hp : type.hp + DEFENSE_RULES.hpPerTwoWaves * Math.floor((this.wave - 1) / 2);
+    bug.hp = bug.maxHp = type.boss ? bossHp(typeKey, this.wave) : type.hp + Math.floor((this.wave - 1) / DEFENSE_RULES.hpEveryWaves);
     this.bugs.push(bug);
     this.waveSpawned++;
     this.emit('spawn', { bug });
@@ -437,6 +456,102 @@ export class DefenseEngine extends TargetGameEngine {
       this.guardShots.push(shot);
       this.emit('guard-shot', { bug: target, shot });
     });
+  }
+
+  // 가디언 봇 출동: 모니터 앞에서 나타난다(0.6초 등장 연출 동안은 가만히)
+  spawnGuardian() {
+    const home = GUARDIAN.home;
+    const respawn = Boolean(this.guardian);
+    this.guardian = { x: home.x, y: home.y + 0.08, state: 'spawning', targetId: null, holdingId: null, readyAt: this.gameTime + 0.6, spawnedAt: this.gameTime, facing: 1, lastHitAt: -Infinity, lastHurtAt: -Infinity, moving: false, hp: GUARDIAN.maxHp, maxHp: GUARDIAN.maxHp, respawnAt: null };
+    this.emit('guardian-spawn', { guardian: this.guardian, respawn });
+  }
+
+  // 들판 거리(가로는 0.6으로 나눔)
+  fieldDistance(first, second) {
+    return Math.hypot((first.x - second.x) / 0.6, first.y - second.y);
+  }
+
+  // 가디언 봇: 표적 고르기 → 다가가기 → 닿으면 때리기, 없으면 집으로. O(적 수)
+  updateGuardian(frameSeconds) {
+    const bot = this.guardian;
+    if (!bot) return;
+    if (bot.state === 'down') {
+      if (this.gameTime >= bot.respawnAt) this.spawnGuardian();
+      return;
+    }
+    if (bot.state === 'spawning') {
+      if (this.gameTime < bot.readyAt) return;
+      bot.state = 'idle';
+    }
+    if (this.guardianTakesHits()) return;
+    const home = GUARDIAN.home;
+    let target = this.bugs.find(bug => bug.id === bot.targetId && bug.state === 'alive');
+    if (!target || this.fieldDistance(target, home) > GUARDIAN.leash) {
+      target = this.bugs
+        .filter(bug => bug.state === 'alive' && bug.hp > 0 && this.fieldDistance(bug, home) <= GUARDIAN.leash)
+        .sort((first, second) => this.fieldDistance(first, bot) - this.fieldDistance(second, bot))[0] ?? null;
+      bot.targetId = target?.id ?? null;
+    }
+    const goal = target ?? home;
+    const distance = this.fieldDistance(goal, bot);
+    const reach = target ? (target.air ? GUARDIAN.airReach : GUARDIAN.reach) : 0.005;
+    bot.moving = distance > reach;
+    if (bot.moving) {
+      const step = Math.min(distance - reach * 0.8, GUARDIAN.speed * frameSeconds);
+      const dx = (goal.x - bot.x) / 0.6, dy = goal.y - bot.y;
+      const length = Math.hypot(dx, dy) || 1;
+      bot.x += dx / length * step * 0.6;
+      bot.y += dy / length * step;
+      if (Math.abs(dx) > 1e-4) bot.facing = dx > 0 ? 1 : -1;
+    }
+    bot.state = target ? (bot.moving ? 'chase' : 'fight') : (bot.moving ? 'return' : 'idle');
+    bot.holdingId = target && !bot.moving && !target.air && !ATTACK_TYPES[target.type].boss ? target.id : null;
+    if (bot.state === 'idle') bot.hp = Math.min(bot.maxHp, bot.hp + GUARDIAN.regen * frameSeconds);
+    if (target && !bot.moving && this.gameTime >= bot.readyAt) {
+      bot.readyAt = this.gameTime + GUARDIAN.cooldown;
+      bot.lastHitAt = this.gameTime;
+      bot.lastHitAir = Boolean(target.air);
+      this.emit('guardian-hit', { guardian: bot, bug: target });
+      this.damageBug(target, 'guardian', GUARDIAN.damage);
+    }
+  }
+
+  // 봇 옆에 붙은 지상 적이 봇을 때린다(처음 붙으면 biteWindup만큼 숨 고른 뒤, 그다음 biteEvery마다). 쓰러지면 true
+  guardianTakesHits() {
+    const bot = this.guardian;
+    for (const bug of this.bugs) {
+      if (bug.state !== 'alive' || bug.air || this.fieldDistance(bug, bot) > GUARDIAN.biteReach) {
+        if (bug.nextBiteAt != null && bug.state === 'alive' && this.fieldDistance(bug, bot) > GUARDIAN.biteReach * 1.5) bug.nextBiteAt = null;
+        continue;
+      }
+      if (bug.nextBiteAt == null) {
+        bug.nextBiteAt = this.gameTime + GUARDIAN.biteWindup;
+        continue;
+      }
+      if (this.gameTime < bug.nextBiteAt) continue;
+      const damage = GUARDIAN.enemyHit[bug.type] ?? 2;
+      bug.nextBiteAt = this.gameTime + GUARDIAN.biteEvery;
+      bug.lastBiteAt = this.gameTime;
+      bot.hp = Math.max(0, bot.hp - damage);
+      bot.lastHurtAt = this.gameTime;
+      this.emit('guardian-hurt', { guardian: bot, bug, damage });
+      if (bot.hp <= 0) {
+        bot.state = 'down';
+        bot.holdingId = null;
+        bot.targetId = null;
+        bot.downAt = this.gameTime;
+        bot.respawnAt = this.gameTime + GUARDIAN.respawnSeconds;
+        this.emit('guardian-down', { guardian: bot });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 지금 봇이 붙잡고 있어 걸음을 멈춘 지상 적인가
+  isHeldByGuardian(bug) {
+    const bot = this.guardian;
+    return Boolean(bot && bot.state === 'fight' && bot.holdingId === bug.id);
   }
 
   // 지금 컴퓨터 레벨의 능력치
@@ -469,6 +584,7 @@ export class DefenseEngine extends TargetGameEngine {
     this.maxHealth += gained;
     this.health = Math.min(this.maxHealth, this.health + gained);
     this.computerUpgradedAt = this.gameTime;
+    if (this.computerLevel >= COMPUTER_LEVELS.length - 1 && !this.guardian) this.spawnGuardian();
     this.emit('computer-upgraded', { level: this.computerLevel, price: info.price, stats: info.next, maxed: this.computerLevel >= COMPUTER_LEVELS.length - 1 });
     return { bought: true, level: this.computerLevel };
   }
@@ -555,6 +671,7 @@ export class DefenseEngine extends TargetGameEngine {
   moveBugs(frameSeconds) {
     for (const bug of this.bugs) {
       if (bug.state !== 'alive') continue;
+      if (this.isHeldByGuardian(bug)) continue;
       const type = BUG_TYPES[bug.type];
       const rage = bug.phase === 2 ? type.phaseTwo.speedFactor : 1;
       const stunned = this.gameTime < bug.shieldUntil ? 0 : 1;
