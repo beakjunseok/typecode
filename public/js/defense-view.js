@@ -1,12 +1,16 @@
-// 컴퓨터 디펜스 화면. 들판: 지그재그 길을 따라 해킹 공격이 아래 가운데 컴퓨터(방패 돔)로 온다 /
-// 길 사이 설치 자리 6곳(설치 모드면 자리 낱말이 뜬다) / 맨 아래: 상점 낱말(firewall · antivirus · patch)과 가격.
-// 배경 그림(public/art/defense-stage.webp)이 있으면 그림 속 돔이 길 끝에 오도록 깔고, 없으면 격자·코드 비·컴퓨터를 직접 그린다.
+// 컴퓨터 디펜스 화면. 왼쪽 들판: 지그재그 길을 따라 해킹 공격이 아래 가운데 컴퓨터(방패 돔)로 오고, 드론은 위에서 곧장 날아온다.
+// 오른쪽(휴대폰은 상점 위 띠): 연습 모드처럼 칠 낱말이 줄지어 올라오는 패널. 맨 아래: 누를 수 있는 상점(숫자 키 1~4).
+// 배경 그림(public/art/defense-stage.webp)이 있으면 그림 속 돔이 컴퓨터 자리에 오도록 깔고, 없으면 격자·코드 비·컴퓨터를 직접 그린다.
 import { ARCADE_RULES } from './target-game.js';
-import { DEFENSE_RULES, TOWER_TYPES, SHOP_ITEMS, DEFENSE_PATH, DEFENSE_COMPUTER, pointOnPath } from './defense-engine.js';
+import { DEFENSE_RULES, TOWER_TYPES, SHOP_ITEMS, DEFENSE_PATH, DEFENSE_COMPUTER, ATTACK_TYPES, wordCoins, pointOnPath } from './defense-engine.js';
 import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
 
 const HUD_HEIGHT = 34;
-const SHOP_HEIGHT = 40;
+const SHOP_HEIGHT = 46;
+// 낱말 패널: 넓은 화면은 오른쪽 세로 패널(너비 비율), 좁은 화면은 상점 위 가로 띠(높이)
+const PANEL_RATIO = 0.25;
+const STRIP_HEIGHT = 52;
+const WIDE_LAYOUT = 640;
 const STAGE_ART = loadArt('/art/defense-stage.webp');
 // 그림 속 방패 돔(컴퓨터) 중심과 반지름(그림 크기 비율)
 const ART_DOME = Object.freeze({ x: 0.502, y: 0.846, radius: 0.117 });
@@ -20,10 +24,13 @@ const BUG_STYLE = Object.freeze({
   packet: { body: '#ff5d73', dark: '#7a1530', size: 12 },
   spam: { body: '#ffd166', dark: '#8a6414', size: 13 },
   malware: { body: '#c792ea', dark: '#5a2f8a', size: 15 },
-  ransomware: { body: '#ff4d6d', dark: '#6a0f24', size: 28 }
+  drone: { body: '#7dffc4', dark: '#1d6b52', size: 16 },
+  ransomware: { body: '#ff4d6d', dark: '#6a0f24', size: 28 },
+  rootkit: { body: '#39ff88', dark: '#0b3d22', size: 34 }
 });
-const TOWER_STYLE = Object.freeze({ firewall: '#ff7a45', antivirus: '#36e2ff' });
-const SHOP_LABELS = Object.freeze({ firewall: '방화벽', antivirus: '백신', patch: '수리' });
+const TOWER_STYLE = Object.freeze({ firewall: '#ff7a45', antivirus: '#36e2ff', interceptor: '#c3ff4d' });
+const SHOP_LABELS = Object.freeze({ firewall: '방화벽', antivirus: '백신', interceptor: '요격포', patch: '수리' });
+const SHOP_ICONS = Object.freeze({ firewall: '🧱', antivirus: '💊', interceptor: '🚀', patch: '🔧' });
 
 export class DefenseRenderer {
   constructor(canvas) {
@@ -37,6 +44,8 @@ export class DefenseRenderer {
     this.accent = '#36e2ff';
     this.shieldHit = 0;
     this.displayHealth = null;
+    this.wordFlights = [];
+    this.streamShift = new Spring(0, { stiffness: 260, damping: 22 });
   }
 
   get context() {
@@ -45,12 +54,42 @@ export class DefenseRenderer {
 
   // ---------- 좌표 ----------
   // 들판(0~1 정사각형 좌표)을 화면에 놓는 사각형: HUD 아래 ~ 상점 줄 위, 좌우 여백
+  isWide() {
+    return this.surface.width >= WIDE_LAYOUT;
+  }
+
+  // 낱말 패널 사각형
+  panel() {
+    const { width, height } = this.surface;
+    if (this.isWide()) {
+      const panelWidth = Math.round(width * PANEL_RATIO);
+      return { left: width - panelWidth, top: HUD_HEIGHT, width: panelWidth, height: height - HUD_HEIGHT - SHOP_HEIGHT };
+    }
+    return { left: 0, top: height - SHOP_HEIGHT - STRIP_HEIGHT, width, height: STRIP_HEIGHT };
+  }
+
+  // 들판(0~1 좌표)을 놓는 사각형: HUD 아래 ~ (낱말 패널·상점) 위, 좌우 여백
   field() {
     const { width, height } = this.surface;
+    const wide = this.isWide();
+    const areaWidth = wide ? width - this.panel().width : width;
     const top = HUD_HEIGHT + 26;
-    const bottom = height - SHOP_HEIGHT - 10;
-    const side = Math.max(30, width * 0.06);
-    return { left: side, top, width: width - side * 2, height: bottom - top };
+    const bottom = height - SHOP_HEIGHT - (wide ? 0 : STRIP_HEIGHT) - 10;
+    const side = Math.max(24, areaWidth * 0.05);
+    return { left: side, top, width: areaWidth - side * 2, height: bottom - top };
+  }
+
+  // 상점 칸: [{ item, left, width }] — 그리기와 누르기가 같은 칸을 쓴다
+  shopCells(engine) {
+    const { width } = this.surface;
+    const count = engine.shop.length;
+    return engine.shop.map((entry, index) => ({ entry, left: width * index / count, width: width / count }));
+  }
+
+  // 누른 점이 상점 칸이면 그 품목 키, 아니면 null
+  shopItemAt(engine, screenX, screenY) {
+    if (screenY < this.surface.height - SHOP_HEIGHT) return null;
+    return this.shopCells(engine).find(cell => screenX >= cell.left && screenX < cell.left + cell.width)?.entry.item ?? null;
   }
 
   toScreen(point) {
@@ -102,6 +141,10 @@ export class DefenseRenderer {
     if (type === 'lock') this.visuals.get(payload.target.id).labelPop.kick(14);
     else if (type === 'mistake' && payload.target) this.visuals.get(payload.target.id).labelPop.kick(-10);
     const now = wallSeconds();
+    if (type === 'word-done') {
+      this.wordFlights.push({ text: payload.word.token.text, coins: payload.coins, at: now });
+      this.streamShift.value = 1;
+    }
     if (type === 'wave-intro' || (type === 'start' && engine)) {
       const wave = payload.wave ?? 1;
       this.banner = { text: wave === DEFENSE_RULES.waves ? `FINAL WAVE ${wave}` : `WAVE ${wave}`, sub: `BPM ${payload.bpm ?? engine?.bpm?.() ?? ''} · 해킹을 막으세요`, at: now, color: wave === DEFENSE_RULES.waves ? SCENE.danger : SCENE.shield };
@@ -109,12 +152,35 @@ export class DefenseRenderer {
       this.banner = { text: `WAVE ${payload.wave} CLEAR`, sub: `+${payload.bonus} 코인${payload.perfect ? ' · 무피해 보너스' : ''}`, at: now, color: '#4df0a6' };
     } else if (type === 'goal') {
       this.banner = { text: 'SYSTEM SECURE', sub: '모든 공격을 막았습니다!', at: now, color: '#4df0a6' };
+    } else if (type === 'boss-phase') {
+      this.banner = { text: `PHASE 2 · ${payload.label}`, sub: `${ATTACK_TYPES[payload.bug.type].label}이(가) 폭주합니다! 졸개를 부르고 타워를 잠가요`, at: now, color: '#ff4dd2' };
+    } else if (type === 'air-warning') {
+      this.banner = { text: 'AIR RAID!', sub: '드론은 길을 무시해요 · 요격포(3)만 떨어뜨릴 수 있어요', at: now, color: TOWER_STYLE.interceptor };
     } else if (type === 'boss-appear') {
       this.banner = { text: 'RANSOMWARE!', sub: '여러 번 맞혀야 하는 랜섬웨어가 옵니다', at: now, color: SCENE.danger };
     }
     if (!this.context) return;
     const juice = this.juice;
-    if (type === 'bug-kill') {
+    if (type === 'boss-phase') {
+      const { x, y } = this.bugPosition(payload.bug);
+      juice.shake(0.8);
+      juice.flash('#ff4dd2', 0.45, 0.5);
+      juice.ring(x, y, { color: '#ff4dd2', radius: 140, width: 6, life: 0.7 });
+      this.particles.burst(x, y, { color: '#ff4dd2', count: 70, speed: 320, life: 0.9 });
+    } else if (type === 'boss-summon') {
+      for (const minion of payload.minions) {
+        const { x, y } = this.bugPosition(minion);
+        juice.ring(x, y, { color: BUG_STYLE[minion.type].body, radius: 30, width: 3 });
+      }
+    } else if (type === 'tower-locked') {
+      const { x, y } = this.towerPosition(payload.tower);
+      const from = this.bugPosition(payload.bug);
+      this.lockBeams = [...(this.lockBeams ?? []), { from, to: { x, y }, at: now }];
+      juice.popup(x, y - 30, '🔒 잠김', { color: '#ff4dd2', size: 14, life: 1 });
+    } else if (type === 'bug-blocked') {
+      const { x, y } = this.bugPosition(payload.bug);
+      this.particles.burst(x, y, { color: '#ffffff', count: 4, speed: 90, life: 0.25 });
+    } else if (type === 'bug-kill') {
       const { x, y } = this.bugPosition(payload.bug);
       const style = BUG_STYLE[payload.bug.type];
       this.particles.burst(x, y, { color: style.body, count: payload.bug.type === 'ransomware' ? 60 : 18, speed: 200, life: 0.6 });
@@ -189,14 +255,16 @@ export class DefenseRenderer {
     this.drawBuildPreview(context, engine);
     this.drawSpotLabels(context, engine);
     for (const shot of engine.towerShots) this.drawTowerShot(context, shot, engine);
-    for (const bug of engine.bugs) this.drawBug(context, bug, engine);
-    for (const projectile of engine.projectiles) this.drawPatch(context, projectile, engine);
-    this.drawBugLabels(context, engine);
+    for (const bug of engine.bugs) if (!bug.air) this.drawBug(context, bug, engine);
+    for (const bug of engine.bugs) if (bug.air) this.drawBug(context, bug, engine);
+    this.drawLockBeams(context);
     this.particles.draw(context);
     this.juice.endShake(context);
     this.juice.drawOverlay(context, width, height);
+    this.drawWordPanel(context, engine, frameSeconds);
     this.drawShop(context, width, height, engine);
     this.drawHud(context, width, engine);
+    this.drawBossBar(context, engine);
     this.drawBuildHint(context, width, engine);
     this.drawBanner(context, width);
   }
@@ -262,12 +330,13 @@ export class DefenseRenderer {
     const label = TOWER_TYPES[mode.tower].label;
     const left = Math.max(0, mode.until - engine.gameTime);
     const text = width < 560
-      ? `${label} ${mode.upgrade ? '업그레이드' : '설치'}: 빈 곳 탭 또는 자리 낱말 · ${Math.ceil(left)}s`
-      : `${label} ${mode.upgrade ? '업그레이드할' : '설치할'} 곳을 누르거나 자리 낱말을 치세요 · ${TOWER_TYPES[mode.tower].word} 다시 치면 취소 · ${Math.ceil(left)}s`;
+      ? `${label} ${mode.upgrade ? '업그레이드' : '설치'}: 빈 곳 탭 · 번호 키 · ${Math.ceil(left)}s`
+      : `${label} ${mode.upgrade ? '업그레이드할' : '설치할'} 곳을 누르거나 번호 키(자리 표시)를 누르세요 · Esc 취소 · ${Math.ceil(left)}s`;
     context.font = canvasFont(12, 'ui', 600);
     const textWidth = context.measureText(text).width + 24;
+    const center = this.field().left + this.field().width / 2;
     context.fillStyle = 'rgba(14, 18, 34, 0.92)';
-    roundedRect(context, width / 2 - textWidth / 2, HUD_HEIGHT + 4, textWidth, 20, 10);
+    roundedRect(context, center - textWidth / 2, HUD_HEIGHT + 4, textWidth, 20, 10);
     context.fill();
     context.strokeStyle = TOWER_STYLE[mode.tower];
     context.lineWidth = 1;
@@ -275,14 +344,13 @@ export class DefenseRenderer {
     context.fillStyle = TOWER_STYLE[mode.tower];
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.fillText(text, width / 2, HUD_HEIGHT + 14);
+    context.fillText(text, center, HUD_HEIGHT + 14);
   }
 
   // 설치 모드: 고를 수 있는 자리 위에 낱말
   drawSpotLabels(context, engine) {
     const narrow = this.surface.width < 520;
     for (const spot of engine.spots) {
-      if (!spot.token) continue;
       const { x, y } = this.toScreen(spot);
       // 추천 자리 표시: 타워 색으로 맥박치는 육각 테두리
       const pulse = 0.5 + 0.5 * Math.sin(wallSeconds() * 6 + spot.id);
@@ -300,10 +368,21 @@ export class DefenseRenderer {
       context.closePath();
       context.stroke();
       context.restore();
-      context.save();
-      context.translate(x, y - 22);
-      drawTokenLabel(context, 0, 0, spot, engine.getCharacterStates(spot), { active: spot.id === engine.targetId, accent: TOWER_STYLE[engine.buildMode?.tower] ?? this.accent, compact: narrow });
-      context.restore();
+      // 번호 배지(그 숫자 키를 누르면 여기에 설치·업그레이드)
+      const color = TOWER_STYLE[engine.buildMode?.tower] ?? this.accent;
+      const badgeY = y - 26 * this.unit();
+      context.fillStyle = 'rgba(14, 18, 34, 0.92)';
+      context.beginPath();
+      context.arc(x, badgeY, narrow ? 9 : 10, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = color;
+      context.lineWidth = 1.5;
+      context.stroke();
+      context.fillStyle = color;
+      context.font = canvasFont(narrow ? 11 : 12, 'code', 700);
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(spot.towerId != null ? `${spot.hotkey}↑` : spot.hotkey, x, badgeY + 0.5);
     }
   }
 
@@ -522,6 +601,59 @@ export class DefenseRenderer {
     context.fillRect(-4, -9.5, 8, 3);
   }
 
+  // 요격포: 받침 위 회전 레이더 접시 + 미사일 두 발이 꽂힌 발사대. 표적(공중)을 향해 고개를 든다. 레벨마다 미사일 줄 추가
+  drawInterceptor(context, tower, engine, fired) {
+    const color = TOWER_STYLE.interceptor;
+    const time = wallSeconds();
+    const angle = tower.viewAngle ?? -Math.PI / 2;
+    // 회전 받침
+    context.fillStyle = '#2a3a1a';
+    roundedRect(context, -12, -6, 24, 10, 4);
+    context.fill();
+    context.strokeStyle = color;
+    context.lineWidth = 1.2;
+    context.stroke();
+    // 레이더 접시(빙글빙글)
+    context.save();
+    context.translate(-9, -12);
+    context.scale(Math.cos(time * 3 + (tower.id ?? 0)), 1);
+    context.strokeStyle = '#e8ffd0';
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(0, 0, 6, Math.PI * 0.15, Math.PI * 0.85);
+    context.stroke();
+    context.restore();
+    // 발사대
+    context.save();
+    context.translate(4, -8);
+    context.rotate(angle);
+    const recoil = fired * 3;
+    context.fillStyle = '#4a5a2a';
+    roundedRect(context, -4 - recoil, -8, 16, 16, 3);
+    context.fill();
+    for (let row = 0; row < Math.min(3, tower.level ?? 1) + 1; row++) {
+      const offset = -6 + row * 4;
+      context.fillStyle = '#f2ffe0';
+      roundedRect(context, 2 - recoil, offset, 14, 3, 1.5);
+      context.fill();
+      context.fillStyle = '#ff5d73';
+      context.beginPath();
+      context.moveTo(16 - recoil, offset);
+      context.lineTo(19 - recoil, offset + 1.5);
+      context.lineTo(16 - recoil, offset + 3);
+      context.fill();
+    }
+    context.restore();
+    if (fired > 0) {
+      context.globalCompositeOperation = 'lighter';
+      context.fillStyle = `rgba(255, 220, 120, ${fired * 0.8})`;
+      context.beginPath();
+      context.arc(4, -8, 10 * fired, 0, Math.PI * 2);
+      context.fill();
+      context.globalCompositeOperation = 'source-over';
+    }
+  }
+
   drawTower(context, tower, engine) {
     const { x, y } = this.towerPosition(tower);
     const color = TOWER_STYLE[tower.type];
@@ -538,7 +670,24 @@ export class DefenseRenderer {
     this.drawTowerBase(context, color, tower.level);
     context.shadowBlur = 0;
     if (tower.type === 'firewall') this.drawFirewall(context, tower, engine, fired);
+    else if (tower.type === 'interceptor') this.drawInterceptor(context, tower, engine, fired);
     else this.drawAntivirus(context, tower, engine, fired);
+    // 보스가 잠근 타워: 보라 사슬 + 자물쇠
+    if (engine.gameTime < (tower.lockedUntil ?? 0)) {
+      context.fillStyle = 'rgba(40, 10, 50, 0.55)';
+      context.beginPath();
+      context.arc(0, -4, 22, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = '#ff4dd2';
+      context.lineWidth = 2;
+      context.setLineDash([3, 3]);
+      context.stroke();
+      context.setLineDash([]);
+      context.font = canvasFont(16, 'ui', 700);
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText('🔒', 0, -6);
+    }
     context.restore();
   }
 
@@ -578,6 +727,7 @@ export class DefenseRenderer {
       context.scale(this.unit(), this.unit());
       this.drawTowerBase(context, color, 1);
       if (mode.tower === 'firewall') this.drawFirewall(context, { level: 1, id: 0 }, engine, 0);
+      else if (mode.tower === 'interceptor') this.drawInterceptor(context, { level: 1, viewAngle: -Math.PI / 2 }, engine, 0);
       else this.drawAntivirus(context, { level: 1, viewAngle: -Math.PI / 2 }, engine, 0);
     } else {
       context.beginPath();
@@ -661,104 +811,6 @@ export class DefenseRenderer {
     context.restore();
   }
 
-  // 공격: 종류별 아이콘(마름모 패킷 · 성난 봉투 · 성난 문서 · 자물쇠 괴물), 길을 따라 통통 튄다
-  drawBug(context, bug, engine) {
-    const style = BUG_STYLE[bug.type];
-    const { x, y } = this.bugPosition(bug);
-    const deadAge = bug.state === 'alive' ? 0 : engine.gameTime - bug.resolvedAt;
-    if (bug.state !== 'alive' && deadAge > 0.4) return;
-    const wiggle = Math.sin(engine.gameTime * 14 + bug.id) * 3;
-    const size = style.size;
-    context.save();
-    context.translate(x, y);
-    context.globalAlpha = bug.state === 'alive' ? 1 : 1 - deadAge / 0.4;
-    if (bug.state !== 'alive') context.scale(1 + deadAge, 1 + deadAge);
-    context.translate(0, -Math.abs(wiggle) * 0.8);
-    context.shadowColor = style.body;
-    context.shadowBlur = bug.type === 'ransomware' ? 18 : 10;
-    context.fillStyle = style.body;
-    context.strokeStyle = style.dark;
-    context.lineWidth = 2;
-    if (bug.type === 'packet') {
-      context.beginPath();
-      context.moveTo(0, -size);
-      context.lineTo(size, 0);
-      context.lineTo(0, size);
-      context.lineTo(-size, 0);
-      context.closePath();
-      context.fill();
-      context.shadowBlur = 0;
-      context.stroke();
-      context.strokeStyle = '#ffe2e8';
-      context.lineWidth = 2;
-      context.beginPath();
-      context.moveTo(-size * 0.35, -size * 0.2);
-      context.lineTo(0, size * 0.25);
-      context.lineTo(size * 0.35, -size * 0.2);
-      context.stroke();
-    } else if (bug.type === 'spam') {
-      roundedRect(context, -size, -size * 0.7, size * 2, size * 1.4, 3);
-      context.fill();
-      context.shadowBlur = 0;
-      context.stroke();
-      context.beginPath();
-      context.moveTo(-size, -size * 0.7);
-      context.lineTo(0, size * 0.1);
-      context.lineTo(size, -size * 0.7);
-      context.stroke();
-    } else {
-      // 문서(악성 파일) · 자물쇠(랜섬웨어)
-      if (bug.type === 'ransomware') {
-        context.lineWidth = 5;
-        context.strokeStyle = '#ffe08a';
-        context.beginPath();
-        context.arc(0, -size * 0.45, size * 0.55, Math.PI, 0);
-        context.stroke();
-        context.fillStyle = style.body;
-        roundedRect(context, -size * 0.85, -size * 0.45, size * 1.7, size * 1.35, 6);
-        context.fill();
-      } else {
-        context.beginPath();
-        context.moveTo(-size * 0.75, -size);
-        context.lineTo(size * 0.35, -size);
-        context.lineTo(size * 0.75, -size * 0.6);
-        context.lineTo(size * 0.75, size);
-        context.lineTo(-size * 0.75, size);
-        context.closePath();
-        context.fill();
-        context.shadowBlur = 0;
-        context.stroke();
-      }
-    }
-    context.shadowBlur = 0;
-    // 성난 눈(패킷 제외)
-    if (bug.type !== 'packet') {
-      const eyeY = bug.type === 'spam' ? size * 0.25 : bug.type === 'ransomware' ? size * 0.1 : -size * 0.1;
-      const eye = Math.max(2, size * 0.13);
-      context.fillStyle = '#0e1222';
-      for (const side of [-1, 1]) {
-        context.beginPath();
-        context.arc(side * size * 0.32, eyeY, eye, 0, Math.PI * 2);
-        context.fill();
-        context.strokeStyle = '#0e1222';
-        context.lineWidth = Math.max(1.5, size * 0.09);
-        context.beginPath();
-        context.moveTo(side * size * 0.52, eyeY - eye * 2.2);
-        context.lineTo(side * size * 0.14, eyeY - eye * 1.2);
-        context.stroke();
-      }
-    }
-    context.restore();
-    if (bug.state === 'alive' && bug.maxHp > 1) {
-      const barWidth = size * 1.8;
-      context.fillStyle = 'rgba(0, 0, 0, 0.6)';
-      context.fillRect(x - barWidth / 2, y + size + 6, barWidth, 4);
-      context.fillStyle = style.body;
-      context.fillRect(x - barWidth / 2, y + size + 6, barWidth * bug.hp / bug.maxHp, 4);
-    }
-  }
-
-  // 공격 디자인(네온 사이버 위협): 패킷 = 빛나는 붉은 결정 + 잔상, 스팸 = 날개 달린 성난 봉투,
   // 악성 파일 = 색이 갈라지는(글리치) 보라 문서, 랜섬웨어 = 쇠사슬이 도는 거대한 자물쇠 괴물(남은 체력 = 방패 조각)
   drawBug(context, bug, engine) {
     const style = BUG_STYLE[bug.type];
@@ -775,16 +827,32 @@ export class DefenseRenderer {
     context.globalAlpha = bug.state === 'alive' ? 1 : 1 - deadAge / 0.4;
     if (bug.state !== 'alive') context.scale(1 + deadAge * 1.5, 1 + deadAge * 1.5);
     // 바닥 그림자
-    context.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    context.fillStyle = bug.air ? 'rgba(0, 0, 0, 0.22)' : 'rgba(0, 0, 0, 0.35)';
     context.beginPath();
-    context.ellipse(0, style.size + 6 - bob, style.size * 0.9, style.size * 0.3, 0, 0, Math.PI * 2);
+    context.ellipse(0, style.size + (bug.air ? 22 : 6) - bob, style.size * (bug.air ? 0.7 : 0.9), style.size * 0.25, 0, 0, Math.PI * 2);
     context.fill();
     if (bug.type === 'packet') this.drawPacket(context, style, heading, time, bug);
     else if (bug.type === 'spam') this.drawSpam(context, style, time, bug);
     else if (bug.type === 'malware') this.drawMalware(context, style, time, bug);
-    else this.drawRansomware(context, style, time, bug);
+    else if (bug.type === 'drone') this.drawDrone(context, style, heading, time, bug);
+    else if (bug.type === 'rootkit') this.drawRootkit(context, style, time, bug, engine);
+    else this.drawRansomware(context, style, time, bug, engine);
+    // 2페이즈로 바뀌는 중(무적): 흰 육각 방패가 감싼다
+    if (engine.gameTime < bug.shieldUntil) {
+      context.strokeStyle = `rgba(255, 255, 255, ${0.5 + 0.4 * Math.sin(time * 30)})`;
+      context.lineWidth = 3;
+      context.beginPath();
+      for (let corner = 0; corner < 6; corner++) {
+        const angle = corner * Math.PI / 3 + time;
+        const radius = style.size * 1.9;
+        if (corner) context.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+        else context.moveTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+      }
+      context.closePath();
+      context.stroke();
+    }
     context.restore();
-    if (bug.state === 'alive' && bug.maxHp > 1 && bug.type !== 'ransomware') {
+    if (bug.state === 'alive' && bug.maxHp > 1 && !ATTACK_TYPES[bug.type].boss) {
       const barWidth = style.size * 2;
       context.fillStyle = 'rgba(0, 0, 0, 0.6)';
       roundedRect(context, x - barWidth / 2, y + style.size + 10, barWidth, 4, 2);
@@ -792,33 +860,6 @@ export class DefenseRenderer {
       context.fillStyle = style.body;
       roundedRect(context, x - barWidth / 2, y + style.size + 10, barWidth * bug.hp / bug.maxHp, 4, 2);
       context.fill();
-    }
-  }
-
-  // 화난 눈썹 + 눈(공통). scale = 크기 배율
-  drawAngryFace(context, scale, color = '#ffffff', mouth = true) {
-    context.fillStyle = color;
-    context.strokeStyle = '#1a0610';
-    context.lineWidth = 1.6 * scale;
-    for (const side of [-1, 1]) {
-      context.beginPath();
-      context.ellipse(side * 4 * scale, 0, 2.3 * scale, 2.8 * scale, 0, 0, Math.PI * 2);
-      context.fill();
-      context.fillStyle = '#1a0610';
-      context.beginPath();
-      context.arc(side * 4 * scale + side * 0.5 * scale, 0.6 * scale, 1.2 * scale, 0, Math.PI * 2);
-      context.fill();
-      context.fillStyle = color;
-      context.beginPath();
-      context.moveTo(side * 1.5 * scale, -3.2 * scale);
-      context.lineTo(side * 7 * scale, -5.2 * scale);
-      context.stroke();
-    }
-    if (mouth) {
-      context.beginPath();
-      context.moveTo(-2.5 * scale, 5 * scale);
-      context.quadraticCurveTo(0, 3 * scale, 2.5 * scale, 5 * scale);
-      context.stroke();
     }
   }
 
@@ -956,12 +997,27 @@ export class DefenseRenderer {
     this.drawAngryFace(context, size / 15, '#f3e6ff', true);
   }
 
-  drawRansomware(context, style, time, bug) {
+  drawRansomware(context, style, time, bug, engine) {
     const size = style.size;
-    const pulse = 0.5 + 0.5 * Math.sin(time * 4);
+    const rage = bug.phase === 2;
+    const pulse = 0.5 + 0.5 * Math.sin(time * (rage ? 9 : 4));
+    // 2페이즈(암호화 폭주): 몸이 떨리고 자홍색 코드 고리가 돈다
+    if (rage) {
+      context.translate(Math.sin(time * 47) * 1.5, Math.cos(time * 53) * 1.5);
+      context.save();
+      context.rotate(-time * 1.6);
+      context.font = canvasFont(9, 'code', 700);
+      context.fillStyle = 'rgba(255, 77, 210, 0.85)';
+      context.textAlign = 'center';
+      for (let index = 0; index < 12; index++) {
+        context.rotate(Math.PI / 6);
+        context.fillText(index % 2 ? '0x' : '#!', 0, -size * 2.1);
+      }
+      context.restore();
+    }
     // 붉은 기운
     const aura = context.createRadialGradient(0, 0, size * 0.4, 0, 0, size * 1.9);
-    aura.addColorStop(0, `rgba(255, 40, 70, ${0.25 + pulse * 0.15})`);
+    aura.addColorStop(0, rage ? `rgba(255, 77, 210, ${0.35 + pulse * 0.2})` : `rgba(255, 40, 70, ${0.25 + pulse * 0.15})`);
     aura.addColorStop(1, 'rgba(255, 40, 70, 0)');
     context.fillStyle = aura;
     context.beginPath();
@@ -1050,37 +1106,351 @@ export class DefenseRenderer {
     }
   }
 
-  drawBugLabels(context, engine) {
-    const narrow = this.surface.width < 520;
-    const alive = engine.bugs.filter(bug => bug.state === 'alive').sort((first, second) => (first.id === engine.targetId) - (second.id === engine.targetId));
-    for (const bug of alive) {
-      const { x, y } = this.bugPosition(bug);
-      const pop = this.visuals.get(bug.id).labelPop.value;
+  // 화난 눈썹 + 눈(공통). scale = 크기 배율
+  drawAngryFace(context, scale, color = '#ffffff', mouth = true) {
+    context.fillStyle = color;
+    context.strokeStyle = '#1a0610';
+    context.lineWidth = 1.6 * scale;
+    for (const side of [-1, 1]) {
+      context.beginPath();
+      context.ellipse(side * 4 * scale, 0, 2.3 * scale, 2.8 * scale, 0, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = '#1a0610';
+      context.beginPath();
+      context.arc(side * 4 * scale + side * 0.5 * scale, 0.6 * scale, 1.2 * scale, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = color;
+      context.beginPath();
+      context.moveTo(side * 1.5 * scale, -3.2 * scale);
+      context.lineTo(side * 7 * scale, -5.2 * scale);
+      context.stroke();
+    }
+    if (mouth) {
+      context.beginPath();
+      context.moveTo(-2.5 * scale, 5 * scale);
+      context.quadraticCurveTo(0, 3 * scale, 2.5 * scale, 5 * scale);
+      context.stroke();
+    }
+  }
+
+  // 스파이웨어 드론: 네 개의 프로펠러가 도는 작은 감시 드론, 가운데 붉은 카메라 눈이 깜빡이며 아래로 스캔 빛을 쏜다
+  drawDrone(context, style, heading, time, bug) {
+    const size = style.size;
+    const tilt = Math.cos(heading) * 0.25;
+    context.rotate(tilt);
+    // 스캔 빛(아래로 퍼지는 삼각형)
+    context.save();
+    context.globalCompositeOperation = 'lighter';
+    const scan = context.createLinearGradient(0, 0, 0, size * 2.4);
+    scan.addColorStop(0, 'rgba(255, 77, 109, 0.35)');
+    scan.addColorStop(1, 'rgba(255, 77, 109, 0)');
+    context.fillStyle = scan;
+    context.beginPath();
+    context.moveTo(-3, size * 0.3);
+    context.lineTo(3, size * 0.3);
+    context.lineTo(size * 0.9, size * 2.4);
+    context.lineTo(-size * 0.9, size * 2.4);
+    context.closePath();
+    context.fill();
+    context.restore();
+    // 팔 + 프로펠러
+    context.strokeStyle = '#4a6a62';
+    context.lineWidth = 2.5;
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      context.beginPath();
+      context.moveTo(0, 0);
+      context.lineTo(dx * size, dy * size * 0.6);
+      context.stroke();
       context.save();
-      context.translate(x, y - BUG_STYLE[bug.type].size - 6);
-      context.scale(1 + pop / 100, 1 + pop / 100);
-      drawTokenLabel(context, 0, 0, bug, engine.getCharacterStates(bug), { active: bug.id === engine.targetId, accent: this.accent, compact: narrow, dimmed: bug.doomed });
+      context.translate(dx * size, dy * size * 0.6 - 3);
+      context.scale(1, 0.32);
+      context.rotate(time * 40 * dx);
+      context.fillStyle = 'rgba(200, 255, 235, 0.5)';
+      context.beginPath();
+      context.ellipse(0, 0, size * 0.62, size * 0.14, 0, 0, Math.PI * 2);
+      context.fill();
+      context.restore();
+    }
+    // 몸통
+    const body = context.createRadialGradient(-2, -3, 1, 0, 0, size * 0.7);
+    body.addColorStop(0, '#eafff6');
+    body.addColorStop(0.5, style.body);
+    body.addColorStop(1, style.dark);
+    context.fillStyle = body;
+    context.shadowColor = style.body;
+    context.shadowBlur = 10;
+    context.beginPath();
+    context.ellipse(0, 0, size * 0.62, size * 0.5, 0, 0, Math.PI * 2);
+    context.fill();
+    context.shadowBlur = 0;
+    // 카메라 눈
+    const blink = Math.sin(time * 3 + bug.id) > 0.9 ? 0.3 : 1;
+    context.fillStyle = '#16050c';
+    context.beginPath();
+    context.arc(0, size * 0.08, size * 0.26, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = '#ff4d6d';
+    context.shadowColor = '#ff4d6d';
+    context.shadowBlur = 8;
+    context.beginPath();
+    context.ellipse(0, size * 0.08, size * 0.14, size * 0.14 * blink, 0, 0, Math.PI * 2);
+    context.fill();
+    context.shadowBlur = 0;
+  }
+
+  // 루트킷(10웨이브 최종 보스): 초록 코드가 흐르는 검은 오벨리스크에 왕관(root)을 쓴 거대한 터미널 군주.
+  // 화면에 #_ 프롬프트 눈, 양옆으로 떠다니는 권한 열쇠들. 2페이즈(권한 탈취): 왕관이 붉게 타고 몸이 갈라져 드론을 뿜는다
+  drawRootkit(context, style, time, bug) {
+    const size = style.size;
+    const rage = bug.phase === 2;
+    const pulse = 0.5 + 0.5 * Math.sin(time * (rage ? 8 : 3));
+    const glow = rage ? '#ff3c5a' : style.body;
+    // 기운
+    const aura = context.createRadialGradient(0, 0, size * 0.5, 0, 0, size * 2);
+    aura.addColorStop(0, rage ? `rgba(255, 60, 90, ${0.3 + pulse * 0.2})` : `rgba(57, 255, 136, ${0.2 + pulse * 0.15})`);
+    aura.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    context.fillStyle = aura;
+    context.beginPath();
+    context.arc(0, 0, size * 2, 0, Math.PI * 2);
+    context.fill();
+    // 남은 체력 = 도는 권한 열쇠(10개)
+    context.save();
+    context.rotate(time * (rage ? 1.6 : 0.7));
+    const keys = 10;
+    for (let index = 0; index < keys; index++) {
+      const alive = index < Math.ceil(bug.hp / bug.maxHp * keys);
+      context.save();
+      context.rotate(index / keys * Math.PI * 2);
+      context.translate(size * 1.6, 0);
+      context.globalAlpha = alive ? 1 : 0.15;
+      context.strokeStyle = '#ffd166';
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(0, 0, 3, 0, Math.PI * 2);
+      context.moveTo(3, 0);
+      context.lineTo(9, 0);
+      context.lineTo(9, 3);
+      context.stroke();
+      context.restore();
+    }
+    context.restore();
+    // 몸통(오벨리스크)
+    const shake = rage ? Math.sin(time * 41) * 1.5 : 0;
+    context.translate(shake, 0);
+    context.fillStyle = '#04120a';
+    context.shadowColor = glow;
+    context.shadowBlur = 22;
+    context.beginPath();
+    context.moveTo(-size * 0.7, size);
+    context.lineTo(-size * 0.55, -size * 0.75);
+    context.lineTo(size * 0.55, -size * 0.75);
+    context.lineTo(size * 0.7, size);
+    context.closePath();
+    context.fill();
+    context.shadowBlur = 0;
+    context.strokeStyle = glow;
+    context.lineWidth = 2.5;
+    context.stroke();
+    // 흐르는 초록 코드
+    context.save();
+    context.clip();
+    context.font = canvasFont(8, 'code', 700);
+    context.textAlign = 'center';
+    for (let column = -2; column <= 2; column++) {
+      for (let row = 0; row < 6; row++) {
+        const y = -size * 0.75 + ((row * 11 + time * 30 + column * 7) % (size * 1.8));
+        context.fillStyle = `rgba(${rage ? '255, 90, 110' : '57, 255, 136'}, ${0.15 + (row / 6) * 0.35})`;
+        context.fillText(((row + column + Math.floor(time * 3)) & 1) ? '1' : '0', column * size * 0.24, y);
+      }
+    }
+    context.restore();
+    // 갈라짐(2페이즈)
+    if (rage) {
+      context.strokeStyle = '#ff8a9a';
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(-size * 0.1, -size * 0.7);
+      context.lineTo(size * 0.08, -size * 0.2);
+      context.lineTo(-size * 0.12, size * 0.25);
+      context.lineTo(size * 0.06, size * 0.9);
+      context.stroke();
+    }
+    // 화면(눈): #_ 프롬프트
+    context.fillStyle = '#0a2a18';
+    roundedRect(context, -size * 0.45, -size * 0.5, size * 0.9, size * 0.5, 4);
+    context.fill();
+    context.fillStyle = glow;
+    context.shadowColor = glow;
+    context.shadowBlur = 10;
+    context.font = canvasFont(Math.round(size * 0.36), 'code', 700);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(Math.sin(time * 4) > 0 ? '#_' : '# ', 0, -size * 0.25);
+    context.shadowBlur = 0;
+    // 왕관
+    context.fillStyle = rage ? '#ff5d73' : '#ffd166';
+    context.beginPath();
+    context.moveTo(-size * 0.5, -size * 0.78);
+    context.lineTo(-size * 0.5, -size * 1.18);
+    context.lineTo(-size * 0.25, -size * 0.95);
+    context.lineTo(0, -size * 1.3 - pulse * 3);
+    context.lineTo(size * 0.25, -size * 0.95);
+    context.lineTo(size * 0.5, -size * 1.18);
+    context.lineTo(size * 0.5, -size * 0.78);
+    context.closePath();
+    context.fill();
+  }
+
+  // 보스가 타워를 잠글 때 잠깐 보이는 자홍색 사슬 빔
+  drawLockBeams(context) {
+    const now = wallSeconds();
+    this.lockBeams = (this.lockBeams ?? []).filter(beam => now - beam.at < 0.6);
+    for (const beam of this.lockBeams) {
+      const age = (now - beam.at) / 0.6;
+      context.save();
+      context.globalAlpha = 1 - age;
+      context.strokeStyle = '#ff4dd2';
+      context.lineWidth = 3;
+      context.setLineDash([6, 5]);
+      context.lineDashOffset = -now * 60;
+      context.beginPath();
+      context.moveTo(beam.from.x, beam.from.y);
+      context.lineTo(beam.to.x, beam.to.y);
+      context.stroke();
       context.restore();
     }
   }
 
-  // 패치 투사체: 컴퓨터에서 버그로 날아가는 초록 코드 조각
-  drawPatch(context, projectile, engine) {
-    const bug = engine.findEntity(projectile.targetId);
-    if (!bug || bug.kind !== 'bug') return;
-    const progress = Math.min(1, (engine.gameTime - projectile.launchedAt) / ARCADE_RULES.projectileSeconds);
-    const from = this.computerPosition();
-    const to = this.bugPosition(bug);
-    const px = from.x + (to.x - from.x) * progress;
-    const py = from.y - 40 + (to.y - from.y + 40) * progress;
-    context.fillStyle = '#7dffc4';
-    context.shadowColor = '#7dffc4';
-    context.shadowBlur = 12;
-    context.font = canvasFont(14, 'code', 700);
-    context.textAlign = 'center';
+  // 낱말 패널: 연습 모드처럼 칠 낱말이 줄지어 있고, 다 치면 다음 낱말이 위로 올라온다. 친 낱말은 +코인을 남기고 위로 날아간다.
+  // 넓은 화면: 오른쪽 세로 패널(맨 위가 지금 낱말), 좁은 화면: 상점 위 가로 띠(왼쪽이 지금 낱말)
+  drawWordPanel(context, engine, frameSeconds) {
+    const panel = this.panel();
+    const wide = this.isWide();
+    this.streamShift.step(frameSeconds || 1 / 60);
+    const shift = Math.max(0, this.streamShift.value);
+    context.save();
+    context.fillStyle = 'rgba(9, 12, 24, 0.9)';
+    context.fillRect(panel.left, panel.top, panel.width, panel.height);
+    context.fillStyle = 'rgba(54, 226, 255, 0.25)';
+    if (wide) context.fillRect(panel.left, panel.top, 1, panel.height);
+    else context.fillRect(panel.left, panel.top, panel.width, 1);
+    context.beginPath();
+    context.rect(panel.left, panel.top, panel.width, panel.height);
+    context.clip();
+    const current = engine.stream[0];
+    const states = current ? engine.getCharacterStates(current) : [];
+    if (wide) {
+      context.font = canvasFont(11, 'ui', 600);
+      context.textAlign = 'left';
+      context.textBaseline = 'middle';
+      context.fillStyle = SCENE.fog;
+      context.fillText('⌨ 쳐서 코인 벌기', panel.left + 14, panel.top + 18);
+      const rowHeight = Math.min(46, (panel.height - 60) / DEFENSE_RULES.streamLength);
+      const firstY = panel.top + 58;
+      engine.stream.forEach((word, index) => {
+        const y = firstY + (index + shift) * rowHeight;
+        const centerX = panel.left + panel.width / 2;
+        if (index === 0) {
+          context.fillStyle = 'rgba(54, 226, 255, 0.08)';
+          roundedRect(context, panel.left + 8, y - rowHeight / 2 + 2, panel.width - 16, rowHeight - 4, 8);
+          context.fill();
+          context.strokeStyle = 'rgba(54, 226, 255, 0.45)';
+          context.lineWidth = 1;
+          context.stroke();
+          this.drawTypedWord(context, word.token.text, states, centerX, y, Math.min(24, panel.width / Math.max(4, word.token.text.length) * 1.5));
+          const coins = wordCoins(word.token.text.length, engine.wave, engine.combo + 1);
+          context.font = canvasFont(10, 'ui', 600);
+          context.fillStyle = SCENE.coin;
+          context.textAlign = 'right';
+          context.fillText(`+${coins}🪙`, panel.left + panel.width - 14, y - rowHeight / 2 + 12);
+        } else {
+          context.globalAlpha = Math.max(0.15, 0.75 - index * 0.12);
+          context.font = canvasFont(Math.max(12, 17 - index), 'code', 600);
+          context.fillStyle = SCENE.ink;
+          context.textAlign = 'center';
+          context.fillText(word.token.text, centerX, y);
+          context.globalAlpha = 1;
+        }
+      });
+    } else {
+      const centerY = panel.top + panel.height / 2;
+      const currentWidth = panel.width * 0.46;
+      context.fillStyle = 'rgba(54, 226, 255, 0.08)';
+      roundedRect(context, panel.left + 8, panel.top + 6, currentWidth, panel.height - 12, 8);
+      context.fill();
+      if (current) this.drawTypedWord(context, current.token.text, states, panel.left + 8 + currentWidth / 2 - shift * 30, centerY, Math.min(22, currentWidth / Math.max(4, current.token.text.length) * 1.4));
+      let x = panel.left + currentWidth + 22;
+      context.textAlign = 'left';
+      context.textBaseline = 'middle';
+      engine.stream.slice(1).forEach((word, index) => {
+        context.globalAlpha = Math.max(0.2, 0.7 - index * 0.15);
+        context.font = canvasFont(13, 'code', 600);
+        context.fillStyle = SCENE.ink;
+        context.fillText(word.token.text, x + shift * 40, centerY);
+        x += context.measureText(word.token.text).width + 14;
+      });
+      context.globalAlpha = 1;
+    }
+    // 방금 친 낱말: 위로 날아가며 +코인
+    const now = wallSeconds();
+    this.wordFlights = this.wordFlights.filter(flight => now - flight.at < 0.9);
+    for (const flight of this.wordFlights) {
+      const age = (now - flight.at) / 0.9;
+      const x = wide ? panel.left + panel.width / 2 : panel.left + 8 + panel.width * 0.23;
+      const y = (wide ? panel.top + 58 : panel.top + panel.height / 2) - age * 40;
+      context.globalAlpha = 1 - age;
+      context.font = canvasFont(14, 'ui', 700);
+      context.textAlign = 'center';
+      context.fillStyle = SCENE.coin;
+      context.fillText(`+${flight.coins}🪙`, x, y);
+    }
+    context.restore();
+  }
+
+  // 낱말 한 개를 글자별 상태(맞음·틀림·아직)대로 그린다
+  drawTypedWord(context, text, states, centerX, centerY, fontSize) {
+    context.font = canvasFont(Math.round(fontSize), 'code', 700);
     context.textBaseline = 'middle';
-    context.fillText('{ }', px, py);
-    context.shadowBlur = 0;
+    context.textAlign = 'left';
+    const widths = [...text].map(character => context.measureText(character).width);
+    let x = centerX - widths.reduce((sum, value) => sum + value, 0) / 2;
+    [...text].forEach((character, index) => {
+      const state = states[index];
+      context.fillStyle = state === 'correct' ? '#4df0a6' : state === 'wrong' ? SCENE.danger : SCENE.ink;
+      if (state === 'current' || (index === 0 && states.every(entry => entry === 'pending'))) {
+        context.fillStyle = this.accent;
+        context.fillRect(x, centerY + fontSize * 0.6, widths[index], 2);
+        context.fillStyle = SCENE.ink;
+      }
+      context.fillText(character, x, centerY);
+      x += widths[index];
+    });
+  }
+
+  // 보스 체력 막대(HUD 아래 가운데): 이름 · 페이즈 표시, 절반 자리에 금
+  drawBossBar(context, engine) {
+    const boss = engine.bugs.find(bug => bug.state === 'alive' && ATTACK_TYPES[bug.type].boss);
+    if (!boss) return;
+    const field = this.field();
+    const barWidth = Math.min(320, field.width * 0.7);
+    const left = field.left + field.width / 2 - barWidth / 2;
+    const top = HUD_HEIGHT + (engine.buildMode ? 30 : 8);
+    const type = ATTACK_TYPES[boss.type];
+    const color = boss.phase === 2 ? '#ff4dd2' : BUG_STYLE[boss.type].body;
+    context.fillStyle = 'rgba(14, 18, 34, 0.9)';
+    roundedRect(context, left - 8, top - 4, barWidth + 16, 26, 8);
+    context.fill();
+    context.font = canvasFont(10, 'ui', 700);
+    context.textAlign = 'left';
+    context.textBaseline = 'middle';
+    context.fillStyle = color;
+    context.fillText(`${type.label}${boss.phase === 2 ? ` · PHASE 2 ${type.phaseTwo.label}` : ''}`, left, top + 4);
+    context.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    context.fillRect(left, top + 12, barWidth, 6);
+    context.fillStyle = color;
+    context.fillRect(left, top + 12, barWidth * boss.hp / boss.maxHp, 6);
+    context.fillStyle = '#ffffff';
+    context.fillRect(left + barWidth * type.phaseTwo.at - 1, top + 10, 2, 10);
   }
 
   drawTowerShot(context, shot, engine) {
@@ -1091,7 +1461,26 @@ export class DefenseRenderer {
     const to = this.bugPosition(shot);
     context.save();
     context.globalCompositeOperation = 'lighter';
-    if (shot.type === 'firewall') {
+    if (shot.type === 'interceptor') {
+      const travel = Math.min(1, age * 2);
+      const px = from.x + (to.x - from.x) * travel, py = from.y - 10 + (to.y - from.y + 10) * travel;
+      context.strokeStyle = 'rgba(255, 220, 140, 0.8)';
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(from.x + (to.x - from.x) * Math.max(0, travel - 0.3), from.y - 10 + (to.y - from.y + 10) * Math.max(0, travel - 0.3));
+      context.lineTo(px, py);
+      context.stroke();
+      context.fillStyle = '#ffffff';
+      context.beginPath();
+      context.arc(px, py, 3, 0, Math.PI * 2);
+      context.fill();
+      if (travel >= 1) {
+        context.fillStyle = `rgba(255, 180, 80, ${1 - age})`;
+        context.beginPath();
+        context.arc(to.x, to.y, 10 * (age + 0.4), 0, Math.PI * 2);
+        context.fill();
+      }
+    } else if (shot.type === 'firewall') {
       const travel = Math.min(1, age * 2.2);
       const px = from.x + (to.x - from.x) * travel, py = from.y - 18 + (to.y - from.y + 18) * travel;
       const glow = context.createRadialGradient(px, py, 0, px, py, 12);
@@ -1120,29 +1509,45 @@ export class DefenseRenderer {
     context.restore();
   }
 
-  // 상점 줄: 낱말 + 이름 + 가격. 코인이 모자라면 흐리게
+  // 상점 줄: 누를 수 있는 칸 4개 [숫자 키] 아이콘 이름 가격. 코인이 모자라면 흐리게, 고른 타워는 테두리
   drawShop(context, width, height, engine) {
     const top = height - SHOP_HEIGHT;
-    context.fillStyle = 'rgba(9, 12, 24, 0.94)';
+    context.fillStyle = 'rgba(9, 12, 24, 0.96)';
     context.fillRect(0, top, width, SHOP_HEIGHT);
     context.fillStyle = 'rgba(42, 49, 82, 0.9)';
     context.fillRect(0, top, width, 1);
     const narrow = width < 520;
     const prices = engine.snapshotExtras().prices;
-    engine.shop.forEach((entry, index) => {
-      const centerX = width * (index + 0.5) / engine.shop.length;
-      const affordable = engine.coins >= prices[entry.item];
-      context.save();
-      context.translate(centerX, top + 26);
-      drawTokenLabel(context, 0, 0, entry, engine.getCharacterStates(entry), { active: entry.id === engine.targetId, accent: this.accent, compact: narrow, dimmed: !affordable });
-      context.restore();
-      context.font = canvasFont(10, 'ui', 600);
-      context.textAlign = 'center';
+    for (const { entry, left, width: cellWidth } of this.shopCells(engine)) {
+      const item = SHOP_ITEMS[entry.item];
+      const price = prices[entry.item];
+      const affordable = Number.isFinite(price) && engine.coins >= price;
+      const selected = item.kind === 'tower' && engine.buildMode?.tower === item.tower;
+      const color = TOWER_STYLE[item.tower] ?? '#4df0a6';
+      context.globalAlpha = affordable || selected ? 1 : 0.45;
+      context.fillStyle = selected ? `${color}22` : 'rgba(255, 255, 255, 0.03)';
+      roundedRect(context, left + 4, top + 5, cellWidth - 8, SHOP_HEIGHT - 10, 8);
+      context.fill();
+      context.strokeStyle = selected ? color : 'rgba(255, 255, 255, 0.08)';
+      context.lineWidth = selected ? 2 : 1;
+      context.stroke();
+      const middle = top + SHOP_HEIGHT / 2;
       context.textBaseline = 'middle';
+      context.textAlign = 'left';
+      context.font = canvasFont(10, 'code', 700);
+      context.fillStyle = SCENE.fog;
+      context.fillText(entry.hotkey, left + 10, middle - (narrow ? 8 : 0));
+      context.font = canvasFont(narrow ? 14 : 16, 'ui', 500);
+      context.fillText(SHOP_ICONS[entry.item], left + (narrow ? 8 : 22), middle + (narrow ? 7 : 0));
+      context.font = canvasFont(narrow ? 11 : 12, 'ui', 700);
+      context.fillStyle = color;
+      const textLeft = left + (narrow ? 28 : 46);
+      context.fillText(SHOP_LABELS[entry.item], textLeft, middle - 7);
+      context.font = canvasFont(10, 'ui', 600);
       context.fillStyle = affordable ? SCENE.coin : SCENE.fog;
-      const label = SHOP_ITEMS[entry.item].kind === 'repair' ? SHOP_LABELS.patch : SHOP_LABELS[entry.item];
-      context.fillText(`${label} ${Number.isFinite(prices[entry.item]) ? prices[entry.item] : '—'}🪙`, centerX, top + 34);
-    });
+      context.fillText(Number.isFinite(price) ? `${price}🪙` : '—', textLeft, middle + 8);
+      context.globalAlpha = 1;
+    }
   }
 
   // 위: 웨이브 · BPM · 코인 · 컴퓨터 체력

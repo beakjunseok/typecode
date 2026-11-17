@@ -1,43 +1,50 @@
 // 컴퓨터 디펜스: 해킹 공격(패킷·스팸 메일·악성 파일·랜섬웨어)이 지그재그 길을 따라 아래 컴퓨터로 온다.
-// 공격 위 낱말을 치면 패치가 날아가 맞힌다. 낱말로 번 코인으로 상점 낱말을 치면:
-//   firewall · antivirus → 설치 모드: 길이 아닌 곳이면 어디든(누르거나 탭) 타워를 세운다. 추천 자리·같은 타워 위에는
-//   짧은 낱말이 떠서 키보드만으로도 고를 수 있다(같은 타워를 고르면 업그레이드)
-//   patch → 컴퓨터 체력 회복
-// 웨이브 1~5, 웨이브마다 배경음악 BPM이 오르고(110→130), 컴퓨터 체력이 30% 아래면 음악이 먹먹해진다(로우패스).
+// 막는 건 타워뿐이다. 오른쪽(휴대폰은 아래)에 연습 모드처럼 낱말이 차례로 올라오고, 낱말 하나를 칠 때마다 코인을 번다.
+// 그 코인으로 상점에서 타워를 골라(누르거나 숫자 1~3, 수리는 4) 길이 아닌 곳 어디든(크기가 들어가면) 세운다. 같은 타워를 누르면 업그레이드.
+// 웨이브 1~10. 4웨이브부터 길을 무시하고 날아오는 공중 공격(드론)이 섞이는데, 이건 요격포만 맞힌다.
+// 5웨이브 끝에 랜섬웨어, 10웨이브 끝에 루트킷 보스. 둘 다 체력 절반에서 2페이즈로 변한다.
+// 웨이브마다 배경음악 BPM이 오르고(110→137), 컴퓨터 체력이 30% 아래면 음악이 먹먹해진다(로우패스).
 // 수치 근거(조사 보고서): 단어 코인 (2+글자 수)×웨이브 배율×콤보 배율, 웨이브 보너스 50+25×웨이브(무피해 +30%),
 // 난이도별 상점가 ×0.85/1/1.08/1.2(Bloons TD 6), 체력 150/100/80/60%.
 import { TargetGameEngine, ARCADE_RULES, randomBetween } from './target-game.js';
 import { SCORING, MAX_MULTIPLIER } from './engine.js';
 
 export const DEFENSE_RULES = Object.freeze({
-  waves: 5,
+  waves: 10,
+  // 보스가 나오는 웨이브(그 웨이브 졸개를 다 내보낸 뒤)
+  bossWaves: Object.freeze({ 5: 'ransomware', 10: 'rootkit' }),
+  // 보스 2페이즈로 바뀔 때 잠깐 무적(초)
+  phaseShieldSeconds: 1.5,
   introSeconds: 2.4,
   breakSeconds: 4,
   winPauseSeconds: 1.4,
-  // 웨이브 n의 버그 수 = base + step × (n - 1). 마지막 웨이브는 끝에 보스(랜섬웨어)
-  bugsPerWave: Object.freeze({ base: 6, step: 3 }),
+  // 웨이브 n의 공격 수 = base + step × (n - 1) (+ 보스 웨이브면 보스 1)
+  bugsPerWave: Object.freeze({ base: 6, step: 2 }),
   // 등장 간격(초) = max(min, start - step × (n - 1)) × 난이도 등장 배율
-  spawnInterval: Object.freeze({ start: 3, step: 0.3, min: 1 }),
+  spawnInterval: Object.freeze({ start: 3, step: 0.2, min: 0.9 }),
   // 레벨(1~4)별: 시작 BPM, 컴퓨터 최대 체력, 상점가 배율
   bpmBase: Object.freeze({ 1: 100, 2: 110, 3: 120, 4: 130 }),
-  bpmStep: 5,
+  bpmStep: 3,
   maxHealth: Object.freeze({ 1: 150, 2: 100, 3: 80, 4: 60 }),
   priceFactor: Object.freeze({ 1: 0.85, 2: 1, 3: 1.08, 4: 1.2 }),
   dangerRatio: 0.3,
-  startCoins: 60,
+  startCoins: 150,
+  // 화면에 미리 보여 줄 낱말 수(지금 칠 낱말 포함)
+  streamLength: 6,
+  // 공격 체력은 웨이브가 2개 오를 때마다 +1(타워만으로 막으므로 웨이브가 갈수록 단단해진다)
+  hpPerTwoWaves: 1,
   // 단어 코인 = round((wordBase + 글자 수) × (1 + waveStep × (웨이브 - 1)) × 콤보 배율)
   wordCoins: Object.freeze({ wordBase: 2, waveStep: 0.25 }),
   comboCoinSteps: Object.freeze([[30, 2], [20, 1.5], [10, 1.2]]),
   waveBonus: Object.freeze({ base: 50, perWave: 25, noDamageFactor: 1.3 }),
   waveScore: 200,
   repairAmount: 25,
-  maxTowers: 12,
+  maxTowers: 14,
   maxTowerLevel: 3,
   // 키보드용 추천 자리 수
   suggestions: 5,
-  // 설치 모드: 이 시간 안에 자리를 고르지 않으면 취소. 자리 낱말은 이 길이 이하
-  buildModeSeconds: 10,
-  spotTokenMaxLength: 4
+  // 설치 모드: 이 시간 안에 자리를 고르지 않으면 취소
+  buildModeSeconds: 15
 });
 
 // 길(화면 들판을 0~1로 본 좌표): 왼쪽 위에서 들어와 지그재그로 내려가, 컴퓨터 바로 위(방패 돔 꼭대기)에서 끝난다.
@@ -51,7 +58,8 @@ export const DEFENSE_COMPUTER = Object.freeze({ x: 0.5, y: 0.84 });
 export const PLACEMENT = Object.freeze({
   pathClear: Object.freeze({ x: 0.075, y: 0.085 }),
   towerGap: Object.freeze({ x: 0.075, y: 0.095 }),
-  computerZone: Object.freeze({ x: 0.5, y: 0.84, rx: 0.2, ry: 0.27 }),
+  // 컴퓨터(책상·모니터) 자리만 막는다. 방패 돔 안이어도 타워가 들어가면 세울 수 있다
+  computerZone: Object.freeze({ x: 0.5, y: 0.86, rx: 0.1, ry: 0.13 }),
   margin: 0.035
 });
 
@@ -73,26 +81,42 @@ export function pointOnPath(progress) {
   return { ...DEFENSE_PATH.at(-1) };
 }
 
-// 공격 종류: hp = 맞혀야 하는 횟수(낱말·타워 한 방 = 1), speed = 초당 길을 가는 비율(0→1),
-// damage = 컴퓨터에 닿으면 깎이는 체력, bounty = 처치 점수, towerCoins = 타워가 잡았을 때 코인
+// 공격 종류: hp = 맞혀야 하는 횟수(타워 한 방 = 1), speed = 초당 가는 비율(0→1),
+// damage = 컴퓨터에 닿으면 깎이는 체력, bounty = 처치 점수, towerCoins = 잡았을 때 코인.
+// air: 길을 무시하고 위에서 컴퓨터로 곧장 날아온다(요격포만 맞힌다).
+// phaseTwo(보스): 체력이 at 비율 이하가 되면 2페이즈 — 속도 ×speedFactor, every초마다 summon 소환, lockEvery초마다 가장 가까운 타워를 lockSeconds초 잠금
 export const ATTACK_TYPES = Object.freeze({
   packet: Object.freeze({ label: '해킹 패킷', hp: 1, speed: 0.04, damage: 10, bounty: 50, towerCoins: 1, fromWave: 1, weight: 1 }),
   spam: Object.freeze({ label: '스팸 메일', hp: 1, speed: 0.07, damage: 8, bounty: 70, towerCoins: 1, fromWave: 2, weight: 0.5 }),
   malware: Object.freeze({ label: '악성 파일', hp: 2, speed: 0.03, damage: 15, bounty: 120, towerCoins: 2, fromWave: 3, weight: 0.35 }),
-  ransomware: Object.freeze({ label: '랜섬웨어', hp: 6, speed: 0.016, damage: 40, bounty: 800, towerCoins: 20, fromWave: Infinity, weight: 0, boss: true })
+  drone: Object.freeze({ label: '스파이웨어 드론', hp: 2, speed: 0.055, damage: 12, bounty: 90, towerCoins: 2, fromWave: 4, weight: 0.4, air: true }),
+  ransomware: Object.freeze({
+    label: '랜섬웨어', hp: 40, speed: 0.016, damage: 40, bounty: 800, towerCoins: 60, fromWave: Infinity, weight: 0, boss: true,
+    phaseTwo: Object.freeze({ at: 0.5, label: '암호화 폭주', speedFactor: 1.7, summon: 'packet', summonCount: 2, every: 5, lockEvery: 6, lockSeconds: 3 })
+  }),
+  rootkit: Object.freeze({
+    label: '루트킷', hp: 90, speed: 0.014, damage: 60, bounty: 2000, towerCoins: 120, fromWave: Infinity, weight: 0, boss: true,
+    phaseTwo: Object.freeze({ at: 0.5, label: '권한 탈취', speedFactor: 1.5, summon: 'drone', summonCount: 3, every: 6, lockEvery: 5, lockSeconds: 3 })
+  })
 });
 export const BUG_TYPES = ATTACK_TYPES;
 
-// 타워: 쏘는 간격(초), 사거리(화면 비율), 감속(사거리 안 버그 속도 배율). 레벨이 오르면 간격 ×0.75
+// 타워: 쏘는 간격(초), 사거리(화면 비율), 감속(사거리 안 공격 속도 배율), 맞히는 대상(ground: 길 위 / air: 공중).
+// 레벨이 오르면 간격 ×0.75, 사거리 +0.04
 export const TOWER_TYPES = Object.freeze({
-  firewall: Object.freeze({ label: '방화벽', word: 'firewall', price: 120, cooldown: 3, range: 0.26, slow: 0.65 }),
-  antivirus: Object.freeze({ label: '백신', word: 'antivirus', price: 200, cooldown: 1.8, range: 0.32, slow: 1 })
+  firewall: Object.freeze({ label: '방화벽', word: 'firewall', price: 120, cooldown: 3, range: 0.26, slow: 0.65, targets: 'ground' }),
+  antivirus: Object.freeze({ label: '백신', word: 'antivirus', price: 200, cooldown: 1.8, range: 0.32, slow: 1, targets: 'ground' }),
+  interceptor: Object.freeze({ label: '요격포', word: 'interceptor', price: 180, cooldown: 1.1, range: 0.34, slow: 1, targets: 'air' })
 });
 export const SHOP_ITEMS = Object.freeze({
   firewall: Object.freeze({ kind: 'tower', tower: 'firewall', word: 'firewall' }),
   antivirus: Object.freeze({ kind: 'tower', tower: 'antivirus', word: 'antivirus' }),
+  interceptor: Object.freeze({ kind: 'tower', tower: 'interceptor', word: 'interceptor' }),
   patch: Object.freeze({ kind: 'repair', word: 'patch', price: 80 })
 });
+
+// 공중 공격이 출발하는 위(들판 y = 0)의 x 후보: 길 입구와 겹치지 않게 가운데·오른쪽 위주
+const AIR_LANES = Object.freeze([0.3, 0.5, 0.7, 0.88]);
 
 // 점과 선분 사이 거리(타원 단위: x는 rx, y는 ry로 나눠 잰다). O(1)
 function ellipseDistanceToSegment(point, from, to, radii) {
@@ -179,6 +203,9 @@ export class DefenseEngine extends TargetGameEngine {
     this.waveKilled = 0;
     this.waveTookDamage = false;
     this.noDamageWaves = 0;
+    this.summoned = 0;
+    this.bossSpawned = false;
+    this.airWarned = false;
     this.nextSpawnAt = Infinity;
     this.kills = Object.fromEntries(Object.keys(BUG_TYPES).map(type => [type, 0]));
     this.towersBuilt = 0;
@@ -186,16 +213,19 @@ export class DefenseEngine extends TargetGameEngine {
     this.winAt = null;
     this.buildMode = null;
     this.spots = [];
-    this.shop = Object.entries(SHOP_ITEMS).map(([key, item]) => ({ id: this.nextId++, kind: 'shop', item: key, token: { text: item.word, kind: 'keyword', weight: 1 } }));
+    this.shop = Object.entries(SHOP_ITEMS).map(([key, item], index) => ({ id: this.nextId++, kind: 'shop', item: key, hotkey: String(index + 1) }));
+    this.wordsTyped = 0;
+    this.stream = [];
+    this.refillStream();
   }
 
   // ---------- 목표 ----------
   targetables() {
-    return [...this.bugs.filter(bug => bug.state === 'alive' && !bug.doomed), ...this.shop, ...this.spots.filter(spot => spot.token)];
+    return this.stream.length ? [this.stream[0]] : [];
   }
 
   findEntity(id) {
-    return this.bugs.find(bug => bug.id === id) ?? this.shop.find(item => item.id === id) ?? this.spots.find(spot => spot.id === id) ?? null;
+    return this.stream.find(word => word.id === id) ?? this.bugs.find(bug => bug.id === id) ?? this.shop.find(item => item.id === id) ?? this.spots.find(spot => spot.id === id) ?? null;
   }
 
   // 컴퓨터에 가까운(길을 많이 간) 공격부터, 설치 자리, 상점 낱말 순
@@ -229,7 +259,7 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   bugsInWave(wave) {
-    return DEFENSE_RULES.bugsPerWave.base + DEFENSE_RULES.bugsPerWave.step * (wave - 1) + (wave === DEFENSE_RULES.waves ? 1 : 0);
+    return DEFENSE_RULES.bugsPerWave.base + DEFENSE_RULES.bugsPerWave.step * (wave - 1) + (DEFENSE_RULES.bossWaves[wave] ? 1 : 0);
   }
 
   // ---------- 진행 ----------
@@ -244,6 +274,7 @@ export class DefenseEngine extends TargetGameEngine {
     this.spawnIfDue();
     this.moveBugs(frameSeconds);
     if (this.status !== 'running') return;
+    this.runBossSkills();
     this.fireTowers();
     this.bugs = this.bugs.filter(bug => bug.state === 'alive' || this.gameTime - bug.resolvedAt < 0.8);
     this.checkWaveClear();
@@ -267,9 +298,11 @@ export class DefenseEngine extends TargetGameEngine {
     this.waveKilled = 0;
     this.waveTotal = this.bugsInWave(wave);
     this.waveTookDamage = false;
+    this.summoned = 0;
+    this.bossSpawned = false;
     this.phase = 'intro';
     this.phaseUntil = this.gameTime + DEFENSE_RULES.introSeconds;
-    this.emit('wave-intro', { wave, bpm: this.bpm() });
+    this.emit('wave-intro', { wave, bpm: this.bpm(), boss: DEFENSE_RULES.bossWaves[wave] ?? null });
   }
 
   spawnInterval() {
@@ -279,14 +312,21 @@ export class DefenseEngine extends TargetGameEngine {
 
   spawnIfDue() {
     if (this.phase !== 'spawning' || this.gameTime < this.nextSpawnAt) return;
-    const regular = this.waveTotal - (this.wave === DEFENSE_RULES.waves ? 1 : 0);
-    if (this.waveSpawned < regular) {
-      this.spawnBug(this.chooseBugType());
+    const boss = DEFENSE_RULES.bossWaves[this.wave];
+    const regular = this.waveTotal - (boss ? 1 : 0) - this.summoned;
+    if (this.waveSpawned - this.summoned < regular) {
+      const type = this.chooseBugType();
+      const bug = this.spawnBug(type);
+      if (ATTACK_TYPES[type].air && !this.airWarned) {
+        this.airWarned = true;
+        this.emit('air-warning', { bug });
+      }
       this.nextSpawnAt = this.gameTime + this.spawnInterval() * randomBetween(this.random, [0.8, 1.2]);
-    } else if (this.waveSpawned < this.waveTotal) {
-      // 마지막 웨이브: 졸개를 다 내보낸 뒤 보스. 경고를 먼저 띄운다
-      this.spawnBug('ransomware');
-      this.emit('boss-appear', {});
+    } else if (boss && !this.bossSpawned) {
+      // 보스 웨이브: 졸개를 다 내보낸 뒤 보스. 경고를 먼저 띄운다
+      this.bossSpawned = true;
+      const bug = this.spawnBug(boss);
+      this.emit('boss-appear', { bug, boss });
     }
   }
 
@@ -301,16 +341,19 @@ export class DefenseEngine extends TargetGameEngine {
     return unlocked[unlocked.length - 1][0];
   }
 
-  // 길 입구에서 출발한다
-  spawnBug(typeKey) {
+  // 지상 공격은 길 입구(또는 from의 길 위치)에서, 공중 공격은 위쪽(또는 from 자리)에서 컴퓨터로 곧장
+  spawnBug(typeKey, from = null) {
     const type = BUG_TYPES[typeKey];
-    const start = pointOnPath(0);
+    const air = Boolean(type.air);
+    const origin = air ? (from ? { x: from.x, y: from.y } : { x: AIR_LANES[Math.floor(this.random() * AIR_LANES.length)], y: 0 }) : null;
+    const progress = !air && from ? Math.max(0, Math.min(0.98, from.progress ?? 0)) : 0;
+    const start = air ? origin : pointOnPath(progress);
     const bug = {
-      id: this.nextId++, kind: 'bug', type: typeKey, progress: 0, x: start.x, y: start.y,
-      hp: type.hp, maxHp: type.hp, incomingDamage: 0, doomed: false, state: 'alive', spawnedAt: this.gameTime,
-      resolvedAt: null, token: null, wave: this.wave
+      id: this.nextId++, kind: 'bug', type: typeKey, air, origin, progress, x: start.x, y: start.y,
+      hp: 0, maxHp: 0, state: 'alive', spawnedAt: this.gameTime, resolvedAt: null, wave: this.wave,
+      phase: 1, shieldUntil: 0, nextSummonAt: Infinity, nextLockAt: Infinity
     };
-    bug.token = this.pickToken(bug.id);
+    bug.hp = bug.maxHp = type.boss ? type.hp : type.hp + DEFENSE_RULES.hpPerTwoWaves * Math.floor((this.wave - 1) / 2);
     this.bugs.push(bug);
     this.waveSpawned++;
     this.emit('spawn', { bug });
@@ -322,9 +365,14 @@ export class DefenseEngine extends TargetGameEngine {
     let factor = 1;
     for (const tower of this.towers) {
       const config = TOWER_TYPES[tower.type];
-      if (config.slow < 1 && this.inRange(tower, bug)) factor = Math.min(factor, config.slow - 0.05 * (tower.level - 1));
+      if (config.slow < 1 && !bug.air && this.gameTime >= (tower.lockedUntil ?? 0) && this.inRange(tower, bug)) factor = Math.min(factor, config.slow - 0.05 * (tower.level - 1));
     }
     return factor;
+  }
+
+  // 타워가 이 공격을 맞힐 수 있나: 지상 타워는 지상만, 요격포는 공중만. 잠긴 타워는 못 쏜다
+  canTarget(tower, bug) {
+    return (TOWER_TYPES[tower.type].targets === 'air') === Boolean(bug.air);
   }
 
   inRange(tower, bug) {
@@ -335,8 +383,14 @@ export class DefenseEngine extends TargetGameEngine {
   moveBugs(frameSeconds) {
     for (const bug of this.bugs) {
       if (bug.state !== 'alive') continue;
-      bug.progress += BUG_TYPES[bug.type].speed * this.difficulty.speed * this.slowFactor(bug) * frameSeconds;
-      const point = pointOnPath(bug.progress);
+      const type = BUG_TYPES[bug.type];
+      const rage = bug.phase === 2 ? type.phaseTwo.speedFactor : 1;
+      const stunned = this.gameTime < bug.shieldUntil ? 0 : 1;
+      const distance = bug.air ? Math.max(0.2, Math.hypot(DEFENSE_COMPUTER.x - bug.origin.x, DEFENSE_COMPUTER.y - bug.origin.y)) : 1;
+      bug.progress += type.speed * this.difficulty.speed * this.slowFactor(bug) * rage * stunned * frameSeconds / distance * (bug.air ? 0.9 : 1);
+      const point = bug.air
+        ? { x: bug.origin.x + (DEFENSE_COMPUTER.x - bug.origin.x) * Math.min(1, bug.progress), y: bug.origin.y + (DEFENSE_COMPUTER.y - 0.1 - bug.origin.y) * Math.min(1, bug.progress) }
+        : pointOnPath(bug.progress);
       bug.x = point.x;
       bug.y = point.y;
       if (bug.progress >= 1) this.breach(bug);
@@ -351,7 +405,6 @@ export class DefenseEngine extends TargetGameEngine {
     bug.resolvedAt = this.gameTime;
     this.waveKilled++;
     this.waveTookDamage = true;
-    this.releaseTargetIf(bug.id, 'breached');
     const wasDanger = this.isDanger();
     this.health = Math.max(0, this.health - damage);
     if (this.combo >= 5) this.emit('combo-lost', { combo: this.combo });
@@ -367,9 +420,9 @@ export class DefenseEngine extends TargetGameEngine {
   // 타워: 쿨다운이 끝나면 사거리 안에서 컴퓨터에 가장 가까운 버그를 1 피해
   fireTowers() {
     for (const tower of this.towers) {
-      if (this.gameTime < tower.readyAt) continue;
+      if (this.gameTime < tower.readyAt || this.gameTime < (tower.lockedUntil ?? 0)) continue;
       const target = this.bugs
-        .filter(bug => bug.state === 'alive' && bug.hp - bug.incomingDamage > 0 && this.inRange(tower, bug))
+        .filter(bug => bug.state === 'alive' && bug.hp > 0 && this.canTarget(tower, bug) && this.inRange(tower, bug))
         .sort((first, second) => second.progress - first.progress)[0];
       if (!target) continue;
       tower.readyAt = this.gameTime + TOWER_TYPES[tower.type].cooldown * 0.75 ** (tower.level - 1);
@@ -380,13 +433,24 @@ export class DefenseEngine extends TargetGameEngine {
     }
   }
 
-  // 피해 1. 0이 되면 처치(코인·점수), 아니면 낱말을 바꾼다(여러 번 맞혀야 하는 버그)
+  // 피해 1. 0이 되면 처치(코인·점수). 보스는 체력이 기준 아래로 내려가면 2페이즈(잠깐 무적)
   damageBug(bug, source) {
     if (bug.state !== 'alive') return;
+    if (this.gameTime < bug.shieldUntil) {
+      this.emit('bug-blocked', { bug });
+      return;
+    }
     bug.hp -= 1;
+    const phaseTwo = BUG_TYPES[bug.type].phaseTwo;
+    if (phaseTwo && bug.phase === 1 && bug.hp > 0 && bug.hp <= bug.maxHp * phaseTwo.at) {
+      bug.phase = 2;
+      bug.shieldUntil = this.gameTime + DEFENSE_RULES.phaseShieldSeconds;
+      bug.nextSummonAt = this.gameTime + DEFENSE_RULES.phaseShieldSeconds;
+      bug.nextLockAt = this.gameTime + DEFENSE_RULES.phaseShieldSeconds + 1;
+      this.emit('boss-phase', { bug, label: phaseTwo.label });
+      return;
+    }
     if (bug.hp > 0) {
-      bug.token = this.pickToken(bug.id);
-      this.releaseTargetIf(bug.id, 'retoken');
       this.emit('bug-hit', { bug, source });
       return;
     }
@@ -396,9 +460,40 @@ export class DefenseEngine extends TargetGameEngine {
     this.kills[bug.type]++;
     this.waveKilled++;
     this.score += type.bounty;
-    this.releaseTargetIf(bug.id, 'killed');
-    if (source === 'tower') this.gainCoins(type.towerCoins, 'tower');
+    this.gainCoins(type.towerCoins, 'tower');
     this.emit('bug-kill', { bug, source, combo: this.combo });
+  }
+
+  // 2페이즈 보스 기술: 졸개 소환(웨이브 수에 더한다), 가장 가까운 타워를 잠깐 잠금(암호화)
+  runBossSkills() {
+    for (const bug of this.bugs) {
+      if (bug.state !== 'alive' || bug.phase !== 2) continue;
+      const skill = BUG_TYPES[bug.type].phaseTwo;
+      if (this.gameTime >= bug.nextSummonAt) {
+        bug.nextSummonAt = this.gameTime + skill.every;
+        const minions = [];
+        for (let index = 0; index < skill.summonCount; index++) {
+          const offset = (index - (skill.summonCount - 1) / 2) * 0.06;
+          const minion = this.spawnBug(skill.summon, BUG_TYPES[skill.summon].air
+            ? { x: Math.max(0.05, Math.min(0.95, bug.x + offset)), y: Math.max(0, bug.y - 0.05) }
+            : { progress: bug.progress - 0.02 * (index + 1) });
+          minions.push(minion);
+        }
+        this.summoned += minions.length;
+        this.waveTotal += minions.length;
+        this.emit('boss-summon', { bug, minions });
+      }
+      if (this.gameTime >= bug.nextLockAt && this.towers.length) {
+        bug.nextLockAt = this.gameTime + skill.lockEvery;
+        const tower = this.towers
+          .filter(entry => this.gameTime >= (entry.lockedUntil ?? 0))
+          .sort((first, second) => Math.hypot(first.x - bug.x, first.y - bug.y) - Math.hypot(second.x - bug.x, second.y - bug.y))[0];
+        if (tower) {
+          tower.lockedUntil = this.gameTime + skill.lockSeconds;
+          this.emit('tower-locked', { tower, bug, seconds: skill.lockSeconds });
+        }
+      }
+    }
   }
 
   gainCoins(amount, reason) {
@@ -431,24 +526,44 @@ export class DefenseEngine extends TargetGameEngine {
     this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds;
   }
 
-  // ---------- 발사 ----------
-  // 상점·설치 자리 낱말은 즉시 처리(투사체 없음). 공격 낱말은 코인을 받고 투사체가 닿을 때 피해
-  onFire(target, projectile) {
-    if (target.kind === 'shop' || target.kind === 'spot') {
-      this.projectiles = this.projectiles.filter(entry => entry !== projectile);
-      if (target.kind === 'shop') this.selectShopItem(target.item);
-      else this.placeAtSpot(target);
-      return;
+  // ---------- 낱말 줄(수입) ----------
+  // 미리 보여 줄 낱말을 채운다. 바로 앞 낱말과 같은 낱말은 피한다
+  refillStream() {
+    while (this.stream.length < DEFENSE_RULES.streamLength) {
+      const previous = this.stream.at(-1)?.token.text;
+      let token = this.drawWeightedToken();
+      for (let attempt = 0; attempt < 5 && token.text === previous; attempt++) token = this.drawWeightedToken();
+      this.stream.push({ id: this.nextId++, kind: 'word', token });
     }
-    target.incomingDamage++;
-    if (target.hp - target.incomingDamage <= 0) target.doomed = true;
-    this.gainCoins(wordCoins(target.token.text.length, this.wave, this.combo), 'word');
   }
 
-  onProjectileLanded(bug) {
-    bug.incomingDamage = Math.max(0, bug.incomingDamage - 1);
-    bug.doomed = false;
-    this.damageBug(bug, 'typing');
+  // 낱말 하나를 다 치면: 투사체 없이 코인(콤보·웨이브 배율), 다음 낱말이 올라온다
+  onFire(target, projectile) {
+    this.projectiles = this.projectiles.filter(entry => entry !== projectile);
+    const coins = this.gainCoins(wordCoins(target.token.text.length, this.wave, this.combo), 'word');
+    this.wordsTyped++;
+    this.stream = this.stream.filter(word => word.id !== target.id);
+    this.refillStream();
+    this.emit('word-done', { word: target, coins, combo: this.combo });
+  }
+
+  // 상점 단축키(1~4)와 설치 모드 숫자(1~5 추천 자리), Esc 취소. 처리했으면 true
+  hotkey(key) {
+    if (this.status !== 'running') return false;
+    if (key === 'Escape' && this.buildMode) {
+      this.cancelBuild('escape');
+      return true;
+    }
+    if (!/^[1-9]$/.test(key)) return false;
+    if (this.buildMode) {
+      const spot = this.spots[Number(key) - 1];
+      if (spot) this.placeAtSpot(spot);
+      return Boolean(spot);
+    }
+    const item = this.shop.find(entry => entry.hotkey === key);
+    if (!item) return false;
+    this.selectShopItem(item.item);
+    return true;
   }
 
   // ---------- 설치 ----------
@@ -519,26 +634,14 @@ export class DefenseEngine extends TargetGameEngine {
       ...(canBuild ? this.suggestedSpots().map(point => ({ x: point.x, y: point.y, towerId: null })) : []),
       ...upgradable.map(tower => ({ x: tower.x, y: tower.y, towerId: tower.id }))
     ];
-    this.spots = spots.map(spot => ({ id: this.nextId++, kind: 'spot', ...spot, token: null }));
-    for (const spot of this.spots) spot.token = this.pickSpotToken(spot.id);
+    this.spots = spots.map((spot, index) => ({ id: this.nextId++, kind: 'spot', ...spot, hotkey: String(index + 1) })).slice(0, 9);
     this.emit('build-mode', { tower: item.tower, upgrade: !canBuild, spots: this.spots.length });
     return { bought: false, buildMode: true };
-  }
-
-  // 자리 낱말은 짧게(빨리 고를 수 있게), 다른 목표와 첫 글자가 겹치지 않게
-  pickSpotToken(excludeId) {
-    const used = new Set(this.targetables().filter(entity => entity.id !== excludeId && entity.token).map(entity => entity.token.text[0]));
-    for (let attempt = 0; attempt < 60; attempt++) {
-      const token = this.drawWeightedToken();
-      if (token.text.length <= DEFENSE_RULES.spotTokenMaxLength && !used.has(token.text[0])) return token;
-    }
-    return this.pickToken(excludeId);
   }
 
   cancelBuild(reason, { silent = false } = {}) {
     if (!this.buildMode) return { bought: false, reason: 'none' };
     this.buildMode = null;
-    if (this.spots.some(spot => spot.id === this.targetId)) this.clearBuffer();
     this.spots = [];
     if (!silent) this.emit('build-cancel', { reason });
     return { bought: false, reason };
@@ -622,6 +725,7 @@ export class DefenseEngine extends TargetGameEngine {
       prices: Object.fromEntries(Object.keys(SHOP_ITEMS).map(key => [key, this.priceOf(key)])),
       waveKilled: this.waveKilled,
       waveTotal: this.waveTotal,
+      boss: this.bugs.find(bug => bug.state === 'alive' && BUG_TYPES[bug.type].boss) ?? null,
       buildMode: this.buildMode ? { ...this.buildMode } : null
     };
   }
