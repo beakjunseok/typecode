@@ -730,6 +730,18 @@ function bindDefensePointer(canvas) {
   });
 }
 
+// 타워 발사음: 방화벽 = 화르륵, 허니팟 = (puddle 이벤트에서), 백신 = 레이저, EMP = 충전, 요격포 = 미사일 발사 → 0.18초 뒤 폭발
+function playTowerShotSound(tower) {
+  const type = tower?.type;
+  if (type === 'firewall') sound.play('ignite');
+  else if (type === 'antivirus') sound.play('laserShot');
+  else if (type === 'emp') sound.play('empCharge');
+  else if (type === 'interceptor') {
+    sound.play('missileLaunch');
+    sound.play('missileBoom', { delay: 0.18 });
+  }
+}
+
 // 컴퓨터 디펜스 전용 이벤트(소리·로그). 처리했으면 true, 공통 처리(lock·mistake 등)는 false
 function handleDefenseEvent(type, payload) {
   switch (type) {
@@ -778,10 +790,11 @@ function handleDefenseEvent(type, payload) {
     case 'bug-blocked':
       return true;
     case 'puddle':
-      sound.play('throwPhone');
+      sound.play('honeyLob');
+      sound.play('honeySplat', { delay: 0.32 });
       return true;
     case 'tower-sold':
-      sound.play('itemSpawn');
+      sound.play('sell');
       ui.log('info', `💰 ${TOWER_TYPES[payload.tower.type].label} 판매 (+${payload.refund}🪙)`);
       return true;
     case 'bug-hit':
@@ -795,7 +808,16 @@ function handleDefenseEvent(type, payload) {
       }
       return true;
     case 'tower-shot':
-      sound.play('hit');
+      playTowerShotSound(payload.tower);
+      return true;
+    case 'splash':
+      sound.play('empBlast', { delay: 0.15 });
+      return true;
+    case 'air-jammed':
+      sound.play('zap', { delay: 0.15 });
+      return true;
+    case 'honey-step':
+      sound.play('honeyStep');
       return true;
     case 'coins':
       if (payload.reason !== 'tower') sound.play('itemSpawn');
@@ -813,8 +835,9 @@ function handleDefenseEvent(type, payload) {
       return true;
     case 'tower-built':
     case 'tower-upgraded':
-      sound.play('powerUp');
-      if (type === 'tower-upgraded' && payload.perk) sound.play('newRecord');
+      // 설치는 낙하가 끝나 착지하는 0.45초에 '쿵', 강화는 충전 → 터짐 화음
+      if (type === 'tower-built') sound.play('towerLand', { delay: 0.45 });
+      else sound.play('upgrade', { maxed: Boolean(payload.perk) });
       ui.log('ok', `🛡 ${TOWER_TYPES[payload.tower.type].label} ${type === 'tower-built' ? `설치${payload.nudged ? '(빈자리로 옮김)' : ''}` : `Lv.${payload.tower.level}${payload.perk ? ` ★ ${payload.perk.label}` : ''}`} (-${payload.price}🪙)`);
       return true;
     case 'repair':

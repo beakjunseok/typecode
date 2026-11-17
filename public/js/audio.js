@@ -265,13 +265,22 @@ export class SoundEngine {
     }
   }
 
+  // options.delay(초): 그만큼 뒤에 울린다(포탄이 날아가 터지는 순간 등).
+  // 디펜스처럼 같은 소리가 한꺼번에 몰리는 효과음은 THROTTLED_SOUNDS 간격 안의 중복을 건너뛴다(귀 아픔·클리핑 방지)
   play(soundName, options = {}) {
     if (!this.enabled) return;
     const context = this.ensureContext();
     const sound = SOUNDS[soundName];
     if (!context || !sound) return;
+    const startTime = context.currentTime + Math.max(0, Number(options.delay) || 0);
+    const gap = THROTTLED_SOUNDS[soundName];
+    if (gap) {
+      this.lastPlayed ??= new Map();
+      if (startTime - (this.lastPlayed.get(soundName) ?? -Infinity) < gap) return;
+      this.lastPlayed.set(soundName, startTime);
+    }
     try {
-      sound(this, context, context.currentTime, options);
+      sound(this, context, startTime, options);
     } catch (error) {
       /* 효과음 실패는 무시 */
     }
@@ -424,7 +433,87 @@ function comboFrequency(combo) {
   return COMBO_BASE_FREQUENCY * 2 ** (semitones / 12);
 }
 
+// 같은 소리를 다시 울리기까지 최소 간격(초). 타워가 많을 때 한 프레임에 수십 번 겹치지 않게
+const THROTTLED_SOUNDS = Object.freeze({
+  empCharge: 0.08, empBlast: 0.07, zap: 0.06, honeyLob: 0.08, honeySplat: 0.08, honeyStep: 0.05,
+  ignite: 0.07, missileLaunch: 0.06, missileBoom: 0.06, laserShot: 0.05, towerLand: 0.05
+});
+
 const SOUNDS = {
+  // ---------- 컴퓨터 디펜스 ----------
+  // EMP 발사: 낮은 곳에서 올라가는 충전 '위이잉'(사각파 + 대역 잡음)
+  empCharge(engine, context, time) {
+    engine.tone(context, { frequency: 180, sweepTo: 900, startTime: time, peak: 0.035, decay: 0.16, waveform: 'square', filter: { type: 'lowpass', frequency: 2200 } });
+    engine.noise(context, { startTime: time, peak: 0.03, decay: 0.14, filterType: 'bandpass', frequency: 1200, sweepTo: 4000, q: 4 });
+  },
+  // EMP 폭발: '빠지직' 하는 전기 잡음 다발 + 아래로 꺼지는 '웅' 저음 + 링 변조 전자음
+  empBlast(engine, context, time) {
+    engine.tone(context, { frequency: 140, sweepTo: 38, startTime: time, peak: 0.12, decay: 0.32, attack: 0.002 });
+    ringTone(engine, context, { frequency: 1400, sweepTo: 220, startTime: time, peak: 0.05, decay: 0.28, modFrequency: 63, waveform: 'square' });
+    for (let crack = 0; crack < 6; crack++) {
+      engine.noise(context, { startTime: time + crack * 0.028 + Math.random() * 0.012, peak: 0.07 - crack * 0.008, decay: 0.022, filterType: 'highpass', frequency: 3200 + Math.random() * 2400, q: 2 });
+    }
+  },
+  // 감전(드론 교란): 짧게 끊기는 '지지직' 세 번 + 버징 사각파
+  zap(engine, context, time) {
+    for (let buzz = 0; buzz < 3; buzz++) {
+      engine.noise(context, { startTime: time + buzz * 0.045, peak: 0.05, decay: 0.03, filterType: 'bandpass', frequency: 2400 + buzz * 700, q: 6 });
+    }
+    ringTone(engine, context, { frequency: 620, sweepTo: 480, startTime: time, peak: 0.03, decay: 0.15, modFrequency: 97, waveform: 'square' });
+  },
+  // 꿀 던지기: 둔한 '휙'
+  honeyLob(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.045, decay: 0.16, filterType: 'bandpass', frequency: 400, sweepTo: 1300, q: 1.2 });
+  },
+  // 꿀 철퍽: 낮은 '퍽'(필터 닫히는 잡음) + 아래로 떨어지는 물방울 '뽁'
+  honeySplat(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.09, decay: 0.16, filterType: 'lowpass', frequency: 1100, sweepTo: 160 });
+    engine.tone(context, { frequency: 420, sweepTo: 150, startTime: time + 0.015, peak: 0.06, decay: 0.12 });
+  },
+  // 꿀 밟음: 끈적하게 들러붙는 '쩌억'(공명 큰 대역 잡음이 내려감) + 떨어지는 '뽀옥'
+  honeyStep(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.07, decay: 0.2, filterType: 'bandpass', frequency: 900, sweepTo: 260, q: 7, attack: 0.01 });
+    engine.tone(context, { frequency: 330, sweepTo: 620, startTime: time + 0.12, peak: 0.04, decay: 0.08 });
+  },
+  // 화상 점화: '화르륵'(잡음 스윕이 위로 + 낮은 웅웅)
+  ignite(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.07, decay: 0.3, filterType: 'bandpass', frequency: 500, sweepTo: 2600, q: 0.8, attack: 0.02 });
+    engine.tone(context, { frequency: 90, sweepTo: 70, startTime: time, peak: 0.04, decay: 0.25, waveform: 'sawtooth', filter: { type: 'lowpass', frequency: 300 } });
+  },
+  // 미사일 발사: '슈웅' 잡음 스윕 + 짧은 '퉁'
+  missileLaunch(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.06, decay: 0.22, filterType: 'bandpass', frequency: 2400, sweepTo: 700, q: 1.5 });
+    engine.tone(context, { frequency: 160, sweepTo: 80, startTime: time, peak: 0.05, decay: 0.08 });
+  },
+  // 미사일 폭발: 작은 '쾅'(explode보다 짧고 가볍다)
+  missileBoom(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.1, decay: 0.24, filterType: 'lowpass', frequency: 1800, sweepTo: 140 });
+    engine.tone(context, { frequency: 120, sweepTo: 45, startTime: time, peak: 0.08, decay: 0.18 });
+  },
+  // 백신 레이저: 높은 '퓽'
+  laserShot(engine, context, time) {
+    engine.tone(context, { frequency: 1800, sweepTo: 600, startTime: time, peak: 0.035, decay: 0.09, waveform: 'square', filter: { type: 'lowpass', frequency: 3500 } });
+  },
+  // 타워 착지: 무거운 '쿵' + 먼지 '푸스스'
+  towerLand(engine, context, time) {
+    engine.tone(context, { frequency: 95, sweepTo: 42, startTime: time, peak: 0.16, decay: 0.2, attack: 0.002 });
+    engine.noise(context, { startTime: time, peak: 0.06, decay: 0.25, filterType: 'lowpass', frequency: 900, sweepTo: 200 });
+  },
+  // 강화: 위로 감기는 충전 스윕 → 터질 때(0.45초) 반짝이는 화음. 최고 레벨이면 한 음 더 높고 길게
+  upgrade(engine, context, time, { maxed = false } = {}) {
+    engine.tone(context, { frequency: 220, sweepTo: 1320, startTime: time, peak: 0.04, decay: 0.42, waveform: 'sawtooth', filter: { type: 'lowpass', frequency: 2400 } });
+    const chord = maxed ? [783.99, 987.77, 1174.66, 1567.98] : [659.25, 830.61, 987.77];
+    chord.forEach((frequency, index) => {
+      engine.tone(context, { frequency, startTime: time + 0.45 + index * 0.03, peak: 0.045, decay: maxed ? 0.8 : 0.45, waveform: 'triangle' });
+    });
+    if (maxed) engine.bell(context, { frequency: 1567.98, startTime: time + 0.5, peak: 0.05, length: 0.9 });
+  },
+  // 판매: 동전 '짤랑' 두 번
+  sell(engine, context, time) {
+    engine.bell(context, { frequency: 1318.5, startTime: time, peak: 0.04, length: 0.18 });
+    engine.bell(context, { frequency: 1760, startTime: time + 0.07, peak: 0.04, length: 0.25 });
+  },
+
   // 맞는 키: 청축(클리키). 높고 쨍한 '찰칵' + 클릭 스프링의 아주 짧은 '칭'(청량감) → 가벼운 바닥 소리 → 올라올 때 '찰칵'.
   // 키 위치대로 좌우에 놓고 짧은 방 울림을 살짝 섞는다. 매 타 ±8% 흔들기. 노드 약 20개, O(1)
   key(engine, context, time, { character } = {}) {
