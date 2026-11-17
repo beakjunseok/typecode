@@ -18,6 +18,24 @@ function smoothNoise(position, seed) {
   return hash(cell, seed) * (1 - eased) + hash(cell + 1, seed) * eased;
 }
 
+// 한 가지 색뿐인 팔레트는 같은 색 계열의 어두운·밝은 색을 더해 세 색으로 늘린다.
+// 그래야 웨이브·빗방울·스펙트럼처럼 색이 흐르는 무늬를 단색 스킨에 덮어써도 움직임이 보인다(단색이면 정적과 똑같아 보였다).
+// 결과는 팔레트마다 한 번만 만들어 둔다. O(1)
+const expandedPalettes = new WeakMap();
+export function expandPalette(palette) {
+  if (!Array.isArray(palette) || palette.length !== 1) return palette;
+  const cached = expandedPalettes.get(palette);
+  if (cached) return cached;
+  const [hue, saturation, lightness] = palette[0];
+  const expanded = Object.freeze([
+    palette[0],
+    [hue, saturation, Math.max(22, lightness - 30)],
+    [(hue + 28) % 360, saturation, Math.min(82, lightness + 12)]
+  ]);
+  expandedPalettes.set(palette, expanded);
+  return expanded;
+}
+
 // 팔레트에서 위치 p(0~1, 순환)의 색. 'rainbow'면 무지개, 아니면 [h, s, l] 목록을 고리로 이어 섞는다
 export function paletteColor(palette, position) {
   const p = fract(position);
@@ -346,7 +364,7 @@ export function createLedState(keys) {
     const longest = reactive?.life ?? 0;
     hits = hits.filter(entry => time - entry.time <= Math.max(longest, 0.05));
     const ambient = AMBIENT[led.pattern] ?? AMBIENT.off;
-    const scene = { palette: led.palette, reactivePalette: led.reactivePalette, bands: env.bands, level: env.level };
+    const scene = { palette: expandPalette(led.palette), reactivePalette: led.reactivePalette, bands: env.bands, level: env.level };
     const speed = (led.speed ?? 1) * (1 + (env.energy ?? 0) * (led.energy ? 1.5 : 0));
     const strength = (led.strength ?? 1) * (led.energy ? 0.7 + 0.3 * (env.energy ?? 0) : 1);
 
