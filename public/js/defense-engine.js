@@ -55,12 +55,16 @@ export const DEFENSE_PATH = Object.freeze([
 export const DEFENSE_COMPUTER = Object.freeze({ x: 0.5, y: 0.84 });
 
 // 설치 규칙(들판 좌표, 가로·세로 반지름이 다른 타원으로 잰다): 길과 띄울 거리, 타워끼리 띄울 거리, 컴퓨터 둘레
+// 자유 배치(BTD6식): 판정은 그림보다 작게. 길은 (길 반폭 + 타워 판정 0.7배)까지만 막아 가장자리에 붙여 놓을 수 있고,
+// 타워끼리는 15% 겹쳐도 되며, 컴퓨터는 책상·모니터 자체만 막는다(주변 여백 없음). 못 놓는 곳은 가장 가까운 빈자리로 밀어 준다
 export const PLACEMENT = Object.freeze({
-  pathClear: Object.freeze({ x: 0.075, y: 0.085 }),
-  towerGap: Object.freeze({ x: 0.075, y: 0.095 }),
-  // 컴퓨터(책상·모니터) 자리만 막는다. 방패 돔 안이어도 타워가 들어가면 세울 수 있다
-  computerZone: Object.freeze({ x: 0.5, y: 0.86, rx: 0.1, ry: 0.13 }),
-  margin: 0.035
+  pathClear: Object.freeze({ x: 0.035, y: 0.055 }),
+  towerGap: Object.freeze({ x: 0.04, y: 0.065 }),
+  tapRadius: Object.freeze({ x: 0.045, y: 0.08 }),
+  computerZone: Object.freeze({ x: 0.5, y: 0.87, rx: 0.08, ry: 0.1 }),
+  margin: 0.015,
+  nudgeRadius: 0.12,
+  sellRefund: 0.7
 });
 
 // 길 위 비율 s(0~1) → 좌표. 구간 길이를 미리 재 두고 선형 보간. O(구간 수)
@@ -101,15 +105,47 @@ export const ATTACK_TYPES = Object.freeze({
 });
 export const BUG_TYPES = ATTACK_TYPES;
 
-// 타워: 쏘는 간격(초), 사거리(화면 비율), 감속(사거리 안 공격 속도 배율), 맞히는 대상(ground: 길 위 / air: 공중).
-// 레벨이 오르면 간격 ×0.75, 사거리 +0.04
+// 타워: 쏘는 간격(초), 사거리(화면 비율), 감속(사거리 안 공격 속도 배율), 맞히는 대상(ground: 지상 / all: 공중+지상), 한 발 피해.
+// 방화벽 = 약한 한 발 + 화상(burn: 초당 피해 × 초) + 사거리 감속, 허니팟 = 길에 끈끈이 웅덩이(puddle: 감속 + 광역 초당 피해),
+// 백신 = 지상 가성비(코인당 화력 최고), 요격포 = 사거리·화력·공중 모두 위지만 가장 비쌈. 강화는 TOWER_LEVELS
 export const TOWER_TYPES = Object.freeze({
-  firewall: Object.freeze({ label: '방화벽', word: 'firewall', price: 120, cooldown: 3, range: 0.26, slow: 0.65, targets: 'ground' }),
-  antivirus: Object.freeze({ label: '백신', word: 'antivirus', price: 200, cooldown: 1.8, range: 0.32, slow: 1, targets: 'ground' }),
-  interceptor: Object.freeze({ label: '요격포', word: 'interceptor', price: 180, cooldown: 1.1, range: 0.44, slow: 1, targets: 'all' })
+  firewall: Object.freeze({ label: '방화벽', word: 'firewall', price: 120, cooldown: 3, range: 0.26, slow: 0.65, targets: 'ground', damage: 0.6, burn: Object.freeze({ seconds: 2.5, dps: 0.4 }) }),
+  honeypot: Object.freeze({ label: '허니팟', word: 'honeypot', price: 150, cooldown: 3.5, range: 0.3, slow: 1, targets: 'ground', damage: 0, puddle: Object.freeze({ radius: 0.07, seconds: 4, slow: 0.5, dps: 0.35 }) }),
+  antivirus: Object.freeze({ label: '백신', word: 'antivirus', price: 200, cooldown: 1.5, range: 0.32, slow: 1, targets: 'ground', damage: 1 }),
+  interceptor: Object.freeze({ label: '요격포', word: 'interceptor', price: 300, cooldown: 1.1, range: 0.44, slow: 1, targets: 'all', damage: 1 })
 });
+// 강화 단계(Lv.1~3): 사거리 더하기, 쏘는 간격 배율. Lv.3은 타워별 특수 능력(TOWER_MAX_PERKS)
+export const TOWER_LEVELS = Object.freeze([
+  null,
+  Object.freeze({ range: 0, cooldown: 1 }),
+  Object.freeze({ range: 0.04, cooldown: 0.78 }),
+  Object.freeze({ range: 0.08, cooldown: 0.6 })
+]);
+// Lv.3 특수 능력: 방화벽 = 감속 0.45 · 허니팟 = 웅덩이 감속 0.3 · 백신 = 한 발에 2 피해 · 요격포 = 두 표적 동시 발사
+export const TOWER_MAX_PERKS = Object.freeze({
+  firewall: Object.freeze({ slow: 0.45, label: '강한 감속' }),
+  honeypot: Object.freeze({ puddleSlow: 0.3, label: '초강력 끈끈이' }),
+  antivirus: Object.freeze({ damage: 2, label: '2배 피해' }),
+  interceptor: Object.freeze({ shots: 2, label: '2발 동시 발사' })
+});
+
+// 이 레벨 타워의 능력치(사거리·간격·감속·피해·발사 수). O(1)
+export function towerStats(type, level) {
+  const config = TOWER_TYPES[type];
+  const step = TOWER_LEVELS[Math.max(1, Math.min(DEFENSE_RULES.maxTowerLevel, level))];
+  const perk = level >= DEFENSE_RULES.maxTowerLevel ? TOWER_MAX_PERKS[type] ?? {} : {};
+  const slow = config.slow < 1 ? (perk.slow ?? config.slow - 0.05 * (level - 1)) : 1;
+  const grow = 1 + 0.3 * (level - 1);
+  const burn = config.burn ? { seconds: config.burn.seconds, dps: config.burn.dps * grow } : null;
+  const puddle = config.puddle
+    ? { radius: config.puddle.radius * (1 + 0.15 * (level - 1)), seconds: config.puddle.seconds + (level - 1), slow: perk.puddleSlow ?? config.puddle.slow, dps: config.puddle.dps * grow }
+    : null;
+  return { range: config.range + step.range, cooldown: config.cooldown * step.cooldown, slow, damage: perk.damage ?? config.damage ?? 1, shots: perk.shots ?? 1, burn, puddle };
+}
+
 export const SHOP_ITEMS = Object.freeze({
   firewall: Object.freeze({ kind: 'tower', tower: 'firewall', word: 'firewall' }),
+  honeypot: Object.freeze({ kind: 'tower', tower: 'honeypot', word: 'honeypot' }),
   antivirus: Object.freeze({ kind: 'tower', tower: 'antivirus', word: 'antivirus' }),
   interceptor: Object.freeze({ kind: 'tower', tower: 'interceptor', word: 'interceptor' }),
   patch: Object.freeze({ kind: 'repair', word: 'patch', price: 80 })
@@ -194,6 +230,7 @@ export class DefenseEngine extends TargetGameEngine {
     this.bugs = [];
     this.towers = [];
     this.towerShots = [];
+    this.puddles = [];
     this.wave = 1;
     this.wavesCleared = 0;
     this.phase = 'intro';
@@ -273,6 +310,8 @@ export class DefenseEngine extends TargetGameEngine {
     this.advancePhase();
     this.spawnIfDue();
     this.moveBugs(frameSeconds);
+    if (this.status !== 'running') return;
+    this.applyLingeringDamage(frameSeconds);
     if (this.status !== 'running') return;
     this.runBossSkills();
     this.fireTowers();
@@ -361,11 +400,30 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   // 방화벽 사거리 안이면 느려진다(가장 강한 감속 하나만)
+  // 지속 피해: 화상(방화벽에 맞은 뒤 몇 초) + 끈끈이 웅덩이(위에 있는 지상 적 모두). 웅덩이는 시간이 지나면 마른다. O(적 × 웅덩이)
+  applyLingeringDamage(frameSeconds) {
+    this.puddles = this.puddles.filter(puddle => this.gameTime < puddle.until);
+    for (const bug of this.bugs) {
+      if (bug.state !== 'alive') continue;
+      let damage = 0;
+      if (this.gameTime < (bug.burnUntil ?? 0)) damage += (bug.burnDps ?? 0) * frameSeconds;
+      for (const puddle of this.activePuddlesUnder(bug)) damage += puddle.dps * frameSeconds;
+      if (damage > 0) this.damageBug(bug, 'dot', damage);
+    }
+  }
+
+  // 이 적이 밟고 있는(이미 떨어진) 웅덩이들. 공중 적은 안 밟는다
+  activePuddlesUnder(bug) {
+    if (bug.air || !this.puddles?.length) return [];
+    return this.puddles.filter(puddle => this.gameTime >= puddle.activeAt && Math.hypot((bug.x - puddle.x) / 0.6, bug.y - puddle.y) <= puddle.radius);
+  }
+
   slowFactor(bug) {
     let factor = 1;
+    for (const puddle of this.activePuddlesUnder(bug)) factor = Math.min(factor, puddle.slow);
     for (const tower of this.towers) {
       const config = TOWER_TYPES[tower.type];
-      if (config.slow < 1 && !bug.air && this.gameTime >= (tower.lockedUntil ?? 0) && this.inRange(tower, bug)) factor = Math.min(factor, config.slow - 0.05 * (tower.level - 1));
+      if (config.slow < 1 && !bug.air && this.gameTime >= (tower.lockedUntil ?? 0) && this.inRange(tower, bug)) factor = Math.min(factor, towerStats(tower.type, tower.level).slow);
     }
     return factor;
   }
@@ -385,7 +443,7 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   inRange(tower, bug) {
-    const range = TOWER_TYPES[tower.type].range + 0.04 * (tower.level - 1);
+    const range = towerStats(tower.type, tower.level).range;
     return Math.hypot(tower.x - bug.x, tower.y - bug.y) <= range;
   }
 
@@ -430,26 +488,44 @@ export class DefenseEngine extends TargetGameEngine {
   fireTowers() {
     for (const tower of this.towers) {
       if (this.gameTime < tower.readyAt || this.gameTime < (tower.lockedUntil ?? 0)) continue;
-      const target = this.bugs
+      const stats = towerStats(tower.type, tower.level);
+      const targets = this.bugs
         .filter(bug => bug.state === 'alive' && bug.hp > 0 && this.canTarget(tower, bug) && this.inRange(tower, bug))
-        .sort((first, second) => this.targetPriority(tower, second) - this.targetPriority(tower, first))[0];
-      if (!target) continue;
-      tower.readyAt = this.gameTime + TOWER_TYPES[tower.type].cooldown * 0.75 ** (tower.level - 1);
-      this.towerShots.push({ towerId: tower.id, fromX: tower.x, fromY: tower.y, bugId: target.id, x: target.x, y: target.y, at: this.gameTime, type: tower.type });
-      this.emit('tower-shot', { tower, bug: target });
-      this.damageBug(target, 'tower');
-      if (this.status !== 'running') return;
+        .sort((first, second) => this.targetPriority(tower, second) - this.targetPriority(tower, first))
+        .slice(0, stats.shots);
+      if (!targets.length) continue;
+      tower.readyAt = this.gameTime + stats.cooldown;
+      for (const [index, target] of targets.entries()) {
+        this.towerShots.push({ towerId: tower.id, fromX: tower.x, fromY: tower.y, bugId: target.id, x: target.x, y: target.y, at: this.gameTime, type: tower.type, level: tower.level, barrel: index });
+        this.emit('tower-shot', { tower, bug: target });
+        if (stats.puddle) {
+          // 허니팟: 표적 발밑(길 위)에 끈끈이를 던진다. 0.35초 날아가 떨어진 뒤부터 효과
+          const puddle = { id: this.nextId++, towerId: tower.id, x: target.x, y: target.y, radius: stats.puddle.radius, slow: stats.puddle.slow, dps: stats.puddle.dps, activeAt: this.gameTime + 0.35, until: this.gameTime + 0.35 + stats.puddle.seconds, level: tower.level };
+          this.puddles.push(puddle);
+          this.emit('puddle', { tower, puddle });
+          continue;
+        }
+        if (stats.burn) {
+          const stillBurning = this.gameTime < (target.burnUntil ?? 0);
+          target.burnDps = Math.max(stillBurning ? target.burnDps ?? 0 : 0, stats.burn.dps);
+          target.burnUntil = this.gameTime + stats.burn.seconds;
+        }
+        if (stats.damage > 0) this.damageBug(target, 'tower', stats.damage);
+        if (this.status !== 'running') return;
+      }
     }
   }
 
   // 피해 1. 0이 되면 처치(코인·점수). 보스는 체력이 기준 아래로 내려가면 2페이즈(잠깐 무적)
-  damageBug(bug, source) {
+  // amount: 기본 1. 지속 피해(source 'dot')는 매 프레임 소수로 들어오므로 맞음·막힘 알림을 내지 않는다
+  damageBug(bug, source, amount = 1) {
     if (bug.state !== 'alive') return;
     if (this.gameTime < bug.shieldUntil) {
-      this.emit('bug-blocked', { bug });
+      if (source !== 'dot') this.emit('bug-blocked', { bug });
       return;
     }
-    bug.hp -= 1;
+    bug.hp -= amount;
+    if (bug.hp < 1e-6) bug.hp = 0;
     const phaseTwo = BUG_TYPES[bug.type].phaseTwo;
     if (phaseTwo && bug.phase === 1 && bug.hp > 0 && bug.hp <= bug.maxHp * phaseTwo.at) {
       bug.phase = 2;
@@ -460,7 +536,7 @@ export class DefenseEngine extends TargetGameEngine {
       return;
     }
     if (bug.hp > 0) {
-      this.emit('bug-hit', { bug, source });
+      if (source !== 'dot') this.emit('bug-hit', { bug, source, amount });
       return;
     }
     const type = BUG_TYPES[bug.type];
@@ -587,6 +663,28 @@ export class DefenseEngine extends TargetGameEngine {
     return null;
   }
 
+  // 누른 점에 지을 수 있으면 그 점, 못 지으면 가장 가까운(누른 점에서 nudgeRadius 안) 빈자리. 없으면 point = null.
+  // 동심원 6겹 × 16방향을 가까운 순서로 본다. O(96 × 타워 수)
+  resolvePlacement(point) {
+    const problem = this.placementProblem(point);
+    if (!problem) return { point, problem: null, nudged: false };
+    if (problem === 'outside' && !Number.isFinite(point?.x)) return { point: null, problem, nudged: false };
+    const rings = 6, directions = 16;
+    for (let ring = 1; ring <= rings; ring++) {
+      const radius = PLACEMENT.nudgeRadius * ring / rings;
+      let best = null;
+      for (let index = 0; index < directions; index++) {
+        const angle = index / directions * Math.PI * 2;
+        const candidate = { x: point.x + Math.cos(angle) * radius * 0.6, y: point.y + Math.sin(angle) * radius };
+        if (this.placementProblem(candidate)) continue;
+        const distance = Math.hypot((candidate.x - point.x) / 0.6, candidate.y - point.y);
+        if (!best || distance < best.distance) best = { candidate, distance };
+      }
+      if (best) return { point: best.candidate, problem, nudged: true };
+    }
+    return { point: null, problem, nudged: false };
+  }
+
   canBuildNew() {
     return this.towers.length < DEFENSE_RULES.maxTowers && CANDIDATE_SPOTS.some(point => !this.placementProblem(point));
   }
@@ -666,37 +764,80 @@ export class DefenseEngine extends TargetGameEngine {
   placeAtPoint(point) {
     const mode = this.buildMode;
     if (!mode) return { bought: false, reason: 'no-mode' };
-    const { towerGap } = PLACEMENT;
-    const touched = this.towers.find(tower => Math.hypot((tower.x - point.x) / towerGap.x, (tower.y - point.y) / towerGap.y) < 0.6);
-    if (touched) {
-      if (touched.type === mode.tower && touched.level < DEFENSE_RULES.maxTowerLevel) return this.upgradeTower(touched);
-      return this.denyPlace(touched.type === mode.tower ? 'max-level' : 'blocked', point);
-    }
+    const touched = this.towers.find(tower => Math.hypot((tower.x - point.x) / PLACEMENT.towerGap.x, (tower.y - point.y) / PLACEMENT.towerGap.y) < 0.6) ?? null;
+    // 같은 종류 타워를 누르면 강화, 다른 종류면 그 옆 빈자리로 밀어서 새로 짓는다
+    if (touched?.type === mode.tower) return this.upgradeTower(touched);
     if (this.towers.length >= DEFENSE_RULES.maxTowers) return this.denyPlace('max-towers', point);
-    const problem = this.placementProblem(point);
-    if (problem) return this.denyPlace(problem, point);
+    const placement = this.resolvePlacement(point);
+    if (!placement.point) return this.denyPlace(placement.problem, point);
     const price = this.priceAt(mode.tower, null);
     if (this.coins < price) return this.denyPlace('coins', point, price);
     this.coins -= price;
     this.cancelBuild('placed', { silent: true });
-    const tower = { id: this.nextId++, type: mode.tower, x: point.x, y: point.y, level: 1, readyAt: this.gameTime + 0.5, builtAt: this.gameTime };
+    const spot = placement.point;
+    const tower = { id: this.nextId++, type: mode.tower, x: spot.x, y: spot.y, level: 1, readyAt: this.gameTime + 0.5, builtAt: this.gameTime, builtWave: this.wave, spent: price };
     this.towers.push(tower);
     this.towersBuilt++;
-    this.emit('tower-built', { tower, price });
-    return { bought: true, tower };
+    this.emit('tower-built', { tower, price, nudged: placement.nudged });
+    return { bought: true, tower, nudged: placement.nudged };
   }
 
+  // 강화: 설치 모드(같은 타워 다시 누르기·번호 키)든, 그냥 타워를 눌러 고른 강화 카드든 같은 길로 온다. Lv.3이 끝
   upgradeTower(tower) {
-    const mode = this.buildMode;
-    if (!mode || !tower) return { bought: false, reason: 'no-mode' };
-    const price = this.priceAt(mode.tower, tower);
+    if (!tower || !this.towers.includes(tower)) return { bought: false, reason: 'no-tower' };
+    if (tower.level >= DEFENSE_RULES.maxTowerLevel) return this.denyPlace('max-level', tower);
+    const price = this.priceAt(tower.type, tower);
     if (this.coins < price) return this.denyPlace('coins', tower, price);
     this.coins -= price;
     this.cancelBuild('placed', { silent: true });
-    tower.level = Math.min(DEFENSE_RULES.maxTowerLevel, tower.level + 1);
+    tower.spent = (tower.spent ?? 0) + price;
+    tower.level += 1;
     tower.upgradedAt = this.gameTime;
-    this.emit('tower-upgraded', { tower, price });
+    this.emit('tower-upgraded', { tower, price, stats: towerStats(tower.type, tower.level), perk: tower.level >= DEFENSE_RULES.maxTowerLevel ? TOWER_MAX_PERKS[tower.type] : null });
     return { bought: true, tower };
+  }
+
+  // 누른 점에서 가장 가까운 타워(누름 반경 안). 없으면 null. O(타워 수)
+  towerAt(point) {
+    if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return null;
+    const { tapRadius } = PLACEMENT;
+    let best = null;
+    for (const tower of this.towers) {
+      const distance = Math.hypot((tower.x - point.x) / tapRadius.x, (tower.y - point.y) / tapRadius.y);
+      if (distance < 1 && (!best || distance < best.distance)) best = { tower, distance };
+    }
+    return best?.tower ?? null;
+  }
+
+  // 판매 환급액: 쓴 코인(설치 + 강화)의 70%, 이번 웨이브에 지은 타워는 100%(실수 되돌리기)
+  sellValue(tower) {
+    if (!tower) return 0;
+    const ratio = tower.builtWave === this.wave ? 1 : PLACEMENT.sellRefund;
+    return Math.floor((tower.spent ?? 0) * ratio);
+  }
+
+  // 타워 판매: 코인을 돌려받고 그 자리가 빈다
+  sellTower(tower) {
+    if (!tower || !this.towers.includes(tower)) return { sold: false, reason: 'no-tower' };
+    const refund = this.sellValue(tower);
+    this.towers = this.towers.filter(entry => entry !== tower);
+    this.towerShots = this.towerShots.filter(shot => shot.towerId !== tower.id);
+    this.coins += refund;
+    this.emit('tower-sold', { tower, refund });
+    return { sold: true, refund };
+  }
+
+  // 강화 카드에 보일 정보: 다음 레벨 능력치·가격·살 수 있는지. 최고 레벨이면 next = null
+  upgradeInfo(tower) {
+    if (!tower) return null;
+    const maxed = tower.level >= DEFENSE_RULES.maxTowerLevel;
+    const price = maxed ? null : this.priceAt(tower.type, tower);
+    return {
+      level: tower.level, maxed, price, affordable: !maxed && this.coins >= price,
+      current: towerStats(tower.type, tower.level),
+      next: maxed ? null : towerStats(tower.type, tower.level + 1),
+      perk: !maxed && tower.level + 1 >= DEFENSE_RULES.maxTowerLevel ? TOWER_MAX_PERKS[tower.type] : null
+    };
   }
 
   // 놓을 수 없는 자리: 설치 모드는 그대로 두고(다시 고르면 됨) 이유만 알린다. 코인 부족이면 모드를 끝낸다

@@ -699,6 +699,29 @@ function bindDefensePointer(canvas) {
       ui.elements.hiddenInput?.focus({ preventScroll: true });
       return;
     }
+    const defenseRenderer = renderers.defense;
+    // 설치 모드가 아닐 때: 강화 카드 버튼 → 강화·판매, 타워 → 고르기(이미 고른 타워를 다시 누르면 강화), 빈 곳 → 카드 닫기
+    if (!run.engine.buildMode && defenseRenderer) {
+      const selected = run.engine.towers.find(tower => tower.id === defenseRenderer.selectedTowerId);
+      const action = defenseRenderer.cardActionAt(point.x, point.y);
+      if (action && selected) {
+        event.preventDefault();
+        if (action === 'upgrade') run.engine.upgradeTower(selected);
+        else if (action === 'sell') run.engine.sellTower(selected);
+        return;
+      }
+      const tower = run.engine.towerAt(defenseRenderer.toField(point.x, point.y));
+      if (tower) {
+        event.preventDefault();
+        if (selected === tower) run.engine.upgradeTower(tower);
+        else {
+          defenseRenderer.selectTower(tower.id);
+          sound.play('lock');
+        }
+      } else defenseRenderer.selectTower(null);
+      ui.elements.hiddenInput?.focus({ preventScroll: true });
+      return;
+    }
     const renderer = activeRenderer();
     if (!renderer) return;
     event.preventDefault();
@@ -750,9 +773,16 @@ function handleDefenseEvent(type, payload) {
       return true;
     case 'air-warning':
       sound.play('warning', { remainingSeconds: 1 });
-      ui.log('warn', '✈ 드론 출현 — 길을 무시하고 날아와요. 요격포(3)만 맞힐 수 있어요');
+      ui.log('warn', '✈ 드론 출현 — 길을 무시하고 날아와요. 요격포(4)만 맞힐 수 있어요');
       return true;
     case 'bug-blocked':
+      return true;
+    case 'puddle':
+      sound.play('throwPhone');
+      return true;
+    case 'tower-sold':
+      sound.play('itemSpawn');
+      ui.log('info', `💰 ${TOWER_TYPES[payload.tower.type].label} 판매 (+${payload.refund}🪙)`);
       return true;
     case 'bug-hit':
       sound.play('robotHit', { type: 'tank', weapon: 'phone', remainingHp: payload.bug.hp });
@@ -776,7 +806,7 @@ function handleDefenseEvent(type, payload) {
       return true;
     case 'place-denied':
       sound.play('error');
-      ui.log('warn', { path: '길 위에는 세울 수 없어요', computer: '컴퓨터 바로 옆에는 세울 수 없어요', blocked: '다른 타워와 겹쳐요', outside: '들판 밖이에요', 'max-level': '이미 최고 레벨이에요', 'max-towers': `타워는 ${DEFENSE_RULES.maxTowers}개까지예요`, coins: `코인이 모자라요 (${payload.price}🪙)` }[payload.reason] ?? '여기에는 세울 수 없어요');
+      ui.log('warn', { path: '근처에 빈자리가 없어요', computer: '근처에 빈자리가 없어요', blocked: '근처에 빈자리가 없어요', outside: '들판 밖이에요', 'max-level': '이미 최고 레벨이에요', 'max-towers': `타워는 ${DEFENSE_RULES.maxTowers}개까지예요`, coins: `코인이 모자라요 (${payload.price}🪙)` }[payload.reason] ?? '여기에는 세울 수 없어요');
       return true;
     case 'build-cancel':
       ui.log('info', '설치 취소');
@@ -784,7 +814,8 @@ function handleDefenseEvent(type, payload) {
     case 'tower-built':
     case 'tower-upgraded':
       sound.play('powerUp');
-      ui.log('ok', `🛡 ${TOWER_TYPES[payload.tower.type].label} ${type === 'tower-built' ? '설치' : `Lv.${payload.tower.level}`} (-${payload.price}🪙)`);
+      if (type === 'tower-upgraded' && payload.perk) sound.play('newRecord');
+      ui.log('ok', `🛡 ${TOWER_TYPES[payload.tower.type].label} ${type === 'tower-built' ? `설치${payload.nudged ? '(빈자리로 옮김)' : ''}` : `Lv.${payload.tower.level}${payload.perk ? ` ★ ${payload.perk.label}` : ''}`} (-${payload.price}🪙)`);
       return true;
     case 'repair':
       sound.play('powerUp');

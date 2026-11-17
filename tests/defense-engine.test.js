@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DefenseEngine, isOnPath, DEFENSE_COMPUTER, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, bpmForWave, wordCoins, waveBonusCoins, comboCoinFactor } from '../public/js/defense-engine.js';
+import { DefenseEngine, isOnPath, DEFENSE_COMPUTER, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, bpmForWave, wordCoins, waveBonusCoins, comboCoinFactor, towerStats, PLACEMENT } from '../public/js/defense-engine.js';
 import { rewardBreakdown } from '../public/js/rewards.js';
 
 const POOL = ['let', 'var', 'map', 'if', 'do', 'go', 'use', 'mut', 'xor', 'nil', 'new', 'try', 'int', 'out', 'end']
@@ -98,29 +98,108 @@ test('공격이 컴퓨터에 닿으면 체력이 깎이고, 0이면 해킹당해
   assert.equal(engine.health, 0);
 });
 
-test('설치: 길이 아닌 곳은 어디든(크기가 들어가면), 길·컴퓨터 자리·겹침은 거절, 같은 타워를 누르면 업그레이드', () => {
-  const { engine, events, clock } = setup({ level: 3 });
+test('자유 배치: 길 가장자리까지 붙일 수 있고, 길·컴퓨터·겹침을 누르면 가장 가까운 빈자리로 밀어 짓는다', () => {
+  const { engine, events } = setup({ level: 3 });
   engine.coins = 100000;
+  assert.equal(engine.placementProblem({ x: 0.5, y: 0.16 }), 'path', '길 한가운데는 안 된다');
+  assert.equal(engine.placementProblem({ x: 0.5, y: 0.16 + 0.06 }), null, '길 가장자리 바로 옆은 된다');
+  assert.equal(engine.placementProblem({ x: 0.5, y: 0.87 }), 'computer', '책상·모니터 자리만 막는다');
+  assert.equal(engine.placementProblem({ x: 0.36, y: 0.8 }), null, '컴퓨터 바로 옆도 된다');
   engine.selectShopItem('firewall');
-  assert.equal(engine.placeAtPoint({ x: 0.5, y: 0.16 }).reason, 'path', '길 위');
-  assert.equal(engine.placeAtPoint({ x: 0.5, y: 0.87 }).reason, 'computer', '컴퓨터 자리');
-  assert.ok(engine.buildMode, '거절돼도 설치 모드는 그대로');
-  assert.equal(engine.placeAtPoint({ x: 0.3, y: 0.27 }).bought, true, '길 사이 빈 땅');
+  const onPath = engine.placeAtPoint({ x: 0.5, y: 0.16 });
+  assert.equal(onPath.bought, true, '길을 눌러도 옆으로 밀어서 짓는다');
+  assert.equal(onPath.nudged, true);
+  assert.equal(isOnPath(onPath.tower), false);
+  assert.ok(Math.hypot((onPath.tower.x - 0.5) / 0.6, onPath.tower.y - 0.16) <= PLACEMENT.nudgeRadius + 1e-9, '가까운 곳으로');
   engine.selectShopItem('firewall');
-  assert.equal(engine.placeAtPoint({ x: 0.31, y: 0.28 }).bought, true, '같은 타워를 누르면 업그레이드');
-  assert.equal(engine.towers[0].level, 2);
+  assert.equal(engine.placeAtPoint({ x: onPath.tower.x, y: onPath.tower.y }).bought, true, '같은 타워를 누르면 강화');
+  assert.equal(onPath.tower.level, 2);
   engine.selectShopItem('antivirus');
-  assert.equal(engine.placeAtPoint({ x: 0.33, y: 0.29 }).reason, 'blocked', '다른 타워 위');
-  assert.equal(engine.placeAtPoint({ x: 0.3, y: 0.76 }).bought, true, '방패 돔 옆 빈 땅도 된다');
+  const beside = engine.placeAtPoint({ x: onPath.tower.x + 0.005, y: onPath.tower.y });
+  assert.equal(beside.bought, true);
+  assert.ok(beside.nudged, '다른 타워 위면 옆으로');
+  assert.ok(events.some(event => event.type === 'tower-built' && event.payload.nudged));
   engine.selectShopItem('antivirus');
   engine.hotkey('Escape');
   assert.equal(engine.buildMode, null, 'Esc로 취소');
-  assert.ok(events.some(event => event.type === 'place-denied' && event.payload.reason === 'path'));
   assert.ok(DEFENSE_PATH.at(-1).y < DEFENSE_COMPUTER.y, '길은 컴퓨터 위에서 끝난다');
   assert.ok(engine.suggestedSpots().every(spot => !isOnPath(spot)));
   engine.health = 10;
   engine.hotkey(String(Object.keys(TOWER_TYPES).length + 1));
   assert.equal(engine.health, 10 + DEFENSE_RULES.repairAmount, '마지막 숫자 = 수리');
+});
+
+test('강화(최대 Lv.3)와 판매: 타워를 눌러 강화, Lv.3 특수 능력, 70% 환급(이번 웨이브에 지은 건 100%)', () => {
+  const { engine, events } = setup();
+  engine.coins = 100000;
+  engine.selectShopItem('antivirus');
+  const { tower } = engine.placeAtPoint({ x: 0.3, y: 0.27 });
+  assert.equal(engine.towerAt({ x: tower.x + 0.01, y: tower.y }), tower, '근처를 누르면 그 타워');
+  const before = engine.upgradeInfo(tower);
+  assert.equal(before.level, 1);
+  assert.ok(before.next.range > before.current.range && before.next.cooldown < before.current.cooldown);
+  assert.equal(engine.upgradeTower(tower).bought, true, '설치 모드 없이도 강화');
+  assert.equal(engine.upgradeInfo(tower).perk.damage, 2, '다음이 Lv.3이면 특수 능력 미리보기');
+  engine.upgradeTower(tower);
+  assert.equal(tower.level, DEFENSE_RULES.maxTowerLevel);
+  assert.equal(towerStats('antivirus', 3).damage, 2);
+  assert.equal(towerStats('interceptor', 3).shots, 2);
+  assert.ok(towerStats('firewall', 3).slow < towerStats('firewall', 2).slow);
+  assert.equal(engine.upgradeTower(tower).reason, 'max-level', 'Lv.3이 끝');
+  assert.ok(events.some(event => event.type === 'tower-upgraded' && event.payload.perk));
+  const spent = tower.spent;
+  const coins = engine.coins;
+  assert.equal(engine.sellValue(tower), spent, '이번 웨이브에 지은 건 전액');
+  engine.wave += 1;
+  assert.equal(engine.sellValue(tower), Math.floor(spent * PLACEMENT.sellRefund));
+  assert.equal(engine.sellTower(tower).sold, true);
+  assert.equal(engine.towers.length, 0);
+  assert.equal(engine.coins, coins + Math.floor(spent * PLACEMENT.sellRefund));
+});
+
+test('허니팟: 길에 끈끈이 웅덩이 → 위의 지상 적 모두 감속 + 지속 피해, 방화벽: 약한 한 발 + 화상 지속 피해', () => {
+  const { engine, clock } = setup();
+  engine.coins = 100000;
+  engine.phase = 'spawning';
+  engine.phaseUntil = Infinity;
+  engine.nextSpawnAt = Infinity;
+  const first = engine.spawnBug('malware');
+  const second = engine.spawnBug('malware');
+  first.progress = second.progress = 0.3;
+  engine.moveBugs(0);
+  engine.selectShopItem('honeypot');
+  const { tower } = engine.placeAtPoint({ x: first.x, y: first.y + 0.08 });
+  advance(engine, clock, 0.6, 0.05);
+  assert.equal(engine.puddles.length, 1, '끈끈이를 던졌다');
+  const puddle = engine.puddles[0];
+  advance(engine, clock, puddle.activeAt - engine.gameTime + 0.01, 0.05);
+  first.x = second.x = puddle.x;
+  first.y = second.y = puddle.y;
+  assert.ok(engine.slowFactor(first) <= towerStats('honeypot', 1).puddle.slow, '웅덩이 위는 느리다');
+  const before = [first.hp, second.hp];
+  engine.applyLingeringDamage(1);
+  assert.ok(first.hp < before[0] && second.hp < before[1], '광역 지속 피해');
+  assert.ok(Math.abs(before[0] - first.hp - towerStats('honeypot', 1).puddle.dps) < 1e-9);
+  const drone = engine.spawnBug('drone');
+  drone.x = puddle.x; drone.y = puddle.y;
+  assert.equal(engine.activePuddlesUnder(drone).length, 0, '공중은 안 밟는다');
+  assert.ok(tower);
+  assert.ok(towerStats('firewall', 1).damage < 1, '방화벽 한 발은 약하다');
+  const burning = engine.spawnBug('malware');
+  burning.burnUntil = engine.gameTime + 2;
+  burning.burnDps = towerStats('firewall', 1).burn.dps;
+  const hp = burning.hp;
+  engine.applyLingeringDamage(1);
+  assert.ok(hp - burning.hp >= burning.burnDps - 1e-9, '화상 지속 피해');
+  assert.ok(towerStats('honeypot', 3).puddle.slow < towerStats('honeypot', 2).puddle.slow, 'Lv.3 초강력 끈끈이');
+});
+
+test('가격과 성능: 요격포가 백신보다 강하고(사거리·화력·공중) 더 비싸다', () => {
+  const antivirus = towerStats('antivirus', 1), interceptor = towerStats('interceptor', 1);
+  assert.ok(interceptor.range > antivirus.range);
+  assert.ok(1 / interceptor.cooldown > 1 / antivirus.cooldown);
+  assert.ok(TOWER_TYPES.interceptor.price > TOWER_TYPES.antivirus.price);
+  assert.ok(1 / antivirus.cooldown / TOWER_TYPES.antivirus.price >= 1 / interceptor.cooldown / TOWER_TYPES.interceptor.price, '지상 가성비는 백신');
 });
 
 test('공중 공격: 길을 무시하고 곧장 날아오며, 요격포만 맞힌다', () => {
