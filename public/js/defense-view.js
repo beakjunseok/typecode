@@ -15,6 +15,12 @@ const STAGE_ART = loadArt('/art/defense-stage.webp');
 // 그림 속 방패 돔(컴퓨터) 중심과 반지름(그림 크기 비율)
 const ART_DOME = Object.freeze({ x: 0.502, y: 0.846, radius: 0.117 });
 const wallSeconds = () => performance.now() / 1000;
+// 타워 설치 연출(게임 초): 설계도 → 낙하 → 착지 흔들림
+const BUILD_MOTION = Object.freeze({ blueprint: 0.2, drop: 0.25, settle: 0.55 });
+const HIT_FLASH_SECONDS = 0.14;
+const SPAWN_SECONDS = 0.35;
+// 각도 a에서 b로 최단 방향으로 rate(0~1)만큼 다가간다
+const approachAngle = (from, to, rate) => from + Math.atan2(Math.sin(to - from), Math.cos(to - from)) * Math.min(1, rate);
 const SCENE = Object.freeze({
   bgTop: '#060916', bgBottom: '#0b1030', grid: 'rgba(54, 226, 255, 0.07)', rain: '#2fd27a', shield: '#36e2ff',
   ink: '#e9edf8', fog: '#8a93b8', coin: '#ffd166', danger: '#ff4d6d', amber: '#ffb547'
@@ -46,6 +52,26 @@ export class DefenseRenderer {
     this.displayHealth = null;
     this.wordFlights = [];
     this.streamShift = new Spring(0, { stiffness: 260, damping: 22 });
+    this.motions = new Map();
+    this.debris = [];
+    this.frameSeconds = 1 / 60;
+  }
+
+  // 엔티티 id별 화면 전용 움직임 상태(맞은 시각·조준 각·착지 여부). 없으면 만든다
+  motion(id) {
+    let state = this.motions.get(id);
+    if (!state) {
+      state = { hitAt: -Infinity, aim: null, landed: false, upgradeSeen: null };
+      this.motions.set(id, state);
+    }
+    return state;
+  }
+
+  // 화면에서 사라진 타워·적의 움직임 상태 정리. O(n)
+  pruneMotions(engine) {
+    if (this.motions.size < 64) return;
+    const alive = new Set([...engine.towers, ...engine.bugs].map(entity => entity.id));
+    for (const id of this.motions.keys()) if (!alive.has(id)) this.motions.delete(id);
   }
 
   get context() {
@@ -178,20 +204,26 @@ export class DefenseRenderer {
       this.lockBeams = [...(this.lockBeams ?? []), { from, to: { x, y }, at: now }];
       juice.popup(x, y - 30, '🔒 잠김', { color: '#ff4dd2', size: 14, life: 1 });
     } else if (type === 'bug-blocked') {
+      this.motion(payload.bug.id).hitAt = engine?.gameTime ?? 0;
       const { x, y } = this.bugPosition(payload.bug);
       this.particles.burst(x, y, { color: '#ffffff', count: 4, speed: 90, life: 0.25 });
     } else if (type === 'bug-kill') {
       const { x, y } = this.bugPosition(payload.bug);
       const style = BUG_STYLE[payload.bug.type];
-      this.particles.burst(x, y, { color: style.body, count: payload.bug.type === 'ransomware' ? 60 : 18, speed: 200, life: 0.6 });
-      juice.ring(x, y, { color: style.body, radius: style.size * 3, width: 3 });
-      if (payload.bug.type === 'ransomware') {
+      const boss = Boolean(ATTACK_TYPES[payload.bug.type].boss);
+      this.spawnDebris(payload.bug, x, y);
+      this.particles.burst(x, y, { color: style.body, count: boss ? 60 : 10, speed: 200, life: 0.5 });
+      juice.ring(x, y, { color: style.body, radius: style.size * 3 * this.unit(), width: 3 });
+      if (boss) {
         juice.shake(0.6);
         juice.flash('#ffffff', 0.4, 0.4);
       }
     } else if (type === 'bug-hit') {
+      this.motion(payload.bug.id).hitAt = engine?.gameTime ?? 0;
       const { x, y } = this.bugPosition(payload.bug);
       this.particles.burst(x, y, { color: '#ffffff', count: 8, speed: 140, life: 0.35 });
+    } else if (type === 'tower-shot') {
+      this.spawnShotEffect(payload.tower);
     } else if (type === 'damage') {
       const { x, y } = this.computerPosition();
       this.shieldHit = now;
@@ -202,10 +234,17 @@ export class DefenseRenderer {
     } else if (type === 'coins' && payload.reason !== 'tower') {
       const { x, y } = this.computerPosition();
       juice.popup(x + 70, y - 40, `+${payload.amount}🪙`, { color: SCENE.coin, size: payload.reason === 'wave' ? 22 : 15, life: 0.8 });
-    } else if (type === 'tower-built' || type === 'tower-upgraded') {
+    } else if (type === 'tower-built') {
+      // 착지 순간의 먼지·흔들림은 drawTower가 낙하가 끝날 때 낸다
       const { x, y } = this.towerPosition(payload.tower);
-      juice.ring(x, y, { color: TOWER_STYLE[payload.tower.type], radius: 60, width: 4 });
-      juice.popup(x, y - 30, type === 'tower-built' ? '설치!' : `Lv.${payload.tower.level}`, { color: TOWER_STYLE[payload.tower.type], size: 16 });
+      juice.ring(x, y, { color: TOWER_STYLE[payload.tower.type], radius: 34 * this.unit(), width: 2, life: 0.3 });
+    } else if (type === 'tower-upgraded') {
+      const { x, y } = this.towerPosition(payload.tower);
+      const color = TOWER_STYLE[payload.tower.type];
+      juice.ring(x, y, { color: '#ffd166', radius: 70 * this.unit(), width: 4 });
+      this.particles.burst(x, y - 10, { color: '#ffd166', count: 26, speed: 160, life: 0.8, gravity: -260 });
+      this.particles.burst(x, y - 10, { color, count: 12, speed: 110, life: 0.6 });
+      juice.popup(x, y - 44 * this.unit(), `Lv.${payload.tower.level} ▲`, { color: '#ffd166', size: 17 });
     } else if (type === 'repair') {
       const { x, y } = this.computerPosition();
       juice.ring(x, y - 20, { color: '#4df0a6', radius: 90, width: 5 });
@@ -235,6 +274,8 @@ export class DefenseRenderer {
     this.accent = accent;
     const frameSeconds = Math.min(0.1, Math.max(0, engine.gameTime - this.lastGameTime)) || (engine.status === 'running' ? 0 : 1 / 60);
     this.lastGameTime = engine.gameTime;
+    this.frameSeconds = frameSeconds;
+    this.pruneMotions(engine);
     this.particles.update(frameSeconds);
     this.visuals.step(frameSeconds, new Set(engine.targetables().map(entity => entity.id)));
     const wallNow = wallSeconds();
@@ -257,6 +298,7 @@ export class DefenseRenderer {
     for (const shot of engine.towerShots) this.drawTowerShot(context, shot, engine);
     for (const bug of engine.bugs) if (!bug.air) this.drawBug(context, bug, engine);
     for (const bug of engine.bugs) if (bug.air) this.drawBug(context, bug, engine);
+    this.drawDebris(context, frameSeconds);
     this.drawLockBeams(context);
     this.particles.draw(context);
     this.juice.endShake(context);
@@ -464,11 +506,13 @@ export class DefenseRenderer {
   }
 
   // 타워 공통 받침: 육각 금속판 + 그림자 + 레벨 갈매기표(금색)
-  drawTowerBase(context, color, level) {
-    context.fillStyle = 'rgba(0, 0, 0, 0.45)';
-    context.beginPath();
-    context.ellipse(0, 15, 22, 7, 0, 0, Math.PI * 2);
-    context.fill();
+  drawTowerBase(context, color, level, withShadow = true) {
+    if (withShadow) {
+      context.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      context.beginPath();
+      context.ellipse(0, 15, 22, 7, 0, 0, Math.PI * 2);
+      context.fill();
+    }
     const hexagon = radius => {
       context.beginPath();
       for (let corner = 0; corner < 6; corner++) {
@@ -654,24 +698,62 @@ export class DefenseRenderer {
     }
   }
 
+  // 타워 한 대. 움직임:
+  // - 설치: 설계도 고리 + 빛기둥(0.2s) → 하늘에서 낙하(0.25s, 세로로 늘어남) → 쿵 착지(먼지·흔들림) 후 찌그러졌다 탄성 복원
+  // - 업그레이드: 금빛 기둥 속에서 껑충 뛰었다 내려앉음
+  // - 조준: 마지막 표적 쪽으로 부드럽게 회전, 0.8초 넘게 쉬면 좌우로 둘러봄
+  // - 발사: 몸통이 눌렸다 펴지는 반동(세부 연출은 각 타워 그리기 함수)
   drawTower(context, tower, engine) {
     const { x, y } = this.towerPosition(tower);
     const color = TOWER_STYLE[tower.type];
+    const motion = this.motion(tower.id);
+    const time = engine.gameTime;
     const shot = engine.towerShots.filter(entry => entry.towerId === tower.id).at(-1);
-    if (shot) tower.viewAngle = Math.atan2(this.toScreen(shot).y - (y - 8), this.toScreen(shot).x - x);
-    const fired = shot ? Math.max(0, 1 - (engine.gameTime - shot.at) / 0.25) : 0;
-    const pop = Math.max(0, 1 - (engine.gameTime - (tower.upgradedAt ?? tower.builtAt)) / 0.5);
+    const sinceShot = shot ? time - shot.at : Infinity;
+    const scanAngle = -Math.PI / 2 + Math.sin(wallSeconds() * 0.9 + tower.id) * 0.9;
+    const aimTarget = shot && sinceShot < 0.8 ? Math.atan2(this.toScreen(shot).y - (y - 8 * this.unit()), this.toScreen(shot).x - x) : scanAngle;
+    motion.aim = motion.aim == null ? aimTarget : approachAngle(motion.aim, aimTarget, this.frameSeconds * (sinceShot < 0.8 ? 18 : 3));
+    const view = { ...tower, viewAngle: motion.aim };
+    const fired = Math.max(0, 1 - sinceShot / 0.25);
     const unit = this.unit();
+    const build = this.buildMotion(tower, motion, time, x, y);
+    const upgradeAge = tower.upgradedAt == null ? Infinity : time - tower.upgradedAt;
+    const hop = upgradeAge < 0.5 ? Math.sin(upgradeAge / 0.5 * Math.PI) * 16 : 0;
+
     context.save();
     context.translate(x, y);
-    context.scale(unit * (1 + pop * 0.3), unit * (1 + pop * 0.3));
-    context.shadowColor = color;
-    context.shadowBlur = 8 + fired * 12;
-    this.drawTowerBase(context, color, tower.level);
-    context.shadowBlur = 0;
-    if (tower.type === 'firewall') this.drawFirewall(context, tower, engine, fired);
-    else if (tower.type === 'interceptor') this.drawInterceptor(context, tower, engine, fired);
-    else this.drawAntivirus(context, tower, engine, fired);
+    context.scale(unit, unit);
+    if (build.blueprint != null) this.drawBlueprint(context, color, build.blueprint);
+    if (upgradeAge < 0.8) this.drawLightColumn(context, '#ffd166', 1 - upgradeAge / 0.8, 54);
+    if (!build.hidden) {
+      // 그림자는 낙하 높이에 따라 작아졌다 커진다
+      const shadowScale = 1 - Math.min(0.7, -build.dropY / 160);
+      context.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      context.beginPath();
+      context.ellipse(0, 15, 22 * shadowScale, 7 * shadowScale, 0, 0, Math.PI * 2);
+      context.fill();
+      context.translate(0, build.dropY - hop);
+      const recoilSquash = fired * 0.08;
+      context.translate(0, 15);
+      context.scale(build.scaleX * (1 + recoilSquash * 0.6), build.scaleY * (1 - recoilSquash));
+      context.translate(0, -15);
+      context.shadowColor = color;
+      context.shadowBlur = 8 + fired * 12;
+      this.drawTowerBase(context, color, tower.level, false);
+      context.shadowBlur = 0;
+      this.drawEnergyRing(context, color, tower, time, engine);
+      if (tower.type === 'firewall') this.drawFirewall(context, view, engine, fired);
+      else if (tower.type === 'interceptor') this.drawInterceptor(context, view, engine, fired);
+      else this.drawAntivirus(context, view, engine, fired);
+      if (upgradeAge < 0.35) {
+        context.globalCompositeOperation = 'lighter';
+        context.fillStyle = `rgba(255, 220, 140, ${0.6 * (1 - upgradeAge / 0.35)})`;
+        context.beginPath();
+        context.arc(0, -6, 26, 0, Math.PI * 2);
+        context.fill();
+        context.globalCompositeOperation = 'source-over';
+      }
+    }
     // 보스가 잠근 타워: 보라 사슬 + 자물쇠
     if (engine.gameTime < (tower.lockedUntil ?? 0)) {
       context.fillStyle = 'rgba(40, 10, 50, 0.55)';
@@ -681,14 +763,126 @@ export class DefenseRenderer {
       context.strokeStyle = '#ff4dd2';
       context.lineWidth = 2;
       context.setLineDash([3, 3]);
+      context.lineDashOffset = -wallSeconds() * 20;
       context.stroke();
       context.setLineDash([]);
       context.font = canvasFont(16, 'ui', 700);
       context.textAlign = 'center';
       context.textBaseline = 'middle';
-      context.fillText('🔒', 0, -6);
+      context.fillText('🔒', 0, -6 + Math.sin(wallSeconds() * 8) * 1.5);
     }
     context.restore();
+  }
+
+  // 설치 연출 단계 계산. 착지하는 순간 한 번 먼지·흔들림을 낸다(새로고침 등으로 이미 오래된 타워는 조용히 착지 처리)
+  buildMotion(tower, motion, time, screenX, screenY) {
+    const age = time - (tower.builtAt ?? -Infinity);
+    const { blueprint, drop, settle } = BUILD_MOTION;
+    const result = { hidden: false, dropY: 0, scaleX: 1, scaleY: 1, blueprint: null };
+    if (age < blueprint) {
+      result.hidden = true;
+      result.blueprint = age / blueprint;
+      return result;
+    }
+    if (age < blueprint + drop) {
+      const progress = (age - blueprint) / drop;
+      result.dropY = -150 * (1 - progress * progress);
+      result.scaleX = 0.86;
+      result.scaleY = 1.18;
+      result.blueprint = 1;
+      return result;
+    }
+    if (!motion.landed) {
+      motion.landed = true;
+      if (age < blueprint + drop + 0.3) this.landingImpact(tower, screenX, screenY);
+    }
+    const settleAge = age - blueprint - drop;
+    if (settleAge < settle) {
+      const wobble = Math.exp(-settleAge * 9) * Math.cos(settleAge * 32);
+      result.scaleY = 1 - 0.3 * wobble;
+      result.scaleX = 1 + 0.24 * wobble;
+    }
+    return result;
+  }
+
+  // 쿵: 먼지 고리 + 흙먼지 + 살짝 흔들림 + "설치!"
+  landingImpact(tower, x, y) {
+    const unit = this.unit();
+    const color = TOWER_STYLE[tower.type];
+    this.juice.shake(0.18);
+    this.juice.ring(x, y + 12 * unit, { color: '#c9d2f2', radius: 46 * unit, width: 3, life: 0.35 });
+    this.particles.burst(x, y + 12 * unit, { color: '#8a93b8', count: 16, speed: 150, life: 0.45, gravity: 300 });
+    this.particles.burst(x, y, { color, count: 10, speed: 120, life: 0.5 });
+    this.juice.popup(x, y - 40 * unit, '설치!', { color, size: 16 });
+  }
+
+  // 설계도: 바닥에 타워 색 점선 육각 고리가 그려지고(진행도만큼), 위에서 빛기둥이 내려온다
+  drawBlueprint(context, color, progress) {
+    context.save();
+    context.strokeStyle = color;
+    context.globalAlpha = 0.9;
+    context.lineWidth = 1.5;
+    context.setLineDash([4, 3]);
+    context.beginPath();
+    const corners = Math.max(1, Math.ceil(progress * 6));
+    for (let corner = 0; corner <= corners; corner++) {
+      const angle = Math.PI / 6 + corner * Math.PI / 3;
+      const px = Math.cos(angle) * 22, py = Math.sin(angle) * 22 * 0.62 + 6;
+      if (corner) context.lineTo(px, py);
+      else context.moveTo(px, py);
+    }
+    context.stroke();
+    context.setLineDash([]);
+    context.restore();
+    this.drawLightColumn(context, color, Math.min(1, progress * 1.5), 30);
+  }
+
+  // 빛기둥(설치·업그레이드): 위로 갈수록 투명한 세로 빛
+  drawLightColumn(context, color, strength, width) {
+    if (strength <= 0) return;
+    context.save();
+    context.globalCompositeOperation = 'lighter';
+    const beam = context.createLinearGradient(0, -170, 0, 12);
+    beam.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    beam.addColorStop(1, color);
+    context.globalAlpha = 0.45 * strength;
+    context.fillStyle = beam;
+    context.fillRect(-width / 2, -170, width, 182);
+    context.globalAlpha = 0.8 * strength;
+    context.fillStyle = '#ffffff';
+    context.fillRect(-1.5, -170, 3, 182);
+    context.restore();
+  }
+
+  // 받침 둘레를 도는 에너지 점선 고리(잠기면 멈추고 흐려짐). 장전이 끝나면 밝아진다
+  drawEnergyRing(context, color, tower, time, engine) {
+    const locked = time < (tower.lockedUntil ?? 0);
+    const ready = time >= (tower.readyAt ?? 0);
+    context.save();
+    context.strokeStyle = color;
+    context.globalAlpha = locked ? 0.15 : ready ? 0.75 : 0.3;
+    context.lineWidth = 1.5;
+    context.setLineDash([3, 6]);
+    context.lineDashOffset = locked ? 0 : -wallSeconds() * 24;
+    context.beginPath();
+    context.ellipse(0, 7, 25, 14, 0, 0, Math.PI * 2);
+    context.stroke();
+    context.restore();
+  }
+
+  // 발사 부가 연출: 백신 = 탄피(흰 캡슐 조각)가 튐, 요격포 = 뒤로 연기, 방화벽 = 열기 고리
+  spawnShotEffect(tower) {
+    if (!this.context || !tower) return;
+    const { x, y } = this.towerPosition(tower);
+    const unit = this.unit();
+    if (tower.type === 'antivirus') {
+      this.particles.burst(x, y - 8 * unit, { color: '#f2f6ff', count: 2, speed: 110, life: 0.5, gravity: 500, size: 2 });
+    } else if (tower.type === 'interceptor') {
+      this.particles.burst(x, y - 6 * unit, { color: 'rgba(200, 210, 230, 0.7)', count: 6, speed: 60, life: 0.7, gravity: -80, size: 4 });
+    } else if (tower.type === 'firewall') {
+      this.juice.ring(x, y - 10 * unit, { color: '#ff7a45', radius: 28 * unit, width: 2, life: 0.3 });
+      this.particles.burst(x, y - 20 * unit, { color: '#ffb547', count: 6, speed: 80, life: 0.5, gravity: -200, size: 2 });
+    }
   }
 
   // 설치 모드: 길 금지 띠를 붉게, 마우스 자리에 유령 타워(놓을 수 있으면 타워 색, 없으면 빨강 ×)
@@ -723,7 +917,7 @@ export class DefenseRenderer {
     context.setLineDash([]);
     if (ok) {
       context.globalAlpha = 0.6;
-      context.translate(x, y);
+      context.translate(x, y + Math.sin(wallSeconds() * 4) * 2);
       context.scale(this.unit(), this.unit());
       this.drawTowerBase(context, color, 1);
       if (mode.tower === 'firewall') this.drawFirewall(context, { level: 1, id: 0 }, engine, 0);
@@ -812,33 +1006,83 @@ export class DefenseRenderer {
   }
 
   // 악성 파일 = 색이 갈라지는(글리치) 보라 문서, 랜섬웨어 = 쇠사슬이 도는 거대한 자물쇠 괴물(남은 체력 = 방패 조각)
+  // 공격 한 개. 움직임:
+  // - 출현: 0.35초 동안 디지털 생성(작은 크기에서 튀어나오며 가로 글리치 줄, 바닥 포털 고리)
+  // - 이동: 종류별 걸음(패킷 통통 튀기, 스팸 날갯짓 비행, 악성 파일 뒤뚱, 드론 호버링, 보스 쿵쿵)
+  // - 피격: 하얗게 번쩍 + 맞은 반대쪽으로 밀림 + 크기 펀치
+  // - 처치: 몸은 바로 사라지고 종류별 파편(spawnDebris)이 흩어짐. 컴퓨터에 닿음: 돔 속으로 빨려 들어가며 작아짐
   drawBug(context, bug, engine) {
     const style = BUG_STYLE[bug.type];
-    const { x, y } = this.bugPosition(bug);
-    const deadAge = bug.state === 'alive' ? 0 : engine.gameTime - bug.resolvedAt;
-    if (bug.state !== 'alive' && deadAge > 0.4) return;
-    const ahead = this.toScreen(pointOnPath(Math.min(1, bug.progress + 0.01)));
-    const heading = Math.atan2(ahead.y - y, ahead.x - x) || 0;
     const time = engine.gameTime;
-    const bob = Math.sin(time * 6 + bug.id) * 2.5;
+    const deadAge = bug.state === 'alive' ? 0 : time - bug.resolvedAt;
+    if (bug.state === 'dead' && deadAge > 0.06) return;
+    if (bug.state === 'breached' && deadAge > 0.3) return;
+    let { x, y } = this.bugPosition(bug);
+    const heading = this.bugHeading(bug, x, y);
+    const motion = this.motion(bug.id);
+    const hitAge = time - motion.hitAt;
+    const hit = hitAge >= 0 && hitAge < HIT_FLASH_SECONDS ? 1 - hitAge / HIT_FLASH_SECONDS : 0;
+    const spawnAge = time - (bug.spawnedAt ?? -Infinity);
+    const spawn = spawnAge >= 0 && spawnAge < SPAWN_SECONDS ? spawnAge / SPAWN_SECONDS : 1;
+    const gait = this.bugGait(bug, time);
+    const unit = this.unit();
+    if (bug.state === 'breached') {
+      const target = this.computerPosition();
+      const pull = Math.min(1, deadAge / 0.3);
+      x += (target.x - x) * pull;
+      y += (target.y - 30 * unit - y) * pull;
+    }
+    // 출현 포털(바닥 고리)
+    if (spawn < 1 && !bug.air) {
+      context.save();
+      context.globalAlpha = 1 - spawn;
+      context.strokeStyle = style.body;
+      context.lineWidth = 2;
+      context.beginPath();
+      context.ellipse(x, y + style.size * unit, style.size * 2 * unit * (0.5 + spawn), style.size * 0.6 * unit * (0.5 + spawn), 0, 0, Math.PI * 2);
+      context.stroke();
+      context.restore();
+    }
     context.save();
-    context.translate(x, y + bob);
-    context.scale(this.unit(), this.unit());
-    context.globalAlpha = bug.state === 'alive' ? 1 : 1 - deadAge / 0.4;
-    if (bug.state !== 'alive') context.scale(1 + deadAge * 1.5, 1 + deadAge * 1.5);
-    // 바닥 그림자
+    context.translate(x - Math.cos(heading) * hit * 7 * unit, y - Math.sin(heading) * hit * 7 * unit);
+    let scale = unit * (spawn < 1 ? easeOutBack(spawn) : 1) * (1 + hit * 0.22);
+    if (bug.state === 'breached') scale *= 1 - Math.min(1, deadAge / 0.3);
+    if (bug.state === 'dead') scale *= 1.3;
+    context.scale(scale, scale);
+    // 바닥 그림자(공중은 멀리, 걸음에 따라 크기 변화)
     context.fillStyle = bug.air ? 'rgba(0, 0, 0, 0.22)' : 'rgba(0, 0, 0, 0.35)';
     context.beginPath();
-    context.ellipse(0, style.size + (bug.air ? 22 : 6) - bob, style.size * (bug.air ? 0.7 : 0.9), style.size * 0.25, 0, 0, Math.PI * 2);
+    context.ellipse(0, style.size + (bug.air ? 22 : 6), style.size * (bug.air ? 0.7 : 0.9) * gait.shadow, style.size * 0.25 * gait.shadow, 0, 0, Math.PI * 2);
     context.fill();
+    context.translate(0, gait.lift);
+    context.rotate(gait.tilt);
+    context.translate(0, style.size);
+    context.scale(gait.scaleX, gait.scaleY);
+    context.translate(0, -style.size);
+    if (hit > 0 || bug.state === 'dead') context.filter = `brightness(${1 + (bug.state === 'dead' ? 2 : hit * 1.8)}) saturate(${1 - hit * 0.6})`;
     if (bug.type === 'packet') this.drawPacket(context, style, heading, time, bug);
     else if (bug.type === 'spam') this.drawSpam(context, style, time, bug);
     else if (bug.type === 'malware') this.drawMalware(context, style, time, bug);
     else if (bug.type === 'drone') this.drawDrone(context, style, heading, time, bug);
     else if (bug.type === 'rootkit') this.drawRootkit(context, style, time, bug, engine);
     else this.drawRansomware(context, style, time, bug, engine);
+    context.filter = 'none';
+    // 출현 글리치: 가로 줄 몇 개가 몸을 가로지른다
+    if (spawn < 1) {
+      context.globalCompositeOperation = 'lighter';
+      context.fillStyle = style.body;
+      for (let line = 0; line < 4; line++) {
+        const lineY = ((line * 37 + spawnAge * 400) % (style.size * 3)) - style.size * 1.5;
+        context.globalAlpha = (1 - spawn) * 0.8;
+        context.fillRect(-style.size * 1.6, lineY, style.size * 3.2, 2);
+      }
+      context.globalAlpha = 1;
+      context.globalCompositeOperation = 'source-over';
+    }
+    // 방화벽에 걸림(느려짐): 머리 위 작은 불씨
+    if (bug.state === 'alive' && engine.slowFactor?.(bug) < 1) this.drawEmbers(context, style.size, time, bug.id);
     // 2페이즈로 바뀌는 중(무적): 흰 육각 방패가 감싼다
-    if (engine.gameTime < bug.shieldUntil) {
+    if (time < bug.shieldUntil) {
       context.strokeStyle = `rgba(255, 255, 255, ${0.5 + 0.4 * Math.sin(time * 30)})`;
       context.lineWidth = 3;
       context.beginPath();
@@ -853,14 +1097,135 @@ export class DefenseRenderer {
     }
     context.restore();
     if (bug.state === 'alive' && bug.maxHp > 1 && !ATTACK_TYPES[bug.type].boss) {
-      const barWidth = style.size * 2;
+      const barWidth = style.size * 2 * unit;
+      const barY = y + (style.size + 10) * unit;
       context.fillStyle = 'rgba(0, 0, 0, 0.6)';
-      roundedRect(context, x - barWidth / 2, y + style.size + 10, barWidth, 4, 2);
+      roundedRect(context, x - barWidth / 2, barY, barWidth, 4, 2);
       context.fill();
-      context.fillStyle = style.body;
-      roundedRect(context, x - barWidth / 2, y + style.size + 10, barWidth * bug.hp / bug.maxHp, 4, 2);
+      context.fillStyle = hit > 0 ? '#ffffff' : style.body;
+      roundedRect(context, x - barWidth / 2, barY, barWidth * bug.hp / bug.maxHp, 4, 2);
       context.fill();
     }
+  }
+
+  // 진행 방향(라디안): 땅 공격은 길 앞쪽, 공중은 컴퓨터 쪽
+  bugHeading(bug, x, y) {
+    const ahead = bug.air
+      ? this.toScreen({ x: DEFENSE_COMPUTER.x, y: DEFENSE_COMPUTER.y - 0.1 })
+      : this.toScreen(pointOnPath(Math.min(1, bug.progress + 0.01)));
+    return Math.atan2(ahead.y - y, ahead.x - x) || 0;
+  }
+
+  // 종류별 걸음새: 들림(lift)·기울기(tilt)·찌그러짐(scaleX/Y, 발바닥 기준)·그림자 크기
+  bugGait(bug, time) {
+    const phase = time + bug.id * 0.37;
+    const rage = bug.phase === 2 ? 1.6 : 1;
+    if (bug.type === 'packet') {
+      const hop = Math.abs(Math.sin(phase * 7));
+      const ground = Math.max(0, 1 - hop * 4);
+      return { lift: -hop * 7, tilt: 0, scaleX: 1 + ground * 0.18, scaleY: 1 - ground * 0.2 + (1 - ground) * hop * 0.08, shadow: 1 - hop * 0.35 };
+    }
+    if (bug.type === 'spam') return { lift: -6 + Math.sin(phase * 5) * 4, tilt: Math.sin(phase * 3) * 0.14, scaleX: 1, scaleY: 1, shadow: 0.7 - Math.sin(phase * 5) * 0.1 };
+    if (bug.type === 'malware') {
+      const step = Math.sin(phase * 8);
+      return { lift: -Math.abs(step) * 3, tilt: step * 0.16, scaleX: 1, scaleY: 1 + Math.abs(step) * 0.04, shadow: 1 };
+    }
+    if (bug.type === 'drone') return { lift: Math.sin(phase * 4) * 3, tilt: 0, scaleX: 1, scaleY: 1, shadow: 1 - Math.sin(phase * 4) * 0.1 };
+    const stomp = Math.abs(Math.sin(phase * 2.6 * rage));
+    const ground = Math.max(0, 1 - stomp * 5);
+    return { lift: -stomp * 6, tilt: Math.sin(phase * 1.3 * rage) * 0.05, scaleX: 1 + ground * 0.08, scaleY: 1 - ground * 0.08, shadow: 1 - stomp * 0.2 };
+  }
+
+  // 방화벽 화상: 머리 위로 피어오르는 주황 불씨 세 개
+  drawEmbers(context, size, time, seed) {
+    context.save();
+    context.globalCompositeOperation = 'lighter';
+    for (let index = 0; index < 3; index++) {
+      const rise = (time * 1.4 + index / 3 + seed * 0.13) % 1;
+      context.globalAlpha = 1 - rise;
+      context.fillStyle = index % 2 ? '#ffb547' : '#ff7a45';
+      context.beginPath();
+      context.arc((index - 1) * size * 0.5 + Math.sin(time * 9 + index) * 2, -size - rise * size * 1.2, 2.2 * (1 - rise) + 1, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.restore();
+  }
+
+  // 처치 파편(화면 좌표). 종류별 모양: 패킷 = 붉은 삼각 결정, 스팸 = 종이 조각, 악성 파일·루트킷 = 픽셀·0/1,
+  // 드론 = 금속 조각 + 프로펠러, 랜섬웨어 = 쇠사슬 고리·자물쇠 조각. O(조각 수)
+  spawnDebris(bug, x, y) {
+    const style = BUG_STYLE[bug.type];
+    const boss = Boolean(ATTACK_TYPES[bug.type].boss);
+    const count = boss ? 26 : 9;
+    const unit = this.unit();
+    const shape = { packet: 'shard', spam: 'paper', malware: 'pixel', drone: 'metal', ransomware: 'link', rootkit: 'bit' }[bug.type] ?? 'shard';
+    for (let index = 0; index < count; index++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = (boss ? 160 : 110) + Math.random() * (boss ? 260 : 150);
+      this.debris.push({
+        x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 120,
+        rotation: Math.random() * Math.PI * 2, spin: (Math.random() - 0.5) * 18,
+        size: (boss ? 6 : 3.5) + Math.random() * (boss ? 6 : 3), life: 0, maxLife: 0.6 + Math.random() * 0.4,
+        color: index % 3 === 0 ? style.dark : style.body, shape, unit,
+        text: Math.random() > 0.5 ? '1' : '0'
+      });
+    }
+    if (this.debris.length > 240) this.debris.splice(0, this.debris.length - 240);
+  }
+
+  // 파편 움직이고 그리기(중력 + 회전, 수명 끝에 흐려짐)
+  drawDebris(context, frameSeconds) {
+    if (!this.debris.length) return;
+    const step = frameSeconds || 0;
+    context.save();
+    for (const piece of this.debris) {
+      piece.life += step;
+      piece.vy += 620 * step;
+      piece.vx *= 1 - Math.min(1, step * 1.5);
+      piece.x += piece.vx * step;
+      piece.y += piece.vy * step;
+      piece.rotation += piece.spin * step;
+      const fade = 1 - piece.life / piece.maxLife;
+      if (fade <= 0) continue;
+      const size = piece.size * piece.unit;
+      context.globalAlpha = Math.min(1, fade * 1.5);
+      context.save();
+      context.translate(piece.x, piece.y);
+      context.rotate(piece.rotation);
+      context.fillStyle = piece.color;
+      context.strokeStyle = piece.color;
+      if (piece.shape === 'shard') {
+        context.beginPath();
+        context.moveTo(0, -size);
+        context.lineTo(size * 0.7, size * 0.6);
+        context.lineTo(-size * 0.5, size * 0.4);
+        context.closePath();
+        context.fill();
+      } else if (piece.shape === 'paper') {
+        context.fillStyle = '#fff1c2';
+        context.fillRect(-size, -size * 0.6, size * 2, size * 1.2);
+        context.fillStyle = piece.color;
+        context.fillRect(-size, -size * 0.6, size * 2, 1.5);
+      } else if (piece.shape === 'pixel') {
+        context.fillRect(-size / 2, -size / 2, size, size);
+      } else if (piece.shape === 'metal') {
+        context.fillStyle = '#4a6a62';
+        context.fillRect(-size, -size * 0.3, size * 2, size * 0.6);
+      } else if (piece.shape === 'link') {
+        context.lineWidth = 2;
+        context.beginPath();
+        context.ellipse(0, 0, size, size * 0.6, 0, 0, Math.PI * 2);
+        context.stroke();
+      } else {
+        context.font = canvasFont(Math.round(size * 2), 'code', 700);
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(piece.text, 0, 0);
+      }
+      context.restore();
+    }
+    context.restore();
+    this.debris = this.debris.filter(piece => piece.life < piece.maxLife);
   }
 
   drawPacket(context, style, heading, time, bug) {
@@ -907,6 +1272,23 @@ export class DefenseRenderer {
     context.lineTo(0, size * 1.15);
     context.stroke();
     context.restore();
+    // 빛나는 데이터 코어 + 주위를 도는 0·1 비트 둘
+    const core = 0.5 + 0.5 * Math.sin(time * 9 + bug.id);
+    context.save();
+    context.globalCompositeOperation = 'lighter';
+    context.fillStyle = `rgba(255, 220, 230, ${0.4 + core * 0.4})`;
+    context.beginPath();
+    context.arc(0, size * 0.35, size * 0.22, 0, Math.PI * 2);
+    context.fill();
+    context.font = canvasFont(8, 'code', 700);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    for (let bit = 0; bit < 2; bit++) {
+      const angle = time * 4 + bit * Math.PI + bug.id;
+      context.fillStyle = '#ffb3c0';
+      context.fillText(bit ? '1' : '0', Math.cos(angle) * size * 1.45, Math.sin(angle) * size * 0.5);
+    }
+    context.restore();
     context.translate(0, -1);
     this.drawAngryFace(context, size / 13, '#ffffff', false);
   }
@@ -914,6 +1296,17 @@ export class DefenseRenderer {
   drawSpam(context, style, time, bug) {
     const size = style.size;
     const flap = Math.sin(time * 18 + bug.id) * 0.6;
+    // 뒤로 흩날리는 작은 @ 스팸 조각
+    context.save();
+    context.font = canvasFont(8, 'code', 700);
+    context.textAlign = 'center';
+    for (let trail = 0; trail < 3; trail++) {
+      const drift = (time * 1.8 + trail / 3 + bug.id * 0.2) % 1;
+      context.globalAlpha = (1 - drift) * 0.7;
+      context.fillStyle = style.body;
+      context.fillText('@', -size * 1.2 - drift * 18, size * 0.3 + Math.sin(time * 6 + trail) * 4 - trail * 4);
+    }
+    context.restore();
     // 날개(픽셀 깃털 셋)
     for (const side of [-1, 1]) {
       context.save();
@@ -958,6 +1351,19 @@ export class DefenseRenderer {
   drawMalware(context, style, time, bug) {
     const size = style.size;
     const glitch = Math.sin(time * 23 + bug.id * 3) > 0.7 ? 2.5 : 0;
+    // 종종걸음 다리 넷(번갈아 들림)
+    context.strokeStyle = style.dark;
+    context.lineWidth = 2.5;
+    context.lineCap = 'round';
+    for (let leg = 0; leg < 4; leg++) {
+      const legX = -size * 0.55 + leg * size * 0.37;
+      const lift = Math.max(0, Math.sin(time * 16 + bug.id + (leg % 2) * Math.PI)) * 4;
+      context.beginPath();
+      context.moveTo(legX, size * 0.85);
+      context.lineTo(legX + (leg < 2 ? -2 : 2), size * 1.25 - lift);
+      context.stroke();
+    }
+    context.lineCap = 'butt';
     const page = (offsetX, color) => {
       context.fillStyle = color;
       context.beginPath();
@@ -1026,12 +1432,14 @@ export class DefenseRenderer {
     // 남은 체력 = 도는 방패 조각
     context.save();
     context.rotate(time * 0.8);
-    for (let index = 0; index < bug.maxHp; index++) {
-      const angle = index / bug.maxHp * Math.PI * 2;
-      context.strokeStyle = index < bug.hp ? '#ffb547' : 'rgba(255, 181, 71, 0.15)';
+    const pieces = Math.min(10, bug.maxHp);
+    const alivePieces = Math.ceil(bug.hp / bug.maxHp * pieces);
+    for (let index = 0; index < pieces; index++) {
+      const angle = index / pieces * Math.PI * 2;
+      context.strokeStyle = index < alivePieces ? '#ffb547' : 'rgba(255, 181, 71, 0.15)';
       context.lineWidth = 4;
       context.beginPath();
-      context.arc(0, 0, size * 1.45, angle + 0.12, angle + Math.PI * 2 / bug.maxHp - 0.12);
+      context.arc(0, 0, size * 1.45, angle + 0.12, angle + Math.PI * 2 / pieces - 0.12);
       context.stroke();
     }
     context.restore();
