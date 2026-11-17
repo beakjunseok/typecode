@@ -568,6 +568,11 @@ td.num:last-child { font-weight: 600; }
   background: radial-gradient(120% 85% at 50% 108%, var(--led, transparent), transparent 70%);
   mix-blend-mode: screen;
 }
+/* 밝은 키캡(흰·연한 색): 밝게 더하기(screen)는 안 보이므로 LED 색으로 물들인다(multiply), 키 전체에 더 넓게·조금 더 진하게 */
+.key.led-light .glow {
+  mix-blend-mode: multiply; opacity: min(1, calc(var(--led-a, 0) * 1.5));
+  background: radial-gradient(150% 120% at 50% 100%, var(--led, transparent), transparent 92%);
+}
 .key .legend { position: relative; display: flex; flex-direction: column; gap: 1px; font: 600 13px/1.1 var(--font-code); }
 .compact .key .legend { font-size: 8px; }
 .compact .key .shifted, .compact .key::before { display: none; }

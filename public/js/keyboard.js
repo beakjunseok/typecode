@@ -129,6 +129,26 @@ export function createKeyboard(container, { compact = false, interactive = false
   container.replaceChildren(...(compact ? [floating] : [floating, fingerHint]));
 
   // ---------- 스킨·LED ----------
+  // CSS 색(#rgb, #rrggbb, rgb())이 밝은가(상대 휘도 0.55 이상). 못 읽으면 어둡다고 본다
+  function isLightColor(value) {
+    const text = String(value ?? '').trim();
+    let channels = null;
+    const hex = text.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (hex) {
+      const digits = hex[1].length === 3 ? [...hex[1]].map(digit => digit + digit).join('') : hex[1];
+      channels = [0, 2, 4].map(offset => parseInt(digits.slice(offset, offset + 2), 16));
+    } else {
+      const rgb = text.match(/^rgba?\(\s*(\d+)[ ,]+(\d+)[ ,]+(\d+)/i);
+      if (rgb) channels = rgb.slice(1, 4).map(Number);
+    }
+    if (!channels) return false;
+    const [red, green, blue] = channels.map(channel => {
+      const unit = channel / 255;
+      return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue >= 0.55;
+  }
+
   const led = createLedState(ledKeys);
   const colors = [];
   let ledConfig = getSkin(null).led;
@@ -195,6 +215,17 @@ export function createKeyboard(container, { compact = false, interactive = false
 
   // 정면 일러스트가 있는 스킨: 그림 한 장을 판으로 깔고, 키마다 같은 그림에서 제 자리만 잘라 보여 준다.
   // 그래서 가만히 있을 땐 그림과 똑같고, 누르면 그 키캡만 내려간다. 좌표는 그림 대비 비율. O(키 수)
+  // 밝은 키캡 표시: 바탕색이 밝은 키는 LED를 '곱하기'로 물들인다(밝게 더하기는 흰 키캡에서 안 보임).
+  // 일반 스킨은 키 종류(글자·기능·강조)별 바탕색 밝기로 정하고, 그림 스킨은 그림의 밝은 키 목록(lightKeys)을 쓴다. O(키 수)
+  let lightRoles = { alpha: false, mod: false, accent: false };
+  function markLightKeysFromColors(colors) {
+    lightRoles = { alpha: isLightColor(colors.alphaBg), mod: isLightColor(colors.modBg), accent: isLightColor(colors.accentBg) };
+    for (const element of keyElements.values()) {
+      const role = element.classList.contains('accent') ? 'accent' : element.classList.contains('mod') ? 'mod' : 'alpha';
+      element.classList.toggle('led-light', lightRoles[role]);
+    }
+  }
+
   function clearBoardArt() {
     board.classList.remove('art-board');
     board.style.removeProperty('--board');
@@ -202,6 +233,8 @@ export function createKeyboard(container, { compact = false, interactive = false
     board.style.removeProperty('--board-scale');
     for (const element of keyElements.values()) {
       element.classList.remove('art-light');
+      const role = element.classList.contains('accent') ? 'accent' : element.classList.contains('mod') ? 'mod' : 'alpha';
+      element.classList.toggle('led-light', lightRoles[role]);
       for (const name of ['--kx', '--ky', '--kw', '--kh']) element.style.removeProperty(name);
     }
   }
@@ -213,6 +246,7 @@ export function createKeyboard(container, { compact = false, interactive = false
     const lightKeys = new Set(Array.isArray(art.lightKeys) ? art.lightKeys : []);
     for (const [keyId, element] of keyElements) {
       element.classList.toggle('art-light', lightKeys.has(keyId));
+      element.classList.toggle('led-light', lightKeys.has(keyId));
       const box = art.keys[keyId];
       if (!Array.isArray(box) || box.length !== 4) continue;
       const [x, y, w, h] = box;
@@ -255,13 +289,20 @@ export function createKeyboard(container, { compact = false, interactive = false
     board.dataset.rarity = skin.rarity;
     board.dataset.skin = skin.id;
     applyStage(skin);
+    markLightKeysFromColors(palette);
     applyBoardArt(skin);
     board.classList.toggle('underglow', skin.underglow);
-    ledGlow = material.glow;
+    // 무늬를 직접 골랐으면(덮어쓰기) 약하게 빛나는 소재에서도 무늬가 보이게 최소 0.8
+    ledGlow = override?.pattern ? Math.max(0.8, material.glow) : material.glow;
     shine = Boolean(material.shine);
     board.classList.toggle('shine', shine);
     if (!shine) for (const key of ledKeys) key.element.style.removeProperty('--led-text');
-    ledConfig = { ...skin.led, ...(override?.pattern ? { pattern: override.pattern } : {}), ...(override?.reactive ? { reactive: override.reactive } : {}) };
+    ledConfig = {
+      ...skin.led,
+      ...(override?.pattern ? { pattern: override.pattern } : {}),
+      ...(override?.reactive ? { reactive: override.reactive } : {}),
+      overridden: Boolean(override?.pattern && override.pattern !== skin.led.pattern)
+    };
     led.reset();
     paintLeds(clock());
     startLeds();
