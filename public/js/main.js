@@ -773,7 +773,7 @@ function handleDefenseEvent(type, payload) {
       return true;
     case 'air-warning':
       sound.play('warning', { remainingSeconds: 1 });
-      ui.log('warn', '✈ 드론 출현 — 길을 무시하고 날아와요. 요격포(4)만 맞힐 수 있어요');
+      ui.log('warn', '✈ 드론 출현 — 길을 무시하고 날아와요. 요격포(5)만 맞힐 수 있어요');
       return true;
     case 'bug-blocked':
       return true;
