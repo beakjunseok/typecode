@@ -702,8 +702,14 @@ function bindDefensePointer(canvas) {
     const defenseRenderer = renderers.defense;
     // 설치 모드가 아닐 때: 강화 카드 버튼 → 강화·판매, 타워 → 고르기(이미 고른 타워를 다시 누르면 강화), 빈 곳 → 카드 닫기
     if (!run.engine.buildMode && defenseRenderer) {
+      const computerSelected = defenseRenderer.selectedTowerId === 'computer';
       const selected = run.engine.towers.find(tower => tower.id === defenseRenderer.selectedTowerId);
       const action = defenseRenderer.cardActionAt(point.x, point.y);
+      if (action && computerSelected) {
+        event.preventDefault();
+        if (action === 'upgrade') run.engine.upgradeComputer();
+        return;
+      }
       if (action && selected) {
         event.preventDefault();
         if (action === 'upgrade') run.engine.upgradeTower(selected);
@@ -711,6 +717,17 @@ function bindDefensePointer(canvas) {
         return;
       }
       const tower = run.engine.towerAt(defenseRenderer.toField(point.x, point.y));
+      // 컴퓨터를 누르면 컴퓨터 강화 카드(이미 골랐으면 바로 강화)
+      if (!tower && defenseRenderer.isComputerAt(point.x, point.y)) {
+        event.preventDefault();
+        if (computerSelected) run.engine.upgradeComputer();
+        else {
+          defenseRenderer.selectTower('computer');
+          sound.play('lock');
+        }
+        ui.elements.hiddenInput?.focus({ preventScroll: true });
+        return;
+      }
       if (tower) {
         event.preventDefault();
         if (selected === tower) run.engine.upgradeTower(tower);
@@ -816,6 +833,17 @@ function handleDefenseEvent(type, payload) {
     case 'air-jammed':
       sound.play('zap', { delay: 0.15 });
       return true;
+    case 'guard-shot':
+      sound.play('throwPhone');
+      return true;
+    case 'guard-hit':
+      if (payload.bug) sound.play('laserShot');
+      return true;
+    case 'computer-upgraded':
+      sound.play('upgrade', { maxed: payload.maxed });
+      ui.log('ok', `🖥 컴퓨터 Lv.${payload.level}${payload.maxed ? ` ★ ${payload.stats.perk}` : ''} — 체력 ${Math.round(run.engine.health)}/${run.engine.maxHealth} (-${payload.price}🪙)`);
+      renderInputBar();
+      return true;
     case 'honey-step':
       sound.play('honeyStep');
       return true;
@@ -842,7 +870,7 @@ function handleDefenseEvent(type, payload) {
       return true;
     case 'repair':
       sound.play('powerUp');
-      ui.log('ok', `🔧 컴퓨터 수리 — 체력 ${payload.health}`);
+      ui.log('ok', `🔧 컴퓨터 수리 — 체력 ${Math.round(payload.health)}`);
       return true;
     case 'shop-denied':
       sound.play('error');
@@ -874,7 +902,7 @@ function handleDefenseEvent(type, payload) {
       sound.play('glassCrack');
       run.engine?.hitStop?.(0.08);
       pulseClass(ui.elements.arcadeStage, 'shake', 300);
-      ui.log('err', `해킹 공격이 컴퓨터에 닿음 — 체력 ${payload.health}`);
+      ui.log('err', `해킹 공격이 컴퓨터에 닿음 — 체력 ${Math.max(0, Math.round(payload.health))}`);
       renderInputBar();
       return true;
     case 'goal':

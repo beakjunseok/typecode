@@ -2,7 +2,7 @@
 // 오른쪽(휴대폰은 상점 위 띠): 연습 모드처럼 칠 낱말이 줄지어 올라오는 패널. 맨 아래: 누를 수 있는 상점(숫자 키 1~4).
 // 배경 그림(public/art/defense-stage.webp)이 있으면 그림 속 돔이 컴퓨터 자리에 오도록 깔고, 없으면 격자·코드 비·컴퓨터를 직접 그린다.
 import { ARCADE_RULES } from './target-game.js';
-import { DEFENSE_RULES, TOWER_TYPES, SHOP_ITEMS, DEFENSE_PATH, DEFENSE_COMPUTER, ATTACK_TYPES, wordCoins, towerStats, TOWER_MAX_PERKS, pointOnPath } from './defense-engine.js';
+import { DEFENSE_RULES, TOWER_TYPES, SHOP_ITEMS, DEFENSE_PATH, DEFENSE_COMPUTER, ATTACK_TYPES, COMPUTER_GUARD, wordCoins, towerStats, TOWER_MAX_PERKS, pointOnPath } from './defense-engine.js';
 import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
 
 const HUD_HEIGHT = 34;
@@ -15,6 +15,7 @@ const STAGE_ART = loadArt('/art/defense-stage.webp');
 // 그림 속 방패 돔(컴퓨터) 중심과 반지름(그림 크기 비율)
 const ART_DOME = Object.freeze({ x: 0.502, y: 0.846, radius: 0.117 });
 const wallSeconds = () => performance.now() / 1000;
+const COMPUTER_LEVELS_COUNT = 3;
 // 타워 설치 연출(게임 초): 설계도 → 낙하 → 착지 흔들림
 const BUILD_MOTION = Object.freeze({ blueprint: 0.2, drop: 0.25, settle: 0.55 });
 const HIT_FLASH_SECONDS = 0.14;
@@ -272,6 +273,27 @@ export class DefenseRenderer {
       const center = this.toScreen(payload);
       this.empBlasts.push({ x: center.x, y: center.y, radiusY: payload.radius * this.field().height, at: now + 0.15, level: payload.tower.level, seed: Math.random() * 10, burst: false });
       if (this.empBlasts.length > 16) this.empBlasts.shift();
+    } else if (type === 'guard-hit') {
+      // 코드 조각이 닿음: 그 글자들이 파편처럼 흩어진다
+      const { x, y } = this.toScreen(payload.shot);
+      const unit = this.unit();
+      for (const character of [...payload.shot.text].slice(0, 8)) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 90 + Math.random() * 140;
+        this.debris.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 100, rotation: 0, spin: (Math.random() - 0.5) * 12, size: 4, life: 0, maxLife: 0.55, color: '#bff6ff', shape: 'bit', unit, text: character });
+      }
+      juice.ring(x, y, { color: SCENE.shield, radius: 22 * unit, width: 2, life: 0.25 });
+    } else if (type === 'computer-upgraded') {
+      const { x, y } = this.toScreen(COMPUTER_GUARD);
+      const unit = this.unit();
+      this.selectTower(payload.maxed ? null : 'computer');
+      juice.ring(x, y, { color: '#ffd166', radius: (payload.maxed ? 130 : 90) * unit, width: payload.maxed ? 6 : 4, life: 0.55 });
+      this.spawnSpiralSparks(x, y + 10 * unit, payload.maxed ? 30 : 18, ['#ffd166', SCENE.shield, '#ffffff']);
+      this.particles.burst(x, y, { color: SCENE.shield, count: 24, speed: 220, life: 0.6 });
+      juice.shake(payload.maxed ? 0.45 : 0.2);
+      if (payload.maxed) juice.flash('#ffd166', 0.3, 0.45);
+      const center = this.computerPosition();
+      juice.popup(center.x, center.y - 90 * unit, payload.maxed ? `컴퓨터 MAX ★ ${payload.stats.perk}` : `컴퓨터 Lv.${payload.level} ▲ 체력 +${payload.stats.bonusHealth}`, { color: '#ffd166', size: 17, life: 1.3 });
     } else if (type === 'air-jammed') {
       const { x, y } = this.bugPosition(payload.bug);
       this.particles.burst(x, y, { color: '#d8c8ff', count: 10, speed: 140, life: 0.35, size: 1.8 });
@@ -334,12 +356,14 @@ export class DefenseRenderer {
     this.drawBackground(context, width, height, engine);
     this.drawPath(context, engine);
     this.drawComputer(context, engine);
+    this.drawGuard(context, engine);
     this.drawPuddles(context, engine);
     for (const tower of engine.towers) this.drawTowerRange(context, tower, engine);
     for (const tower of engine.towers) this.drawTower(context, tower, engine);
     this.drawBuildPreview(context, engine);
     this.drawSpotLabels(context, engine);
     for (const shot of engine.towerShots) this.drawTowerShot(context, shot, engine);
+    for (const shot of engine.guardShots ?? []) this.drawGuardShot(context, shot, engine);
     for (const bug of engine.bugs) if (!bug.air) this.drawBug(context, bug, engine);
     for (const bug of engine.bugs) if (bug.air) this.drawBug(context, bug, engine);
     this.drawDebris(context, frameSeconds);
@@ -2512,6 +2536,171 @@ export class DefenseRenderer {
     context.restore();
   }
 
+  // 컴퓨터 대공 포탑(돔 꼭대기, 레벨별): 코드 조각을 던지는 작은 단말 포탑. 마지막 표적(없으면 하늘을 천천히 훑음)을 향한다.
+  // Lv.1 쌍포신 · Lv.2 넓은 받침 + 안테나 + 도는 고리 · Lv.3 금 테두리 + 쌍포드 + 왕관 고리. 공중 적이 있으면 사거리 점선
+  drawGuard(context, engine) {
+    const position = this.toScreen(COMPUTER_GUARD);
+    const unit = this.unit();
+    const level = engine.computerLevel ?? 1;
+    const stats = engine.computerStats?.() ?? COMPUTER_GUARD;
+    const motion = this.motion('guard');
+    const time = wallSeconds();
+    const shot = (engine.guardShots ?? []).at(-1);
+    const sinceShot = shot ? engine.gameTime - shot.at : Infinity;
+    const aimTarget = shot && sinceShot < 0.8 ? Math.atan2(this.toScreen(shot).y - position.y, this.toScreen(shot).x - position.x) : -Math.PI / 2 + Math.sin(time * 0.7) * 0.8;
+    motion.aim = motion.aim == null ? aimTarget : approachAngle(motion.aim, aimTarget, this.frameSeconds * (sinceShot < 0.8 ? 18 : 2.5));
+    const fired = Math.max(0, 1 - sinceShot / 0.25);
+    const ready = engine.gameTime >= (engine.guardReadyAt ?? 0);
+    const airNear = engine.bugs.some(bug => bug.state === 'alive' && bug.air);
+    const selected = this.selectedTowerId === 'computer';
+    const upgradeAge = engine.computerUpgradedAt == null ? Infinity : engine.gameTime - engine.computerUpgradedAt;
+    const gold = level >= 3 ? '#ffd166' : SCENE.shield;
+    context.save();
+    if (airNear || selected) {
+      context.strokeStyle = selected ? 'rgba(255, 255, 255, 0.55)' : 'rgba(54, 226, 255, 0.35)';
+      context.setLineDash([3, 6]);
+      context.lineDashOffset = -time * 20;
+      context.lineWidth = 1;
+      context.beginPath();
+      context.arc(position.x, position.y, this.rangePixels(stats.range), 0, Math.PI * 2);
+      context.stroke();
+      if (selected && level < COMPUTER_LEVELS_COUNT) {
+        context.strokeStyle = 'rgba(255, 209, 102, 0.5)';
+        context.beginPath();
+        context.arc(position.x, position.y, this.rangePixels(engine.computerStats(level + 1).range), 0, Math.PI * 2);
+        context.stroke();
+      }
+      context.setLineDash([]);
+    }
+    const hop = upgradeAge < 0.6 ? Math.sin(upgradeAge / 0.6 * Math.PI) * 10 : 0;
+    context.translate(position.x, position.y - hop * unit);
+    context.scale(unit, unit);
+    if (upgradeAge < 1) this.drawLightColumn(context, '#ffd166', 1 - upgradeAge, 34);
+    if (upgradeAge < 0.45) this.drawConvergingRings(context, gold, upgradeAge / 0.45);
+    // 받침
+    const baseWidth = level >= 2 ? 15 : 11;
+    context.fillStyle = '#1b2240';
+    context.strokeStyle = gold;
+    context.lineWidth = level >= 3 ? 2 : 1.5;
+    context.beginPath();
+    context.ellipse(0, 4, baseWidth, 4.5, 0, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+    if (level >= 2) {
+      // 도는 데이터 고리 + 안테나
+      context.strokeStyle = 'rgba(54, 226, 255, 0.6)';
+      context.setLineDash([2, 3]);
+      context.lineDashOffset = -time * 25;
+      context.beginPath();
+      context.ellipse(0, 4, baseWidth + 4, 6.5, 0, 0, Math.PI * 2);
+      context.stroke();
+      context.setLineDash([]);
+      context.strokeStyle = '#c9d2f2';
+      context.lineWidth = 1.2;
+      context.beginPath();
+      context.moveTo(-8, 0);
+      context.lineTo(-11, -12);
+      context.stroke();
+      context.fillStyle = Math.sin(time * 6) > 0 ? SCENE.shield : '#ffffff';
+      context.beginPath();
+      context.arc(-11, -12, 1.8, 0, Math.PI * 2);
+      context.fill();
+    }
+    // 단말 머리(작은 모니터 + 프롬프트)
+    context.fillStyle = '#2c3866';
+    context.strokeStyle = gold;
+    context.lineWidth = 1.5;
+    roundedRect(context, -7, -7, 14, 9, 2);
+    context.fill();
+    context.stroke();
+    context.fillStyle = ready ? '#7dffc4' : 'rgba(125, 255, 196, 0.35)';
+    context.font = canvasFont(6, 'code', 700);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(Math.sin(time * 5) > 0 ? '>_' : '> ', 0, -2.5);
+    // 포신(레벨별)
+    context.save();
+    context.translate(0, -3);
+    context.rotate(motion.aim);
+    const barrels = level >= 3 ? [-5, -1.7, 1.7, 5] : level >= 2 ? [-3.5, 0, 3.5] : [-2.6, 2.6];
+    for (const offset of barrels) {
+      const recoil = fired * 3;
+      context.fillStyle = level >= 3 ? '#fff4d0' : '#d8f6ff';
+      roundedRect(context, 6 - recoil, offset - 1.2, 11 + level, 2.4, 1.2);
+      context.fill();
+      context.fillStyle = ready ? SCENE.shield : 'rgba(54, 226, 255, 0.3)';
+      context.beginPath();
+      context.arc(17 + level - recoil, offset, 1.4, 0, Math.PI * 2);
+      context.fill();
+    }
+    if (fired > 0) {
+      context.globalCompositeOperation = 'lighter';
+      context.fillStyle = `rgba(160, 240, 255, ${fired})`;
+      context.beginPath();
+      context.arc(19 + level, 0, 4 + fired * 6, 0, Math.PI * 2);
+      context.fill();
+      context.globalCompositeOperation = 'source-over';
+    }
+    context.restore();
+    if (level >= 3) {
+      context.save();
+      context.translate(0, 26);
+      context.scale(0.7, 0.7);
+      this.drawCrownHalo(context, SCENE.shield);
+      context.restore();
+    }
+    // 레벨 별(포탑 아래)
+    context.font = canvasFont(8, 'ui', 700);
+    context.fillStyle = '#ffd166';
+    context.fillText('★'.repeat(level) + '☆'.repeat(COMPUTER_LEVELS_COUNT - level), 0, 13);
+    context.restore();
+  }
+
+  // 날아가는 코드 조각: 친 낱말(또는 patch() 같은 조각)이 빙글 돌며 포물선으로 날아가고, 뒤로 작은 글자 꼬리가 남는다.
+  // 닿으면(landGuardShots) guard-hit 이벤트에서 글자 파편으로 흩어진다
+  drawGuardShot(context, shot, engine) {
+    const flight = engine.gameTime - shot.at;
+    const total = shot.hitAt - shot.at;
+    if (shot.landed || flight > total + 0.05) return;
+    const unit = this.unit();
+    const from = this.toScreen(COMPUTER_GUARD);
+    const to = this.toScreen(shot);
+    const path = progress => ({
+      x: from.x + (to.x - from.x) * progress,
+      y: from.y - 6 * unit + (to.y - from.y + 6 * unit) * progress - 34 * unit * Math.sin(progress * Math.PI)
+    });
+    const travel = Math.min(1, flight / total);
+    context.save();
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    // 꼬리: 글자 하나씩 뒤처지며 흐려짐
+    const characters = [...shot.text];
+    for (let index = 1; index <= Math.min(5, characters.length); index++) {
+      const point = path(Math.max(0, travel - index * 0.06));
+      context.globalAlpha = 0.5 - index * 0.08;
+      context.font = canvasFont(Math.round(10 - index), 'code', 700);
+      context.fillStyle = SCENE.shield;
+      context.fillText(characters[characters.length - index] ?? '', point.x, point.y);
+    }
+    const head = path(travel);
+    context.globalAlpha = 1;
+    context.translate(head.x, head.y);
+    context.rotate(Math.sin(flight * 14) * 0.35);
+    context.font = canvasFont(Math.round(12 * Math.min(1.2, unit + 0.2)), 'code', 700);
+    const width = context.measureText(shot.text).width;
+    context.fillStyle = 'rgba(10, 30, 40, 0.75)';
+    roundedRect(context, -width / 2 - 4, -8, width + 8, 16, 5);
+    context.fill();
+    context.strokeStyle = SCENE.shield;
+    context.lineWidth = 1;
+    context.stroke();
+    context.shadowColor = SCENE.shield;
+    context.shadowBlur = 10;
+    context.fillStyle = '#bff6ff';
+    context.fillText(shot.text, 0, 0.5);
+    context.restore();
+  }
+
   // EMP 폭발(스플래시 반경 그대로): 하얀 섬광 → 보라 충격파 고리 둘이 반경까지 퍼지고, 안쪽에 번개 줄기가 튄다. 반경 바닥에 원형 표시
   drawEmpBlasts(context) {
     if (!this.empBlasts.length) return;
@@ -2872,6 +3061,7 @@ export class DefenseRenderer {
   drawUpgradeCard(context, engine) {
     this.cardButtons = [];
     this.cardRect = null;
+    if (this.selectedTowerId === 'computer') return this.drawComputerCard(context, engine);
     const tower = engine.towers.find(entry => entry.id === this.selectedTowerId);
     if (!tower) {
       this.selectedTowerId = null;
@@ -2933,6 +3123,63 @@ export class DefenseRenderer {
     context.fillText(`판매 +${engine.sellValue(tower)}`, sell.x + sell.width / 2, sell.y + sell.height / 2 + 0.5);
     context.restore();
     this.cardButtons = [{ action: 'upgrade', rect: upgrade }, { action: 'sell', rect: sell }];
+  }
+
+  // 누른 점이 컴퓨터(돔 안 책상·포탑 둘레)인가
+  isComputerAt(screenX, screenY) {
+    const unit = this.unit();
+    const guard = this.toScreen(COMPUTER_GUARD);
+    const desk = this.computerPosition();
+    const near = (point, rx, ry) => ((screenX - point.x) / rx) ** 2 + ((screenY - point.y) / ry) ** 2 <= 1;
+    return near(guard, 26 * unit, 22 * unit) || near(desk, 60 * unit, 46 * unit);
+  }
+
+  // 컴퓨터 강화 카드: 레벨 별, 다음 레벨(대공 사거리·연사·체력, Lv.3 특수 능력), [강화] 버튼 하나
+  drawComputerCard(context, engine) {
+    const info = engine.computerUpgradeInfo();
+    const guard = this.toScreen(COMPUTER_GUARD);
+    const field = this.field();
+    const unit = this.unit();
+    const width = 220, height = 78;
+    // 옆에 자리가 있으면 포탑 오른쪽(없으면 왼쪽), 둘 다 없으면(좁은 화면) 위
+    const besideRight = guard.x + 70 * unit;
+    const besideLeft = guard.x - 70 * unit - width;
+    const fitsRight = besideRight + width <= field.left + field.width;
+    const fitsLeft = besideLeft >= field.left;
+    const left = fitsRight ? besideRight : fitsLeft ? besideLeft : Math.max(field.left, Math.min(field.left + field.width - width, guard.x - width / 2));
+    const top = fitsRight || fitsLeft ? Math.max(HUD_HEIGHT + 6, guard.y - height / 2) : Math.max(HUD_HEIGHT + 6, guard.y - 40 * unit - height);
+    context.save();
+    context.fillStyle = 'rgba(12, 16, 32, 0.95)';
+    roundedRect(context, left, top, width, height, 10);
+    context.fill();
+    context.strokeStyle = SCENE.shield;
+    context.lineWidth = 1.5;
+    context.stroke();
+    this.cardRect = { x: left, y: top, width, height };
+    context.textBaseline = 'middle';
+    context.textAlign = 'left';
+    context.font = canvasFont(13, 'ui', 700);
+    context.fillStyle = SCENE.shield;
+    context.fillText('🖥 컴퓨터', left + 10, top + 14);
+    context.fillStyle = '#ffd166';
+    context.fillText('★'.repeat(info.level) + '☆'.repeat(COMPUTER_LEVELS_COUNT - info.level), left + 80, top + 14);
+    context.font = canvasFont(10, 'ui', 600);
+    context.fillStyle = SCENE.fog;
+    const detail = info.maxed
+      ? `MAX · ${info.current.perk ?? ''}`
+      : `Lv.${info.level + 1} → 대공 사거리·연사 ↑ · 체력 +${info.next.bonusHealth - info.current.bonusHealth}${info.next.perk ? ` · ${info.next.perk}` : ''}`;
+    context.fillText(detail, left + 10, top + 32);
+    const upgrade = { x: left + 8, y: top + 44, width: width - 16, height: 26 };
+    context.globalAlpha = info.maxed ? 0.35 : info.affordable ? 1 : 0.5;
+    context.fillStyle = info.maxed ? '#2a3152' : '#ffd166';
+    roundedRect(context, upgrade.x, upgrade.y, upgrade.width, upgrade.height, 7);
+    context.fill();
+    context.fillStyle = '#1a1406';
+    context.font = canvasFont(12, 'ui', 700);
+    context.textAlign = 'center';
+    context.fillText(info.maxed ? 'MAX' : `▲ 컴퓨터 강화 ${info.price}🪙`, upgrade.x + upgrade.width / 2, upgrade.y + upgrade.height / 2 + 0.5);
+    context.restore();
+    this.cardButtons = [{ action: 'upgrade', rect: upgrade }];
   }
 
   // 상점 줄: 누를 수 있는 칸 4개 [숫자 키] 아이콘 이름 가격. 코인이 모자라면 흐리게, 고른 타워는 테두리
