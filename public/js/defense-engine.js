@@ -106,7 +106,7 @@ export const BUG_TYPES = ATTACK_TYPES;
 export const TOWER_TYPES = Object.freeze({
   firewall: Object.freeze({ label: '방화벽', word: 'firewall', price: 120, cooldown: 3, range: 0.26, slow: 0.65, targets: 'ground' }),
   antivirus: Object.freeze({ label: '백신', word: 'antivirus', price: 200, cooldown: 1.8, range: 0.32, slow: 1, targets: 'ground' }),
-  interceptor: Object.freeze({ label: '요격포', word: 'interceptor', price: 180, cooldown: 1.1, range: 0.34, slow: 1, targets: 'air' })
+  interceptor: Object.freeze({ label: '요격포', word: 'interceptor', price: 180, cooldown: 1.1, range: 0.44, slow: 1, targets: 'all' })
 });
 export const SHOP_ITEMS = Object.freeze({
   firewall: Object.freeze({ kind: 'tower', tower: 'firewall', word: 'firewall' }),
@@ -371,8 +371,17 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   // 타워가 이 공격을 맞힐 수 있나: 지상 타워는 지상만, 요격포는 공중만. 잠긴 타워는 못 쏜다
+  // 노리는 대상: 'ground'(땅만) · 'air'(공중만) · 'all'(둘 다)
   canTarget(tower, bug) {
-    return (TOWER_TYPES[tower.type].targets === 'air') === Boolean(bug.air);
+    const targets = TOWER_TYPES[tower.type].targets;
+    if (targets === 'all') return true;
+    return (targets === 'air') === Boolean(bug.air);
+  }
+
+  // 표적 우선순위: 컴퓨터에 가까울수록 높고, 요격포(공중·지상 모두)는 공중 적을 먼저 노린다
+  targetPriority(tower, bug) {
+    const airFirst = TOWER_TYPES[tower.type].targets === 'all' && bug.air ? 1 : 0;
+    return airFirst + bug.progress;
   }
 
   inRange(tower, bug) {
@@ -423,7 +432,7 @@ export class DefenseEngine extends TargetGameEngine {
       if (this.gameTime < tower.readyAt || this.gameTime < (tower.lockedUntil ?? 0)) continue;
       const target = this.bugs
         .filter(bug => bug.state === 'alive' && bug.hp > 0 && this.canTarget(tower, bug) && this.inRange(tower, bug))
-        .sort((first, second) => second.progress - first.progress)[0];
+        .sort((first, second) => this.targetPriority(tower, second) - this.targetPriority(tower, first))[0];
       if (!target) continue;
       tower.readyAt = this.gameTime + TOWER_TYPES[tower.type].cooldown * 0.75 ** (tower.level - 1);
       this.towerShots.push({ towerId: tower.id, fromX: tower.x, fromY: tower.y, bugId: target.id, x: target.x, y: target.y, at: this.gameTime, type: tower.type });

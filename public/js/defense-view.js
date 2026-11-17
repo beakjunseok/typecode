@@ -181,7 +181,7 @@ export class DefenseRenderer {
     } else if (type === 'boss-phase') {
       this.banner = { text: `PHASE 2 · ${payload.label}`, sub: `${ATTACK_TYPES[payload.bug.type].label}이(가) 폭주합니다! 졸개를 부르고 타워를 잠가요`, at: now, color: '#ff4dd2' };
     } else if (type === 'air-warning') {
-      this.banner = { text: 'AIR RAID!', sub: '드론은 길을 무시해요 · 요격포(3)만 떨어뜨릴 수 있어요', at: now, color: TOWER_STYLE.interceptor };
+      this.banner = { text: 'AIR RAID!', sub: '드론은 길을 무시해요 · 요격포(3)만 떨어뜨릴 수 있어요(요격포는 땅도 쏴요)', at: now, color: TOWER_STYLE.interceptor };
     } else if (type === 'boss-appear') {
       this.banner = { text: 'RANSOMWARE!', sub: '여러 번 맞혀야 하는 랜섬웨어가 옵니다', at: now, color: SCENE.danger };
     }
