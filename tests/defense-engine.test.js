@@ -176,10 +176,18 @@ test('허니팟: 길에 끈끈이 웅덩이 → 위의 지상 적 모두 감속 
   first.x = second.x = puddle.x;
   first.y = second.y = puddle.y;
   assert.ok(engine.slowFactor(first) <= towerStats('honeypot', 1).puddle.slow, '웅덩이 위는 느리다');
+  first.steppedPuddles = new Set();
+  second.steppedPuddles = new Set();
+  first.hp = first.maxHp = second.hp = second.maxHp = 20;
   const before = [first.hp, second.hp];
+  const stats = towerStats('honeypot', 1).puddle;
+  assert.ok(stats.slow <= 0.35, '꿀 위는 많이 느리다');
   engine.applyLingeringDamage(1);
   assert.ok(first.hp < before[0] && second.hp < before[1], '광역 지속 피해');
-  assert.ok(Math.abs(before[0] - first.hp - towerStats('honeypot', 1).puddle.dps) < 1e-9);
+  assert.ok(Math.abs(before[0] - first.hp - stats.dps - stats.stepDamage) < 1e-9, '처음 밟을 때 밟음 피해 + 지속 피해');
+  const afterFirst = first.hp;
+  engine.applyLingeringDamage(1);
+  assert.ok(Math.abs(afterFirst - first.hp - stats.dps) < 1e-9, '밟음 피해는 웅덩이마다 한 번');
   const drone = engine.spawnBug('drone');
   drone.x = puddle.x; drone.y = puddle.y;
   assert.equal(engine.activePuddlesUnder(drone).length, 0, '공중은 안 밟는다');
@@ -192,6 +200,27 @@ test('허니팟: 길에 끈끈이 웅덩이 → 위의 지상 적 모두 감속 
   engine.applyLingeringDamage(1);
   assert.ok(hp - burning.hp >= burning.burnDps - 1e-9, '화상 지속 피해');
   assert.ok(towerStats('honeypot', 3).puddle.slow < towerStats('honeypot', 2).puddle.slow, 'Lv.3 초강력 끈끈이');
+});
+
+test('EMP포: 떨어진 곳 반경 안의 지상 적 모두에게 피해(스플래시), Lv.3은 반경 1.5배', () => {
+  const { engine, events } = setup();
+  engine.coins = 100000;
+  engine.phase = 'spawning';
+  engine.phaseUntil = Infinity;
+  engine.nextSpawnAt = Infinity;
+  const group = [0, 1, 2].map(() => engine.spawnBug('malware'));
+  const far = engine.spawnBug('malware');
+  for (const bug of [...group, far]) bug.hp = bug.maxHp = 10;
+  group.forEach((bug, index) => { bug.progress = 0.3; bug.x = 0.5 + index * 0.01; bug.y = 0.16; });
+  far.x = 0.92; far.y = 0.5; far.progress = 0.1;
+  engine.selectShopItem('emp');
+  const { tower } = engine.placeAtPoint({ x: 0.5, y: 0.27 });
+  tower.readyAt = 0;
+  engine.fireTowers();
+  assert.ok(group.every(bug => bug.hp === 9), '무리 전체가 맞는다');
+  assert.equal(far.hp, 10, '반경 밖은 안 맞는다');
+  assert.ok(events.some(event => event.type === 'splash' && event.payload.hits === 3));
+  assert.ok(Math.abs(towerStats('emp', 3).splash / towerStats('emp', 2).splash - 1.5 * 1.2 / 1.1) < 1e-9);
 });
 
 test('가격과 성능: 요격포가 백신보다 강하고(사거리·화력·공중) 더 비싸다', () => {

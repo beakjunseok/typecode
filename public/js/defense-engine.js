@@ -110,8 +110,9 @@ export const BUG_TYPES = ATTACK_TYPES;
 // 백신 = 지상 가성비(코인당 화력 최고), 요격포 = 사거리·화력·공중 모두 위지만 가장 비쌈. 강화는 TOWER_LEVELS
 export const TOWER_TYPES = Object.freeze({
   firewall: Object.freeze({ label: '방화벽', word: 'firewall', price: 120, cooldown: 3, range: 0.26, slow: 0.65, targets: 'ground', damage: 0.6, burn: Object.freeze({ seconds: 2.5, dps: 0.4 }) }),
-  honeypot: Object.freeze({ label: '허니팟', word: 'honeypot', price: 150, cooldown: 3.5, range: 0.3, slow: 1, targets: 'ground', damage: 0, puddle: Object.freeze({ radius: 0.07, seconds: 4, slow: 0.5, dps: 0.35 }) }),
+  honeypot: Object.freeze({ label: '허니팟', word: 'honeypot', price: 150, cooldown: 3.5, range: 0.3, slow: 1, targets: 'ground', damage: 0, puddle: Object.freeze({ radius: 0.07, seconds: 4, slow: 0.35, dps: 0.5, stepDamage: 0.5 }) }),
   antivirus: Object.freeze({ label: '백신', word: 'antivirus', price: 200, cooldown: 1.5, range: 0.32, slow: 1, targets: 'ground', damage: 1 }),
+  emp: Object.freeze({ label: 'EMP포', word: 'emp', price: 250, cooldown: 2.4, range: 0.34, slow: 1, targets: 'ground', damage: 1, splash: 0.085 }),
   interceptor: Object.freeze({ label: '요격포', word: 'interceptor', price: 300, cooldown: 1.1, range: 0.44, slow: 1, targets: 'all', damage: 1 })
 });
 // 강화 단계(Lv.1~3): 사거리 더하기, 쏘는 간격 배율. Lv.3은 타워별 특수 능력(TOWER_MAX_PERKS)
@@ -124,8 +125,9 @@ export const TOWER_LEVELS = Object.freeze([
 // Lv.3 특수 능력: 방화벽 = 감속 0.45 · 허니팟 = 웅덩이 감속 0.3 · 백신 = 한 발에 2 피해 · 요격포 = 두 표적 동시 발사
 export const TOWER_MAX_PERKS = Object.freeze({
   firewall: Object.freeze({ slow: 0.45, label: '강한 감속' }),
-  honeypot: Object.freeze({ puddleSlow: 0.3, label: '초강력 끈끈이' }),
+  honeypot: Object.freeze({ puddleSlow: 0.2, label: '초강력 끈끈이' }),
   antivirus: Object.freeze({ damage: 2, label: '2배 피해' }),
+  emp: Object.freeze({ splashFactor: 1.5, label: '광역 EMP' }),
   interceptor: Object.freeze({ shots: 2, label: '2발 동시 발사' })
 });
 
@@ -138,15 +140,17 @@ export function towerStats(type, level) {
   const grow = 1 + 0.3 * (level - 1);
   const burn = config.burn ? { seconds: config.burn.seconds, dps: config.burn.dps * grow } : null;
   const puddle = config.puddle
-    ? { radius: config.puddle.radius * (1 + 0.15 * (level - 1)), seconds: config.puddle.seconds + (level - 1), slow: perk.puddleSlow ?? config.puddle.slow, dps: config.puddle.dps * grow }
+    ? { radius: config.puddle.radius * (1 + 0.15 * (level - 1)), seconds: config.puddle.seconds + (level - 1), slow: perk.puddleSlow ?? config.puddle.slow, dps: config.puddle.dps * grow, stepDamage: config.puddle.stepDamage * grow }
     : null;
-  return { range: config.range + step.range, cooldown: config.cooldown * step.cooldown, slow, damage: perk.damage ?? config.damage ?? 1, shots: perk.shots ?? 1, burn, puddle };
+  const splash = config.splash ? config.splash * (1 + 0.1 * (level - 1)) * (perk.splashFactor ?? 1) : 0;
+  return { range: config.range + step.range, cooldown: config.cooldown * step.cooldown, slow, damage: perk.damage ?? config.damage ?? 1, shots: perk.shots ?? 1, burn, puddle, splash };
 }
 
 export const SHOP_ITEMS = Object.freeze({
   firewall: Object.freeze({ kind: 'tower', tower: 'firewall', word: 'firewall' }),
   honeypot: Object.freeze({ kind: 'tower', tower: 'honeypot', word: 'honeypot' }),
   antivirus: Object.freeze({ kind: 'tower', tower: 'antivirus', word: 'antivirus' }),
+  emp: Object.freeze({ kind: 'tower', tower: 'emp', word: 'emp' }),
   interceptor: Object.freeze({ kind: 'tower', tower: 'interceptor', word: 'interceptor' }),
   patch: Object.freeze({ kind: 'repair', word: 'patch', price: 80 })
 });
@@ -400,15 +404,26 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   // 방화벽 사거리 안이면 느려진다(가장 강한 감속 하나만)
-  // 지속 피해: 화상(방화벽에 맞은 뒤 몇 초) + 끈끈이 웅덩이(위에 있는 지상 적 모두). 웅덩이는 시간이 지나면 마른다. O(적 × 웅덩이)
+  // 지속 피해: 화상(방화벽에 맞은 뒤 몇 초) + 끈끈이 웅덩이(위에 있는 지상 적 모두).
+  // 웅덩이에 처음 발을 디디면 밟음 피해를 한 번 바로 준다(맞음 알림 → 번쩍). 웅덩이는 시간이 지나면 마른다. O(적 × 웅덩이)
   applyLingeringDamage(frameSeconds) {
     this.puddles = this.puddles.filter(puddle => this.gameTime < puddle.until);
     for (const bug of this.bugs) {
       if (bug.state !== 'alive') continue;
       let damage = 0;
       if (this.gameTime < (bug.burnUntil ?? 0)) damage += (bug.burnDps ?? 0) * frameSeconds;
-      for (const puddle of this.activePuddlesUnder(bug)) damage += puddle.dps * frameSeconds;
-      if (damage > 0) this.damageBug(bug, 'dot', damage);
+      const under = this.activePuddlesUnder(bug);
+      bug.steppedPuddles ??= new Set();
+      for (const puddle of under) {
+        damage += puddle.dps * frameSeconds;
+        if (!bug.steppedPuddles.has(puddle.id)) {
+          bug.steppedPuddles.add(puddle.id);
+          this.emit('honey-step', { bug, puddle });
+          this.damageBug(bug, 'honey', puddle.stepDamage ?? 0);
+          if (bug.state !== 'alive' || this.status !== 'running') break;
+        }
+      }
+      if (bug.state === 'alive' && damage > 0) this.damageBug(bug, 'dot', damage);
     }
   }
 
@@ -500,7 +515,7 @@ export class DefenseEngine extends TargetGameEngine {
         this.emit('tower-shot', { tower, bug: target });
         if (stats.puddle) {
           // 허니팟: 표적 발밑(길 위)에 끈끈이를 던진다. 0.35초 날아가 떨어진 뒤부터 효과
-          const puddle = { id: this.nextId++, towerId: tower.id, x: target.x, y: target.y, radius: stats.puddle.radius, slow: stats.puddle.slow, dps: stats.puddle.dps, activeAt: this.gameTime + 0.35, until: this.gameTime + 0.35 + stats.puddle.seconds, level: tower.level };
+          const puddle = { id: this.nextId++, towerId: tower.id, x: target.x, y: target.y, radius: stats.puddle.radius, slow: stats.puddle.slow, dps: stats.puddle.dps, stepDamage: stats.puddle.stepDamage, activeAt: this.gameTime + 0.35, until: this.gameTime + 0.35 + stats.puddle.seconds, level: tower.level };
           this.puddles.push(puddle);
           this.emit('puddle', { tower, puddle });
           continue;
@@ -509,6 +524,17 @@ export class DefenseEngine extends TargetGameEngine {
           const stillBurning = this.gameTime < (target.burnUntil ?? 0);
           target.burnDps = Math.max(stillBurning ? target.burnDps ?? 0 : 0, stats.burn.dps);
           target.burnUntil = this.gameTime + stats.burn.seconds;
+        }
+        if (stats.splash > 0) {
+          // EMP: 떨어진 곳 반경 안의 (이 타워가 맞힐 수 있는) 적 모두에게 같은 피해
+          const center = { x: target.x, y: target.y };
+          const hits = this.bugs.filter(bug => bug.state === 'alive' && this.canTarget(tower, bug) && Math.hypot((bug.x - center.x) / 0.6, bug.y - center.y) <= stats.splash);
+          this.emit('splash', { tower, x: center.x, y: center.y, radius: stats.splash, hits: hits.length });
+          for (const bug of hits) {
+            this.damageBug(bug, 'tower', stats.damage);
+            if (this.status !== 'running') return;
+          }
+          continue;
         }
         if (stats.damage > 0) this.damageBug(target, 'tower', stats.damage);
         if (this.status !== 'running') return;

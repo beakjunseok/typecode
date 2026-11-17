@@ -34,9 +34,9 @@ const BUG_STYLE = Object.freeze({
   ransomware: { body: '#ff4d6d', dark: '#6a0f24', size: 28 },
   rootkit: { body: '#39ff88', dark: '#0b3d22', size: 34 }
 });
-const TOWER_STYLE = Object.freeze({ firewall: '#ff7a45', honeypot: '#f5b82e', antivirus: '#36e2ff', interceptor: '#c3ff4d' });
-const SHOP_LABELS = Object.freeze({ firewall: '방화벽', honeypot: '허니팟', antivirus: '백신', interceptor: '요격포', patch: '수리' });
-const SHOP_ICONS = Object.freeze({ firewall: '🧱', honeypot: '🍯', antivirus: '💊', interceptor: '🚀', patch: '🔧' });
+const TOWER_STYLE = Object.freeze({ firewall: '#ff7a45', honeypot: '#f5b82e', antivirus: '#36e2ff', emp: '#b38cff', interceptor: '#c3ff4d' });
+const SHOP_LABELS = Object.freeze({ firewall: '방화벽', honeypot: '허니팟', antivirus: '백신', emp: 'EMP포', interceptor: '요격포', patch: '수리' });
+const SHOP_ICONS = Object.freeze({ firewall: '🧱', honeypot: '🍯', antivirus: '💊', emp: '⚡', interceptor: '🚀', patch: '🔧' });
 const HONEY = Object.freeze({ light: '#ffe08a', body: '#f5b82e', dark: '#a8660c', glass: 'rgba(255, 210, 120, 0.35)' });
 
 export class DefenseRenderer {
@@ -60,6 +60,7 @@ export class DefenseRenderer {
     this.cardButtons = [];
     this.cardRect = null;
     this.explosions = [];
+    this.empBlasts = [];
   }
 
   // 강화 카드를 띄울 타워 고르기(null = 닫기)
@@ -205,7 +206,7 @@ export class DefenseRenderer {
     } else if (type === 'boss-phase') {
       this.banner = { text: `PHASE 2 · ${payload.label}`, sub: `${ATTACK_TYPES[payload.bug.type].label}이(가) 폭주합니다! 졸개를 부르고 타워를 잠가요`, at: now, color: '#ff4dd2' };
     } else if (type === 'air-warning') {
-      this.banner = { text: 'AIR RAID!', sub: '드론은 길을 무시해요 · 요격포(4)만 떨어뜨릴 수 있어요(요격포는 땅도 쏴요)', at: now, color: TOWER_STYLE.interceptor };
+      this.banner = { text: 'AIR RAID!', sub: '드론은 길을 무시해요 · 요격포(5)만 떨어뜨릴 수 있어요(요격포는 땅도 쏴요)', at: now, color: TOWER_STYLE.interceptor };
     } else if (type === 'boss-appear') {
       this.banner = { text: 'RANSOMWARE!', sub: '여러 번 맞혀야 하는 랜섬웨어가 옵니다', at: now, color: SCENE.danger };
     }
@@ -266,6 +267,14 @@ export class DefenseRenderer {
       // 충전 단계: 작은 빛 + 금가루가 타워로 빨려 든다(변신 터짐은 drawTower가 0.45초에 낸다)
       const { x, y } = this.towerPosition(payload.tower);
       this.spawnChargeMotes(x, y - 8 * this.unit(), TOWER_STYLE[payload.tower.type]);
+    } else if (type === 'splash') {
+      // 포탄이 날아가는 0.15초 뒤에 터진다
+      const center = this.toScreen(payload);
+      this.empBlasts.push({ x: center.x, y: center.y, radiusY: payload.radius * this.field().height, at: now + 0.15, level: payload.tower.level, seed: Math.random() * 10, burst: false });
+      if (this.empBlasts.length > 16) this.empBlasts.shift();
+    } else if (type === 'honey-step') {
+      const { x, y } = this.bugPosition(payload.bug);
+      this.particles.burst(x, y + 8 * this.unit(), { color: HONEY.body, count: 8, speed: 90, life: 0.35, gravity: 300, size: 2.5 });
     } else if (type === 'puddle') {
       const from = this.towerPosition(payload.tower);
       this.particles.burst(from.x, from.y - 14 * this.unit(), { color: HONEY.body, count: 5, speed: 70, life: 0.3, size: 2 });
@@ -331,6 +340,7 @@ export class DefenseRenderer {
     for (const bug of engine.bugs) if (bug.air) this.drawBug(context, bug, engine);
     this.drawDebris(context, frameSeconds);
     this.drawExplosions(context);
+    this.drawEmpBlasts(context);
     this.drawLockBeams(context);
     this.particles.draw(context);
     this.juice.endShake(context);
@@ -1064,6 +1074,7 @@ export class DefenseRenderer {
       this.drawEnergyRing(context, color, tower, time, engine);
       if (tower.type === 'firewall') this.drawFirewall(context, view, engine, fired);
       else if (tower.type === 'honeypot') this.drawHoneypot(context, view, engine, fired);
+      else if (tower.type === 'emp') this.drawEmp(context, view, engine, fired);
       else if (tower.type === 'interceptor') this.drawInterceptor(context, view, engine, fired);
       else this.drawAntivirus(context, view, engine, fired);
       if (shownLevel >= DEFENSE_RULES.maxTowerLevel) this.drawCrownHalo(context, color);
@@ -1337,6 +1348,7 @@ export class DefenseRenderer {
       this.drawTowerBase(context, color, 1);
       if (mode.tower === 'firewall') this.drawFirewall(context, { level: 1, id: 0 }, engine, 0);
       else if (mode.tower === 'honeypot') this.drawHoneypot(context, { level: 1, id: 0 }, engine, 0);
+      else if (mode.tower === 'emp') this.drawEmp(context, { level: 1, id: 0 }, engine, 0);
       else if (mode.tower === 'interceptor') this.drawInterceptor(context, { level: 1, viewAngle: -Math.PI / 2 }, engine, 0);
       else this.drawAntivirus(context, { level: 1, viewAngle: -Math.PI / 2 }, engine, 0);
     } else {
@@ -2407,6 +2419,22 @@ export class DefenseRenderer {
         shot.exploded = true;
         this.spawnExplosion(to.x, to.y, shot.level ?? 1);
       }
+    } else if (shot.type === 'emp') {
+      // EMP 포탄: 보라 전기 구체가 높은 포물선으로 날아간다(0.15초)
+      const unit = this.unit();
+      const travel = Math.min(1, age / 0.5);
+      if (travel < 1) {
+        const px = from.x + (to.x - from.x) * travel;
+        const py = from.y - 20 * unit + (to.y - from.y + 20 * unit) * travel - 50 * unit * Math.sin(travel * Math.PI);
+        const orb = context.createRadialGradient(px, py, 0, px, py, 9 * unit);
+        orb.addColorStop(0, '#ffffff');
+        orb.addColorStop(0.4, 'rgba(179, 140, 255, 0.95)');
+        orb.addColorStop(1, 'rgba(120, 80, 255, 0)');
+        context.fillStyle = orb;
+        context.beginPath();
+        context.arc(px, py, 9 * unit, 0, Math.PI * 2);
+        context.fill();
+      }
     } else if (shot.type === 'honeypot') {
       // 꿀 덩어리: 포물선으로 날아가 길에 철퍽
       const unit = this.unit();
@@ -2453,6 +2481,153 @@ export class DefenseRenderer {
       context.fill();
     }
     context.restore();
+  }
+
+  // EMP 폭발(스플래시 반경 그대로): 하얀 섬광 → 보라 충격파 고리 둘이 반경까지 퍼지고, 안쪽에 번개 줄기가 튄다. 반경 바닥에 원형 표시
+  drawEmpBlasts(context) {
+    if (!this.empBlasts.length) return;
+    const now = wallSeconds();
+    this.empBlasts = this.empBlasts.filter(blast => now - blast.at < 0.6);
+    context.save();
+    for (const blast of this.empBlasts) {
+      const age = now - blast.at;
+      if (age < 0) continue;
+      const progress = age / 0.6;
+      const radiusY = blast.radiusY;
+      const radiusX = radiusY * 1.25;
+      if (!blast.burst) {
+        blast.burst = true;
+        this.particles.burst(blast.x, blast.y, { color: '#b38cff', count: 14 + blast.level * 4, speed: 220, life: 0.4, size: 2 });
+        this.particles.burst(blast.x, blast.y, { color: '#ffffff', count: 6, speed: 300, life: 0.25, size: 1.5 });
+        this.juice.shake(0.08 + blast.level * 0.03);
+      }
+      // 바닥 범위 원
+      context.globalCompositeOperation = 'lighter';
+      context.fillStyle = `rgba(179, 140, 255, ${0.22 * (1 - progress)})`;
+      context.beginPath();
+      context.ellipse(blast.x, blast.y, radiusX, radiusY * 0.62, 0, 0, Math.PI * 2);
+      context.fill();
+      // 충격파 고리 둘
+      for (const delay of [0, 0.12]) {
+        const ringProgress = Math.min(1, Math.max(0, (age - delay) / 0.3));
+        if (ringProgress <= 0) continue;
+        context.strokeStyle = `rgba(210, 190, 255, ${0.9 * (1 - ringProgress)})`;
+        context.lineWidth = 3 * (1 - ringProgress) + 1;
+        context.beginPath();
+        context.ellipse(blast.x, blast.y, radiusX * ringProgress, radiusY * 0.62 * ringProgress, 0, 0, Math.PI * 2);
+        context.stroke();
+      }
+      // 섬광
+      if (age < 0.12) {
+        const flash = context.createRadialGradient(blast.x, blast.y, 0, blast.x, blast.y, radiusY * 0.6);
+        flash.addColorStop(0, `rgba(255, 255, 255, ${1 - age / 0.12})`);
+        flash.addColorStop(1, 'rgba(179, 140, 255, 0)');
+        context.fillStyle = flash;
+        context.beginPath();
+        context.arc(blast.x, blast.y, radiusY * 0.6, 0, Math.PI * 2);
+        context.fill();
+      }
+      // 번개 줄기(지그재그, 매 프레임 조금씩 달라짐)
+      if (progress < 0.6) {
+        context.strokeStyle = `rgba(230, 220, 255, ${0.9 * (1 - progress / 0.6)})`;
+        context.lineWidth = 1.5;
+        const bolts = 5 + blast.level;
+        for (let bolt = 0; bolt < bolts; bolt++) {
+          const angle = blast.seed + bolt / bolts * Math.PI * 2;
+          context.beginPath();
+          context.moveTo(blast.x, blast.y);
+          for (let step = 1; step <= 4; step++) {
+            const reach = step / 4;
+            const jitter = (Math.sin(now * 60 + bolt * 7 + step * 3) * 0.35);
+            context.lineTo(blast.x + Math.cos(angle + jitter) * radiusX * reach, blast.y + Math.sin(angle + jitter) * radiusY * 0.62 * reach);
+          }
+          context.stroke();
+        }
+      }
+    }
+    context.restore();
+  }
+
+  // EMP포(레벨별 테슬라 코일): Lv.1 코일 기둥 + 고리 하나 · Lv.2 고리 셋 + 양옆 축전기(충전 눈금)
+  // Lv.3 꼭대기 위에 떠 있는 플라스마 구체 + 구체와 고리 사이를 잇는 번개. 쏠 때 고리가 하얗게 달아오른다
+  drawEmp(context, tower, engine, fired) {
+    const color = TOWER_STYLE.emp;
+    const level = tower.level ?? 1;
+    const time = wallSeconds();
+    const charge = engine.gameTime >= (tower.readyAt ?? 0) ? 1 : 0.5 + 0.5 * Math.sin(time * 6);
+    // 코일 기둥
+    const pillar = context.createLinearGradient(-5, 0, 5, 0);
+    pillar.addColorStop(0, '#3a2a6a');
+    pillar.addColorStop(0.5, '#8a6ad8');
+    pillar.addColorStop(1, '#3a2a6a');
+    context.fillStyle = pillar;
+    roundedRect(context, -5, -26, 10, 30, 3);
+    context.fill();
+    // 구리 감은 줄
+    context.strokeStyle = 'rgba(255, 180, 120, 0.7)';
+    context.lineWidth = 1;
+    for (let wrap = -24; wrap < 2; wrap += 3) {
+      context.beginPath();
+      context.moveTo(-5, wrap);
+      context.lineTo(5, wrap + 1.5);
+      context.stroke();
+    }
+    // 축전기(Lv.2+)
+    if (level >= 2) {
+      for (const side of [-1, 1]) {
+        context.fillStyle = '#251a46';
+        roundedRect(context, side * 13 - 4, -12, 8, 16, 2);
+        context.fill();
+        context.strokeStyle = level >= 3 ? '#ffd166' : 'rgba(255, 255, 255, 0.3)';
+        context.lineWidth = 1;
+        context.stroke();
+        context.fillStyle = color;
+        const fill = 12 * charge;
+        context.fillRect(side * 13 - 2, 2 - fill, 4, fill);
+      }
+    }
+    // 고리(위로 갈수록 작게). 쏠 때 하얗게
+    const rings = level >= 2 ? 3 : 1;
+    for (let ring = 0; ring < rings; ring++) {
+      const ringY = -24 + ring * 7;
+      const radius = 11 - ring * 1.5 + (rings === 1 ? 2 : 0);
+      context.strokeStyle = fired > 0 ? `rgba(255, 255, 255, ${0.6 + fired * 0.4})` : color;
+      context.shadowColor = color;
+      context.shadowBlur = 6 + fired * 12 + charge * 4;
+      context.lineWidth = 2.5;
+      context.beginPath();
+      context.ellipse(0, ringY, radius, radius * 0.35, 0, 0, Math.PI * 2);
+      context.stroke();
+    }
+    context.shadowBlur = 0;
+    // 꼭대기 구슬 / Lv.3 떠 있는 플라스마 구체
+    const orbY = level >= 3 ? -38 + Math.sin(time * 2.5) * 2 : -29;
+    const orbRadius = level >= 3 ? 6 : 4;
+    const orb = context.createRadialGradient(0, orbY, 0, 0, orbY, orbRadius * 2);
+    orb.addColorStop(0, '#ffffff');
+    orb.addColorStop(0.45, color);
+    orb.addColorStop(1, 'rgba(179, 140, 255, 0)');
+    context.globalCompositeOperation = 'lighter';
+    context.fillStyle = orb;
+    context.beginPath();
+    context.arc(0, orbY, orbRadius * 2, 0, Math.PI * 2);
+    context.fill();
+    // 작은 번개(구체 둘레 / Lv.3은 구체 ↔ 고리)
+    const sparks = level >= 3 ? 3 : 1;
+    context.strokeStyle = 'rgba(230, 220, 255, 0.85)';
+    context.lineWidth = 1;
+    for (let spark = 0; spark < sparks; spark++) {
+      if (Math.sin(time * 17 + spark * 2.3) < 0.2) continue;
+      const angle = time * 5 + spark * 2.1;
+      const endX = Math.cos(angle) * (level >= 3 ? 10 : 8);
+      const endY = level >= 3 ? -24 : orbY + Math.sin(angle) * 6;
+      context.beginPath();
+      context.moveTo(0, orbY);
+      context.lineTo((endX) * 0.5 + Math.sin(time * 40 + spark) * 3, (orbY + endY) / 2);
+      context.lineTo(endX, endY);
+      context.stroke();
+    }
+    context.globalCompositeOperation = 'source-over';
   }
 
   // 미사일 폭발 예약(화면 좌표). 레벨이 높을수록 크다
