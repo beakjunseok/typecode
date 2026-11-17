@@ -112,7 +112,7 @@ export const TOWER_TYPES = Object.freeze({
   firewall: Object.freeze({ label: '방화벽', word: 'firewall', price: 120, cooldown: 3, range: 0.26, slow: 0.65, targets: 'ground', damage: 0.6, burn: Object.freeze({ seconds: 2.5, dps: 0.4 }) }),
   honeypot: Object.freeze({ label: '허니팟', word: 'honeypot', price: 150, cooldown: 3.5, range: 0.3, slow: 1, targets: 'ground', damage: 0, puddle: Object.freeze({ radius: 0.07, seconds: 4, slow: 0.35, dps: 0.5, stepDamage: 0.5 }) }),
   antivirus: Object.freeze({ label: '백신', word: 'antivirus', price: 200, cooldown: 1.5, range: 0.32, slow: 1, targets: 'ground', damage: 1 }),
-  emp: Object.freeze({ label: 'EMP포', word: 'emp', price: 250, cooldown: 2.4, range: 0.34, slow: 1, targets: 'ground', damage: 1, splash: 0.085 }),
+  emp: Object.freeze({ label: 'EMP포', word: 'emp', price: 250, cooldown: 2.4, range: 0.34, slow: 1, targets: 'ground', damage: 1, splash: 0.085, airJam: Object.freeze({ seconds: 2.5, slow: 0.5, damageFactor: 0.5 }) }),
   interceptor: Object.freeze({ label: '요격포', word: 'interceptor', price: 300, cooldown: 1.1, range: 0.44, slow: 1, targets: 'all', damage: 1 })
 });
 // 강화 단계(Lv.1~3): 사거리 더하기, 쏘는 간격 배율. Lv.3은 타워별 특수 능력(TOWER_MAX_PERKS)
@@ -435,6 +435,7 @@ export class DefenseEngine extends TargetGameEngine {
 
   slowFactor(bug) {
     let factor = 1;
+    if (this.gameTime < (bug.jamUntil ?? 0)) factor = Math.min(factor, bug.jamSlow ?? 1);
     for (const puddle of this.activePuddlesUnder(bug)) factor = Math.min(factor, puddle.slow);
     for (const tower of this.towers) {
       const config = TOWER_TYPES[tower.type];
@@ -529,9 +530,21 @@ export class DefenseEngine extends TargetGameEngine {
           // EMP: 떨어진 곳 반경 안의 (이 타워가 맞힐 수 있는) 적 모두에게 같은 피해
           const center = { x: target.x, y: target.y };
           const hits = this.bugs.filter(bug => bug.state === 'alive' && this.canTarget(tower, bug) && Math.hypot((bug.x - center.x) / 0.6, bug.y - center.y) <= stats.splash);
-          this.emit('splash', { tower, x: center.x, y: center.y, radius: stats.splash, hits: hits.length });
+          // 반경 안의 공중 드론: 전자기 교란으로 몇 초 동안 느려지고, 피해는 지상의 절반
+          const airJam = TOWER_TYPES[tower.type].airJam;
+          const jammed = airJam ? this.bugs.filter(bug => bug.state === 'alive' && bug.air && Math.hypot((bug.x - center.x) / 0.6, bug.y - center.y) <= stats.splash) : [];
+          for (const bug of jammed) {
+            bug.jamUntil = this.gameTime + airJam.seconds;
+            bug.jamSlow = airJam.slow;
+            this.emit('air-jammed', { bug, seconds: airJam.seconds });
+          }
+          this.emit('splash', { tower, x: center.x, y: center.y, radius: stats.splash, hits: hits.length, jammed: jammed.length });
           for (const bug of hits) {
             this.damageBug(bug, 'tower', stats.damage);
+            if (this.status !== 'running') return;
+          }
+          for (const bug of jammed) {
+            this.damageBug(bug, 'tower', stats.damage * airJam.damageFactor);
             if (this.status !== 'running') return;
           }
           continue;

@@ -221,6 +221,14 @@ test('EMP포: 떨어진 곳 반경 안의 지상 적 모두에게 피해(스플�
   assert.equal(far.hp, 10, '반경 밖은 안 맞는다');
   assert.ok(events.some(event => event.type === 'splash' && event.payload.hits === 3));
   assert.ok(Math.abs(towerStats('emp', 3).splash / towerStats('emp', 2).splash - 1.5 * 1.2 / 1.1) < 1e-9);
+  const drone = engine.spawnBug('drone');
+  drone.hp = drone.maxHp = 10;
+  drone.x = group[0].x; drone.y = group[0].y;
+  tower.readyAt = 0;
+  engine.fireTowers();
+  assert.equal(drone.hp, 9.5, '드론은 절반 피해');
+  assert.ok(engine.slowFactor(drone) <= 0.5, '그리고 느려진다');
+  assert.ok(events.some(event => event.type === 'air-jammed'));
 });
 
 test('가격과 성능: 요격포가 백신보다 강하고(사거리·화력·공중) 더 비싸다', () => {
