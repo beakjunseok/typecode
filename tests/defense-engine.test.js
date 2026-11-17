@@ -246,9 +246,8 @@ test('컴퓨터 대공 포탑: 가까이 온 공중 적만 자동으로 쏜다',
   ground.hp = ground.maxHp = 5;
   drone.x = ground.x = COMPUTER_GUARD.x;
   drone.y = ground.y = COMPUTER_GUARD.y - 0.05;
-  engine.lastWord = 'const';
   engine.fireGuard();
-  assert.equal(engine.guardShots[0].text, 'const', '방금 친 낱말을 던진다');
+  assert.equal(engine.guardShots[0].text, '{ }', '초록 { } 패치를 쏜다');
   assert.equal(drone.hp, 5, '날아가는 중에는 아직');
   engine.gameTime += COMPUTER_GUARD.flightSeconds;
   engine.landGuardShots();
@@ -410,6 +409,24 @@ test('보스 레이저: 봇이 가까우면 조준(예고) 뒤 원거리 레이�
   engine.gameTime = boss.nextLaserAt;
   engine.bossLasersHitGuardian();
   assert.equal(boss.laserChargeAt, null, '멀면 안 쏜다');
+});
+
+test('EMP포는 공중 드론도 직접 겨냥한다(드론만 있어도 쏨)', () => {
+  const { engine, events } = setup();
+  engine.coins = 100000;
+  engine.phase = 'spawning';
+  engine.phaseUntil = Infinity;
+  engine.nextSpawnAt = Infinity;
+  engine.selectShopItem('emp');
+  const { tower } = engine.placeAtPoint({ x: 0.5, y: 0.27 });
+  const drone = engine.spawnBug('drone');
+  drone.hp = drone.maxHp = 10;
+  drone.x = tower.x; drone.y = tower.y - 0.05;
+  tower.readyAt = 0;
+  engine.fireTowers();
+  assert.equal(drone.hp, 9.5, '드론에 절반 피해');
+  assert.ok(engine.slowFactor(drone) < 1, '그리고 감속');
+  assert.ok(events.some(event => event.type === 'splash' && event.payload.jammed === 1 && event.payload.hits === 0));
 });
 
 test('가격과 성능: 요격포가 백신보다 강하고(사거리·화력·공중) 더 비싸다', () => {
