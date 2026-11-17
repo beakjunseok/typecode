@@ -2,7 +2,7 @@
 // 오른쪽(휴대폰은 상점 위 띠): 연습 모드처럼 칠 낱말이 줄지어 올라오는 패널. 맨 아래: 누를 수 있는 상점(숫자 키 1~4).
 // 배경 그림(public/art/defense-stage.webp)이 있으면 그림 속 돔이 컴퓨터 자리에 오도록 깔고, 없으면 격자·코드 비·컴퓨터를 직접 그린다.
 import { ARCADE_RULES } from './target-game.js';
-import { DEFENSE_RULES, TOWER_TYPES, SHOP_ITEMS, DEFENSE_PATH, DEFENSE_COMPUTER, ATTACK_TYPES, COMPUTER_GUARD, wordCoins, towerStats, TOWER_MAX_PERKS, pointOnPath } from './defense-engine.js';
+import { DEFENSE_RULES, TOWER_TYPES, SHOP_ITEMS, DEFENSE_PATH, DEFENSE_COMPUTER, ATTACK_TYPES, COMPUTER_GUARD, GUARDIAN, wordCoins, towerStats, TOWER_MAX_PERKS, pointOnPath } from './defense-engine.js';
 import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
 
 const HUD_HEIGHT = 34;
@@ -209,7 +209,9 @@ export class DefenseRenderer {
     } else if (type === 'air-warning') {
       this.banner = { text: 'AIR RAID!', sub: '드론은 길을 무시해요 · 요격포(5)만 떨어뜨릴 수 있어요(요격포는 땅도 쏴요)', at: now, color: TOWER_STYLE.interceptor };
     } else if (type === 'boss-appear') {
-      this.banner = { text: 'RANSOMWARE!', sub: '여러 번 맞혀야 하는 랜섬웨어가 옵니다', at: now, color: SCENE.danger };
+      const label = ATTACK_TYPES[payload.bug?.type]?.label ?? '보스';
+      const final = engine?.wave === DEFENSE_RULES.waves;
+      this.banner = { text: final ? 'FINAL BOSS!' : `${payload.bug?.type === 'rootkit' ? 'ROOTKIT' : 'RANSOMWARE'}!`, sub: `${label} 체력 ${payload.bug?.maxHp ?? ''} · 절반에서 2페이즈`, at: now, color: SCENE.danger };
     }
     if (!this.context) return;
     const juice = this.juice;
@@ -273,6 +275,28 @@ export class DefenseRenderer {
       const center = this.toScreen(payload);
       this.empBlasts.push({ x: center.x, y: center.y, radiusY: payload.radius * this.field().height, at: now + 0.15, level: payload.tower.level, seed: Math.random() * 10, burst: false });
       if (this.empBlasts.length > 16) this.empBlasts.shift();
+    } else if (type === 'guardian-spawn') {
+      const { x, y } = this.toScreen(payload.guardian);
+      const unit = this.unit();
+      juice.ring(x, y, { color: SCENE.shield, radius: 60 * unit, width: 4, life: 0.5 });
+      this.particles.burst(x, y - 10 * unit, { color: SCENE.shield, count: 24, speed: 200, life: 0.6 });
+      juice.popup(x, y - 50 * unit, payload.respawn ? '🤖 가디언 봇 재출동!' : '🤖 가디언 봇 출동!', { color: SCENE.shield, size: 17, life: 1.3 });
+    } else if (type === 'guardian-hit') {
+      const { x, y } = this.bugPosition(payload.bug);
+      const unit = this.unit();
+      this.particles.burst(x, y, { color: '#bff6ff', count: 10, speed: 190, life: 0.3, size: 2 });
+      juice.ring(x, y, { color: SCENE.shield, radius: 18 * unit, width: 3, life: 0.2 });
+      juice.shake(0.05);
+    } else if (type === 'guardian-hurt') {
+      const { x, y } = this.toScreen(payload.guardian);
+      const unit = this.unit();
+      this.particles.burst(x, y - 14 * unit, { color: '#ffb547', count: 8, speed: 150, life: 0.3, size: 2 });
+      juice.popup(x + 10 * unit, y - 40 * unit, `-${payload.damage}`, { color: SCENE.danger, size: 13, life: 0.6 });
+    } else if (type === 'guardian-down') {
+      const { x, y } = this.toScreen(payload.guardian);
+      const unit = this.unit();
+      this.spawnExplosion(x, y - 10 * unit, 2);
+      juice.popup(x, y - 50 * unit, `봇 다운! ${GUARDIAN.respawnSeconds}초 뒤 재출동`, { color: SCENE.danger, size: 15, life: 1.4 });
     } else if (type === 'guard-hit') {
       // 코드 조각이 닿음: 그 글자들이 파편처럼 흩어진다
       const { x, y } = this.toScreen(payload.shot);
@@ -365,6 +389,7 @@ export class DefenseRenderer {
     for (const shot of engine.towerShots) this.drawTowerShot(context, shot, engine);
     for (const shot of engine.guardShots ?? []) this.drawGuardShot(context, shot, engine);
     for (const bug of engine.bugs) if (!bug.air) this.drawBug(context, bug, engine);
+    this.drawGuardian(context, engine);
     for (const bug of engine.bugs) if (bug.air) this.drawBug(context, bug, engine);
     this.drawDebris(context, frameSeconds);
     this.drawExplosions(context);
@@ -1499,8 +1524,18 @@ export class DefenseRenderer {
       context.stroke();
       context.restore();
     }
+    // 봇을 들이받는 돌진: 때리는 순간 봇 쪽으로 튀어나갔다 돌아온다
+    let lungeX = 0, lungeY = 0;
+    const biteAge = time - (bug.lastBiteAt ?? -Infinity);
+    if (engine.guardian && biteAge >= 0 && biteAge < 0.25) {
+      const bot = this.toScreen(engine.guardian);
+      const length = Math.hypot(bot.x - x, bot.y - y) || 1;
+      const push = Math.sin(biteAge / 0.25 * Math.PI) * 12 * unit;
+      lungeX = (bot.x - x) / length * push;
+      lungeY = (bot.y - y) / length * push;
+    }
     context.save();
-    context.translate(x - Math.cos(heading) * hit * 7 * unit, y - Math.sin(heading) * hit * 7 * unit);
+    context.translate(x + lungeX - Math.cos(heading) * hit * 7 * unit, y + lungeY - Math.sin(heading) * hit * 7 * unit);
     let scale = unit * (spawn < 1 ? easeOutBack(spawn) : 1) * (1 + hit * 0.22);
     if (bug.state === 'breached') scale *= 1 - Math.min(1, deadAge / 0.3);
     if (bug.state === 'dead') scale *= 1.3;
@@ -2534,6 +2569,176 @@ export class DefenseRenderer {
       context.fill();
     }
     context.restore();
+  }
+
+  // 가디언 봇(컴퓨터 Lv.3): 하늘색 메카. 걸을 때 다리를 번갈아 내딛고 몸이 들썩, 때릴 때 앞팔을 쭉 뻗고(공중 적이면 점프),
+  // 맞으면 하얗게 번쩍이며 뒤로 밀림. 출동 때 빛기둥 속에서 커지며 나타나고, 쓰러지면 옆으로 누워 불꽃이 튀며 재출동 시간 고리가 찬다
+  drawGuardian(context, engine) {
+    const bot = engine.guardian;
+    if (!bot) return;
+    const time = engine.gameTime;
+    const wall = wallSeconds();
+    const unit = this.unit() * 1.25;
+    const { x, y } = this.toScreen(bot);
+    context.save();
+    context.translate(x, y);
+    context.scale(unit, unit);
+    if (bot.state === 'down') {
+      // 쓰러짐: 누운 몸 + 불꽃 + 재출동 고리
+      const left = Math.max(0, bot.respawnAt - time);
+      context.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      context.beginPath();
+      context.ellipse(0, 6, 20, 5, 0, 0, Math.PI * 2);
+      context.fill();
+      context.save();
+      context.rotate(Math.PI / 2 * 0.95);
+      context.globalAlpha = 0.6;
+      this.drawGuardianBody(context, wall, { walk: 0, punch: 0, hurt: 0, idle: false, dark: true });
+      context.restore();
+      if (Math.sin(wall * 19) > 0.3) {
+        context.strokeStyle = '#ffd166';
+        context.lineWidth = 1.5;
+        context.beginPath();
+        context.moveTo(-4, -6);
+        context.lineTo(0, -12);
+        context.lineTo(3, -8);
+        context.stroke();
+      }
+      context.strokeStyle = 'rgba(54, 226, 255, 0.25)';
+      context.lineWidth = 3;
+      context.beginPath();
+      context.arc(0, -4, 18, 0, Math.PI * 2);
+      context.stroke();
+      context.strokeStyle = SCENE.shield;
+      context.beginPath();
+      context.arc(0, -4, 18, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - left / GUARDIAN.respawnSeconds));
+      context.stroke();
+      context.fillStyle = SCENE.ink;
+      context.font = canvasFont(9, 'ui', 700);
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(`${Math.ceil(left)}`, 0, -4);
+      context.restore();
+      return;
+    }
+    const spawnAge = time - bot.spawnedAt;
+    if (spawnAge < 0.8) this.drawLightColumn(context, SCENE.shield, 1 - spawnAge / 0.8, 36);
+    const appear = spawnAge < 0.6 ? easeOutBack(Math.min(1, spawnAge / 0.6)) : 1;
+    const punchAge = time - bot.lastHitAt;
+    const punch = punchAge >= 0 && punchAge < 0.25 ? Math.sin(punchAge / 0.25 * Math.PI) : 0;
+    const hurtAge = time - bot.lastHurtAt;
+    const hurt = hurtAge >= 0 && hurtAge < 0.18 ? 1 - hurtAge / 0.18 : 0;
+    const walk = bot.moving ? Math.sin(wall * 14) : 0;
+    const jump = bot.lastHitAir ? punch * 16 : 0;
+    // 그림자(점프하면 작아짐)
+    context.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    context.beginPath();
+    context.ellipse(0, 6, 13 * (1 - jump / 40), 4 * (1 - jump / 40), 0, 0, Math.PI * 2);
+    context.fill();
+    context.translate(-bot.facing * hurt * 5, -Math.abs(walk) * 2 - jump);
+    context.scale(appear * bot.facing, appear);
+    if (hurt > 0) context.filter = `brightness(${1 + hurt * 1.8})`;
+    this.drawGuardianBody(context, wall, { walk, punch, hurt, idle: bot.state === 'idle', dark: false });
+    context.filter = 'none';
+    context.restore();
+    // 체력 막대(닳았을 때만)
+    if (bot.hp < bot.maxHp && appear >= 1) {
+      const barWidth = 26 * unit;
+      const barY = y - 46 * unit - jump * unit;
+      context.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      roundedRect(context, x - barWidth / 2, barY, barWidth, 4, 2);
+      context.fill();
+      context.fillStyle = bot.hp / bot.maxHp < 0.3 ? SCENE.danger : '#4df0a6';
+      roundedRect(context, x - barWidth / 2, barY, barWidth * bot.hp / bot.maxHp, 4, 2);
+      context.fill();
+    }
+  }
+
+  // 봇 몸(오른쪽을 보는 기준, 발바닥 y = 4). punch 0~1 = 앞팔 뻗기, walk -1~1 = 다리 흔들기
+  drawGuardianBody(context, wall, { walk, punch, hurt, idle, dark }) {
+    const steel = dark ? '#5a6280' : '#e9f6ff';
+    const accent = dark ? '#3a4060' : SCENE.shield;
+    // 다리
+    context.fillStyle = dark ? '#3a4060' : '#3a4a78';
+    for (const side of [-1, 1]) {
+      const swing = walk * side * 3;
+      roundedRect(context, side * 4 - 2.5 + swing, -6, 5, 10, 2);
+      context.fill();
+      context.fillStyle = dark ? '#2a3050' : '#1b2240';
+      roundedRect(context, side * 4 - 3.5 + swing, 2, 7, 3, 1.5);
+      context.fill();
+      context.fillStyle = dark ? '#3a4060' : '#3a4a78';
+    }
+    // 뒷팔
+    context.fillStyle = dark ? '#4a5070' : '#9fb8d8';
+    roundedRect(context, -12, -19, 5, 11, 2.5);
+    context.fill();
+    // 몸통
+    const torso = context.createLinearGradient(0, -24, 0, -6);
+    torso.addColorStop(0, steel);
+    torso.addColorStop(1, dark ? '#2a3050' : '#7fa4c8');
+    context.fillStyle = torso;
+    roundedRect(context, -9, -24, 18, 18, 5);
+    context.fill();
+    context.strokeStyle = accent;
+    context.lineWidth = 1.2;
+    context.stroke();
+    // 가슴 코어(맥박)
+    const pulse = 0.6 + 0.4 * Math.sin(wall * (idle ? 3 : 7));
+    context.fillStyle = dark ? '#2a3050' : SCENE.shield;
+    if (!dark) {
+      context.shadowColor = SCENE.shield;
+      context.shadowBlur = 8 * pulse;
+    }
+    context.beginPath();
+    context.arc(0, -15, 3.2, 0, Math.PI * 2);
+    context.fill();
+    context.shadowBlur = 0;
+    // 금 어깨 보호대
+    context.fillStyle = dark ? '#6b5320' : '#ffd166';
+    roundedRect(context, -11, -25, 7, 4, 2);
+    context.fill();
+    roundedRect(context, 4, -25, 7, 4, 2);
+    context.fill();
+    // 머리 + 바이저 + 안테나
+    context.fillStyle = dark ? '#2a3050' : '#1b2240';
+    roundedRect(context, -7, -36, 14, 11, 4);
+    context.fill();
+    context.strokeStyle = accent;
+    context.stroke();
+    context.fillStyle = dark ? '#3a4060' : SCENE.shield;
+    context.fillRect(-4, -32, 10, 2.6);
+    if (!dark && Math.sin(wall * 2.3) < 0.95) {
+      context.fillStyle = '#ffffff';
+      context.fillRect(1.5, -32, 2.5, 2.6);
+    }
+    context.strokeStyle = '#9fb8d8';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(-3, -36);
+    context.lineTo(-5, -42);
+    context.stroke();
+    context.fillStyle = dark ? '#3a4060' : (Math.sin(wall * 6) > 0 ? '#ff5d73' : '#ffffff');
+    context.beginPath();
+    context.arc(-5, -42, 1.6, 0, Math.PI * 2);
+    context.fill();
+    // 앞팔(때릴 때 쭉 뻗음) + 주먹
+    const reach = 8 + punch * 12;
+    context.fillStyle = dark ? '#4a5070' : '#c9dcf0';
+    roundedRect(context, 6, -19, reach, 5, 2.5);
+    context.fill();
+    context.fillStyle = dark ? '#3a4060' : steel;
+    context.beginPath();
+    context.arc(6 + reach + 2, -16.5, 4, 0, Math.PI * 2);
+    context.fill();
+    if (punch > 0.4 && !dark) {
+      context.globalCompositeOperation = 'lighter';
+      context.fillStyle = `rgba(160, 240, 255, ${punch})`;
+      context.beginPath();
+      context.arc(6 + reach + 3, -16.5, 6 + punch * 5, 0, Math.PI * 2);
+      context.fill();
+      context.globalCompositeOperation = 'source-over';
+    }
   }
 
   // 컴퓨터 대공 방어(포탑 그림 없음): 공중 적이 있거나 컴퓨터를 고르면 사거리 점선(골랐을 때는 다음 레벨 사거리 금색 점선도),

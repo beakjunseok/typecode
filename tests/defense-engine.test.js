@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DefenseEngine, isOnPath, DEFENSE_COMPUTER, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, bpmForWave, wordCoins, waveBonusCoins, comboCoinFactor, towerStats, PLACEMENT, COMPUTER_GUARD, COMPUTER_LEVELS } from '../public/js/defense-engine.js';
+import { DefenseEngine, isOnPath, DEFENSE_COMPUTER, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, bpmForWave, bossHp, wordCoins, waveBonusCoins, comboCoinFactor, towerStats, PLACEMENT, COMPUTER_GUARD, COMPUTER_LEVELS, GUARDIAN } from '../public/js/defense-engine.js';
 import { rewardBreakdown } from '../public/js/rewards.js';
 
 const POOL = ['let', 'var', 'map', 'if', 'do', 'go', 'use', 'mut', 'xor', 'nil', 'new', 'try', 'int', 'out', 'end']
@@ -42,12 +42,16 @@ function firstSpot(engine) {
   return engine.suggestedSpots()[0];
 }
 
-test('수치: 웨이브 10개, BPM은 웨이브마다 3씩(보통 110→137), 단어 코인·콤보·웨이브 보너스', () => {
-  assert.equal(DEFENSE_RULES.waves, 10);
+test('수치: 웨이브 25개, BPM은 웨이브마다 2씩(보통 110→158), 보스는 다시 나올수록 단단, 단어 코인·콤보·웨이브 보너스', () => {
+  assert.equal(DEFENSE_RULES.waves, 25);
   assert.equal(bpmForWave(2, 1), 110);
-  assert.equal(bpmForWave(2, 10), 137);
+  assert.equal(bpmForWave(2, 25), 158);
+  assert.equal(bossHp('ransomware', 5), 40);
+  assert.equal(bossHp('ransomware', 15), 72);
+  assert.equal(bossHp('rootkit', 25), 198);
+  assert.deepEqual(Object.keys(DEFENSE_RULES.bossWaves).map(Number), [5, 10, 15, 20, 25]);
   assert.equal(bpmForWave(1, 1), 100);
-  assert.equal(bpmForWave(2, 99), 137, '웨이브는 10까지만');
+  assert.equal(bpmForWave(2, 99), 158, '웨이브는 25까지만');
   assert.equal(wordCoins(5, 1, 0), 7, '(2 + 5) × 1 × 1');
   assert.equal(wordCoins(5, 5, 30), 28, '(2 + 5) × 2 × 2');
   assert.equal(comboCoinFactor(10), 1.2);
@@ -291,6 +295,68 @@ test('컴퓨터 강화: Lv.3까지 대공 사거리·연사·체력, Lv.3은 2�
   assert.equal(poor.upgradeComputer().reason, 'coins');
 });
 
+test('가디언 봇: 컴퓨터 최대 강화 때 출동, 가까운 적에게 달려가 때리고, 없으면 집으로', () => {
+  const { engine, events } = setup();
+  engine.coins = 100000;
+  engine.upgradeComputer();
+  assert.equal(engine.guardian, undefined, 'Lv.2에서는 아직');
+  engine.upgradeComputer();
+  assert.ok(engine.guardian, 'Lv.3 출동');
+  assert.ok(events.some(event => event.type === 'guardian-spawn'));
+  engine.phase = 'spawning';
+  engine.phaseUntil = Infinity;
+  engine.nextSpawnAt = Infinity;
+  const bug = engine.spawnBug('malware');
+  bug.hp = bug.maxHp = 10;
+  const pinned = { x: GUARDIAN.home.x + 0.12, y: GUARDIAN.home.y - 0.05 };
+  for (let frame = 0; frame < 120; frame++) {
+    bug.x = pinned.x; bug.y = pinned.y;
+    engine.gameTime += 0.05;
+    engine.updateGuardian(0.05);
+  }
+  assert.ok(bug.hp < 10, '때렸다');
+  assert.ok(engine.fieldDistance(engine.guardian, bug) <= GUARDIAN.reach + 1e-6, '붙어서 싸운다');
+  bug.state = 'dead';
+  for (let frame = 0; frame < 120; frame++) { engine.gameTime += 0.05; engine.updateGuardian(0.05); }
+  assert.ok(engine.fieldDistance(engine.guardian, GUARDIAN.home) < 0.01, '집으로 돌아옴');
+  assert.equal(engine.guardian.state, 'idle');
+});
+
+test('가디언 봇과 적이 서로 때린다: 붙잡힌 졸개는 멈추고, 봇은 맞다가 쓰러지면 잠시 뒤 다시 출동', () => {
+  const { engine, events } = setup();
+  engine.coins = 100000;
+  engine.upgradeComputer();
+  engine.upgradeComputer();
+  engine.phase = 'spawning';
+  engine.phaseUntil = Infinity;
+  engine.nextSpawnAt = Infinity;
+  const bot = engine.guardian;
+  engine.gameTime += 1;
+  engine.updateGuardian(0.05);
+  const bug = engine.spawnBug('malware');
+  bug.hp = bug.maxHp = 1000;
+  bug.progress = 0.97;
+  engine.moveBugs(0);
+  bot.x = bug.x; bot.y = bug.y;
+  engine.updateGuardian(0.05);
+  assert.equal(bot.holdingId, bug.id, '붙잡았다');
+  const progress = bug.progress;
+  engine.moveBugs(1);
+  assert.equal(bug.progress, progress, '붙잡힌 적은 멈춘다');
+  for (let frame = 0; frame < 400 && bot.state !== 'down'; frame++) {
+    engine.gameTime += 0.05;
+    engine.updateGuardian(0.05);
+  }
+  assert.ok(events.some(event => event.type === 'guardian-hurt' && event.payload.damage === GUARDIAN.enemyHit.malware), '적이 봇을 때린다');
+  assert.ok(events.some(event => event.type === 'guardian-hit'), '봇도 적을 때린다');
+  assert.equal(bot.state, 'down', '쓰러진다');
+  assert.ok(events.some(event => event.type === 'guardian-down'));
+  engine.gameTime += GUARDIAN.respawnSeconds;
+  engine.updateGuardian(0.05);
+  assert.equal(engine.guardian.hp, GUARDIAN.maxHp, '다시 출동');
+  assert.ok(events.some(event => event.type === 'guardian-spawn' && event.payload.respawn));
+});
+
 test('가격과 성능: 요격포가 백신보다 강하고(사거리·화력·공중) 더 비싸다', () => {
   const antivirus = towerStats('antivirus', 1), interceptor = towerStats('interceptor', 1);
   assert.ok(interceptor.range > antivirus.range);
@@ -338,7 +404,7 @@ test('보스: 5웨이브 랜섬웨어 · 10웨이브 루트킷, 체력 절반에
   assert.equal(DEFENSE_RULES.bossWaves[5], 'ransomware');
   assert.equal(DEFENSE_RULES.bossWaves[10], 'rootkit');
   const { engine, events, clock } = setup();
-  assert.equal(engine.bugsInWave(5), DEFENSE_RULES.bugsPerWave.base + DEFENSE_RULES.bugsPerWave.step * 4 + 1);
+  assert.equal(engine.bugsInWave(5), Math.round(DEFENSE_RULES.bugsPerWave.base + DEFENSE_RULES.bugsPerWave.step * 4) + 1);
   engine.coins = 100000;
   engine.selectShopItem('firewall');
   engine.placeAtPoint({ x: 0.3, y: 0.27 });
@@ -363,10 +429,10 @@ test('보스: 5웨이브 랜섬웨어 · 10웨이브 루트킷, 체력 절반에
 
 test('보상: 버틴 웨이브만큼 진행 보너스, 다 막으면 클리어 보너스', () => {
   const base = { mode: 'defense', level: 2, correctKeystrokes: 300, accuracy: 100, maxCombo: 0 };
-  const at = (wavesCleared, waveProgress) => rewardBreakdown({ ...base, outcome: 'breached', wavesCleared, waveProgress, waves: 10 }).progressBonus;
+  const at = (wavesCleared, waveProgress) => rewardBreakdown({ ...base, outcome: 'breached', wavesCleared, waveProgress, waves: 25 }).progressBonus;
   assert.ok(at(1, 0) < at(3, 0) && at(3, 0) < at(4, 0));
   assert.ok(at(3, 0.6) > at(3, 0.2), '웨이브 절반 넘게 잡았으면 반 웨이브 인정');
-  const cleared = rewardBreakdown({ ...base, outcome: 'cleared', wavesCleared: 10, waves: 10 });
+  const cleared = rewardBreakdown({ ...base, outcome: 'cleared', wavesCleared: 25, waves: 25 });
   assert.equal(cleared.cleared, true);
   assert.equal(cleared.firstClearKey, 'defense:2');
 });
