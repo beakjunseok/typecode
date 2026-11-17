@@ -50,7 +50,7 @@ const MODE_CONFIG = Object.freeze({
   },
   defense: {
     label: '컴퓨터 디펜스', arcade: true, title: 'firewall.sys', resultTitle: 'SYSTEM HACKED',
-    hint: '해킹 공격 위 낱말을 쳐서 막기 · firewall/antivirus로 타워 설치', Renderer: DefenseRenderer,
+    hint: '낱말을 쳐서 코인 벌기 · 상점을 눌러 타워 설치 · 타워·컴퓨터를 눌러 강화', Renderer: DefenseRenderer,
     createEngine: options => new DefenseEngine({ ...options, maxTokenLength: options.narrow ? 12 : 16 })
   },
   rhythm: {
@@ -899,7 +899,7 @@ function handleDefenseEvent(type, payload) {
     case 'wave-intro':
       sound.play('warning', { remainingSeconds: 1 });
       bgm.setTempoBpm(payload.bpm);
-      ui.log('warn', `🌊 WAVE ${payload.wave} — BPM ${payload.bpm}`);
+      ui.log('warn', `🌊 WAVE ${payload.wave} — BPM ${payload.bpm}${payload.tierUp ? ` · ⚠ 적 업그레이드 v${payload.tier}(더 단단하고 빨라요)` : ''}`);
       return true;
     case 'wave-start':
       bgm.setTempoBpm(payload.bpm);
@@ -1522,6 +1522,53 @@ function focusTypingArea() {
   }
 }
 
+// 게임 중에 입력창 포커스가 빠지면(화면 다른 곳을 눌렀을 때) 곧바로 되돌린다.
+// 닫기 버튼을 눌렀거나, 다른 입력칸(설정·채팅 등)으로 옮겼거나, 판이 끝났으면 그대로 둔다
+function keepGameFocus() {
+  const playing = isArcade() && run.engine?.status === 'running' && !run.closingGame;
+  if (playing) {
+    setTimeout(() => {
+      const active = document.activeElement;
+      const typingElsewhere = active && active !== ui.elements.hiddenInput && active !== document.body && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName);
+      if (!typingElsewhere && run.engine?.status === 'running' && !run.closingGame) ui.elements.hiddenInput.focus({ preventScroll: true });
+      updateFocusState();
+    }, 0);
+    return;
+  }
+  updateFocusState();
+}
+
+// 닫기 버튼: 진행 중이면 한 번 묻고, 판을 끝내 처음 화면(설정·게임 고르기)으로 돌아간다
+function bindCloseGame() {
+  const button = document.getElementById('closeGame');
+  if (!button) return;
+  // 입력줄을 누르면 입력창에 포커스가 가므로(키보드가 다시 뜸), 버튼 누름은 입력줄까지 올라가지 않게 막는다
+  button.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  button.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const running = run.engine?.status === 'running';
+    if (running && !isPvp() && !window.confirm('게임을 닫을까요? 지금 판은 끝나요.')) {
+      ui.elements.hiddenInput.focus({ preventScroll: true });
+      return;
+    }
+    run.closingGame = true;
+    ui.elements.hiddenInput.blur();
+    if (isPvp()) {
+      if (confirmLeavePvp()) showPvpMenu();
+    } else {
+      resetGame();
+    }
+    document.body.classList.remove('mobile-play');
+    fitArcadeCanvas();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => { run.closingGame = false; }, 300);
+  });
+}
+
 function updateFocusState() {
   ui.setFocusState({
     focused: document.activeElement === ui.elements.hiddenInput,
@@ -2046,7 +2093,16 @@ function bindEvents() {
   elements.hiddenInput.addEventListener('compositionend', handleCompositionEnd);
   elements.hiddenInput.addEventListener('paste', event => event.preventDefault());
   elements.hiddenInput.addEventListener('focus', updateFocusState);
-  elements.hiddenInput.addEventListener('blur', updateFocusState);
+  elements.hiddenInput.addEventListener('blur', keepGameFocus);
+  bindCloseGame();
+  // 게임 화면(캔버스)을 터치해도 입력창 포커스가 빠지지 않게: 터치 기본 동작(포커스 이동·흉내 마우스)을 막는다.
+  // 포인터 이벤트(타워 놓기·강화 카드)는 그대로 온다
+  elements.arcadeCanvas.addEventListener('touchstart', event => {
+    if (isArcade() && run.engine?.status === 'running') event.preventDefault();
+  }, { passive: false });
+  elements.arcadeCanvas.addEventListener('mousedown', event => {
+    if (isArcade() && run.engine?.status === 'running') event.preventDefault();
+  });
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && document.activeElement !== elements.hiddenInput && !isPvp()) restart();
   });
