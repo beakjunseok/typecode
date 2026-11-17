@@ -38,6 +38,11 @@ const BUG_STYLE = Object.freeze({
 const TOWER_STYLE = Object.freeze({ firewall: '#ff7a45', honeypot: '#f5b82e', antivirus: '#36e2ff', emp: '#b38cff', interceptor: '#c3ff4d' });
 const SHOP_LABELS = Object.freeze({ firewall: '방화벽', honeypot: '허니팟', antivirus: '백신', emp: 'EMP포', interceptor: '요격포', patch: '수리' });
 const SHOP_ICONS = Object.freeze({ firewall: '🧱', honeypot: '🍯', antivirus: '💊', emp: '⚡', interceptor: '🚀', patch: '🔧' });
+// 보스 레이저 색: 랜섬웨어 = 자홍 암호화 빔, 루트킷 = 초록 루트 셸 빔
+const BOSS_LASER_COLORS = Object.freeze({
+  ransomware: Object.freeze({ glow: '#ff4dd2', outer: 'rgba(255, 60, 140, 0.35)' }),
+  rootkit: Object.freeze({ glow: '#39ff88', outer: 'rgba(40, 255, 120, 0.3)' })
+});
 const HONEY = Object.freeze({ light: '#ffe08a', body: '#f5b82e', dark: '#a8660c', glass: 'rgba(255, 210, 120, 0.35)' });
 
 export class DefenseRenderer {
@@ -292,6 +297,14 @@ export class DefenseRenderer {
       const unit = this.unit();
       this.particles.burst(x, y - 14 * unit, { color: '#ffb547', count: 8, speed: 150, life: 0.3, size: 2 });
       juice.popup(x + 10 * unit, y - 40 * unit, `-${payload.damage}`, { color: SCENE.danger, size: 13, life: 0.6 });
+    } else if (type === 'boss-laser') {
+      const target = this.guardianChest(payload.guardian);
+      const color = BOSS_LASER_COLORS[payload.bug.type] ?? BOSS_LASER_COLORS.ransomware;
+      this.particles.burst(target.x, target.y, { color: color.glow, count: 18, speed: 220, life: 0.4, size: 2 });
+      this.particles.burst(target.x, target.y, { color: '#ffffff', count: 6, speed: 300, life: 0.25, size: 1.5 });
+      juice.ring(target.x, target.y, { color: color.glow, radius: 30 * this.unit(), width: 3, life: 0.3 });
+      juice.shake(0.2);
+      juice.popup(target.x + 12 * this.unit(), target.y - 26 * this.unit(), `-${payload.damage}`, { color: color.glow, size: 15, life: 0.7 });
     } else if (type === 'guardian-down') {
       const { x, y } = this.toScreen(payload.guardian);
       const unit = this.unit();
@@ -390,6 +403,7 @@ export class DefenseRenderer {
     for (const shot of engine.guardShots ?? []) this.drawGuardShot(context, shot, engine);
     for (const bug of engine.bugs) if (!bug.air) this.drawBug(context, bug, engine);
     this.drawGuardian(context, engine);
+    this.drawBossLasers(context, engine);
     for (const bug of engine.bugs) if (bug.air) this.drawBug(context, bug, engine);
     this.drawDebris(context, frameSeconds);
     this.drawExplosions(context);
@@ -2567,6 +2581,89 @@ export class DefenseRenderer {
       context.beginPath();
       context.arc(to.x, to.y, 6 * (1 - age), 0, Math.PI * 2);
       context.fill();
+    }
+    context.restore();
+  }
+
+  // 봇 가슴(레이저가 꽂히는 곳) 화면 좌표
+  guardianChest(bot) {
+    const { x, y } = this.toScreen(bot);
+    return { x, y: y - 18 * this.unit() * 1.45 };
+  }
+
+  // 보스 레이저: 조준 중이면 보스 눈에 빛이 모이며 봇까지 점선 조준선(점점 진하게),
+  // 쏜 직후 0.3초는 굵은 빔(바깥 빛 · 색 띠 · 흰 심지, 물결치며 가늘어짐) + 보스 쪽 섬광
+  drawBossLasers(context, engine) {
+    const bot = engine.guardian;
+    if (!bot || bot.state === 'down') return;
+    const time = engine.gameTime;
+    const unit = this.unit();
+    const target = this.guardianChest(bot);
+    context.save();
+    for (const bug of engine.bugs) {
+      if (bug.state !== 'alive' || !ATTACK_TYPES[bug.type].boss) continue;
+      const color = BOSS_LASER_COLORS[bug.type] ?? BOSS_LASER_COLORS.ransomware;
+      const position = this.bugPosition(bug);
+      const eye = { x: position.x, y: position.y - BUG_STYLE[bug.type].size * 0.3 * unit };
+      if (bug.laserChargeAt != null) {
+        const charge = Math.min(1, (time - bug.laserChargeAt) / GUARDIAN.bossLaser.charge);
+        context.globalCompositeOperation = 'lighter';
+        context.strokeStyle = color.glow;
+        context.globalAlpha = 0.25 + charge * 0.6;
+        context.lineWidth = 1 + charge;
+        context.setLineDash([5, 4]);
+        context.lineDashOffset = -wallSeconds() * 40;
+        context.beginPath();
+        context.moveTo(eye.x, eye.y);
+        context.lineTo(target.x, target.y);
+        context.stroke();
+        context.setLineDash([]);
+        const orb = context.createRadialGradient(eye.x, eye.y, 0, eye.x, eye.y, (6 + charge * 10) * unit);
+        orb.addColorStop(0, '#ffffff');
+        orb.addColorStop(0.4, color.glow);
+        orb.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        context.globalAlpha = 0.5 + charge * 0.5;
+        context.fillStyle = orb;
+        context.beginPath();
+        context.arc(eye.x, eye.y, (6 + charge * 10) * unit, 0, Math.PI * 2);
+        context.fill();
+        // 조준 표시(봇 가슴에 좁아지는 고리)
+        context.strokeStyle = color.glow;
+        context.lineWidth = 1.5;
+        context.beginPath();
+        context.arc(target.x, target.y, (16 - charge * 9) * unit, 0, Math.PI * 2);
+        context.stroke();
+        context.globalAlpha = 1;
+        context.globalCompositeOperation = 'source-over';
+      }
+      const fireAge = time - (bug.lastLaserAt ?? -Infinity);
+      if (fireAge >= 0 && fireAge < 0.3) {
+        const fade = 1 - fireAge / 0.3;
+        const angle = Math.atan2(target.y - eye.y, target.x - eye.x);
+        const length = Math.hypot(target.x - eye.x, target.y - eye.y);
+        context.save();
+        context.translate(eye.x, eye.y);
+        context.rotate(angle);
+        context.globalCompositeOperation = 'lighter';
+        const wobble = Math.sin(wallSeconds() * 70) * 1.5;
+        for (const [width, fill] of [[16, color.outer], [8, color.glow], [3, '#ffffff']]) {
+          context.globalAlpha = fade;
+          context.fillStyle = fill;
+          context.beginPath();
+          context.moveTo(0, -width * unit * fade / 2);
+          context.lineTo(length, -(width * unit * fade / 2 + wobble));
+          context.lineTo(length, width * unit * fade / 2 + wobble);
+          context.lineTo(0, width * unit * fade / 2);
+          context.closePath();
+          context.fill();
+        }
+        context.globalAlpha = fade;
+        context.fillStyle = '#ffffff';
+        context.beginPath();
+        context.arc(0, 0, 8 * unit * fade, 0, Math.PI * 2);
+        context.fill();
+        context.restore();
+      }
     }
     context.restore();
   }

@@ -66,7 +66,9 @@ export const GUARDIAN = Object.freeze({
   // 싸울 때 서는 자리: 적 옆으로 standOff(가로, 들판 비율)만큼 떨어져 겹치지 않는다. 공중 적은 아래 airBelow만큼.
   // blockReach 안에 들어온 지상 적은 (보스까지) 모두 걸음을 멈춘다
   standOff: 0.055, airBelow: 0.06, blockReach: 0.11, arrive: 0.008, queueGap: 0.022,
-  enemyHit: Object.freeze({ packet: 2, spam: 2, malware: 3, drone: 0, ransomware: 8, rootkit: 8 })
+  enemyHit: Object.freeze({ packet: 2, spam: 2, malware: 3, drone: 0, ransomware: 4, rootkit: 4 }),
+  // 보스 레이저: 봇이 range 안이면 charge초 조준(예고) 뒤 damage, every초마다(2페이즈는 rageEvery)
+  bossLaser: Object.freeze({ range: 0.35, charge: 0.6, damage: 7, every: 2.4, rageEvery: 1.6 })
 });
 // 컴퓨터 강화(Lv.1~3): 대공 사거리·간격·동시 표적, 최대 체력 보너스, 초당 자동 복구. price = 그 레벨로 올리는 값(난이도 배율 적용)
 export const COMPUTER_LEVELS = Object.freeze([
@@ -487,6 +489,7 @@ export class DefenseEngine extends TargetGameEngine {
       bot.state = 'idle';
     }
     if (this.guardianTakesHits()) return;
+    if (this.bossLasersHitGuardian()) return;
     const home = GUARDIAN.home;
     let target = this.bugs.find(bug => bug.id === bot.targetId && bug.state === 'alive');
     if (!target || this.fieldDistance(target, home) > GUARDIAN.leash) {
@@ -548,12 +551,7 @@ export class DefenseEngine extends TargetGameEngine {
       bot.lastHurtAt = this.gameTime;
       this.emit('guardian-hurt', { guardian: bot, bug, damage });
       if (bot.hp <= 0) {
-        bot.state = 'down';
-        bot.holdingId = null;
-        bot.targetId = null;
-        bot.downAt = this.gameTime;
-        bot.respawnAt = this.gameTime + GUARDIAN.respawnSeconds;
-        this.emit('guardian-down', { guardian: bot });
+        this.knockOutGuardian();
         return true;
       }
     }
@@ -574,6 +572,50 @@ export class DefenseEngine extends TargetGameEngine {
       }
     }
     return stopped;
+  }
+
+  // 보스 레이저: 봇이 사거리 안이면 조준 시작(boss-laser-charge) → charge초 뒤 발사(boss-laser, 피해). 봇이 벗어나면 조준 취소. 쓰러지면 true
+  bossLasersHitGuardian() {
+    const bot = this.guardian;
+    const laser = GUARDIAN.bossLaser;
+    for (const bug of this.bugs) {
+      if (bug.state !== 'alive' || !ATTACK_TYPES[bug.type].boss) continue;
+      const inRange = this.fieldDistance(bug, bot) <= laser.range;
+      if (!inRange) {
+        bug.laserChargeAt = null;
+        continue;
+      }
+      if (bug.laserChargeAt == null) {
+        if (this.gameTime >= (bug.nextLaserAt ?? 0)) {
+          bug.laserChargeAt = this.gameTime;
+          this.emit('boss-laser-charge', { bug, guardian: bot });
+        }
+        continue;
+      }
+      if (this.gameTime < bug.laserChargeAt + laser.charge) continue;
+      bug.laserChargeAt = null;
+      bug.nextLaserAt = this.gameTime + (bug.phase === 2 ? laser.rageEvery : laser.every);
+      bug.lastLaserAt = this.gameTime;
+      bot.hp = Math.max(0, bot.hp - laser.damage);
+      bot.lastHurtAt = this.gameTime;
+      this.emit('boss-laser', { bug, guardian: bot, damage: laser.damage });
+      if (bot.hp <= 0) {
+        this.knockOutGuardian();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // 봇 쓰러짐: respawnSeconds 뒤 재출동
+  knockOutGuardian() {
+    const bot = this.guardian;
+    bot.state = 'down';
+    bot.holdingId = null;
+    bot.targetId = null;
+    bot.downAt = this.gameTime;
+    bot.respawnAt = this.gameTime + GUARDIAN.respawnSeconds;
+    this.emit('guardian-down', { guardian: bot });
   }
 
   // 봇에게 막혀 걸음을 멈춘 지상 적인가: 봇이 서 있고(출동·쓰러짐 아님) blockReach 안이면 보스까지 멈춘다

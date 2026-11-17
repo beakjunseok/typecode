@@ -436,7 +436,7 @@ function comboFrequency(combo) {
 // 같은 소리를 다시 울리기까지 최소 간격(초). 타워가 많을 때 한 프레임에 수십 번 겹치지 않게
 const THROTTLED_SOUNDS = Object.freeze({
   empCharge: 0.08, empBlast: 0.07, zap: 0.06, honeyLob: 0.08, honeySplat: 0.08, honeyStep: 0.05,
-  ignite: 0.07, missileLaunch: 0.06, missileBoom: 0.06, laserShot: 0.05, towerLand: 0.05
+  ignite: 0.07, missileLaunch: 0.06, missileBoom: 0.06, laserShot: 0.05, towerLand: 0.05, bossLaserCharge: 0.3, bossLaser: 0.2
 });
 
 const SOUNDS = {
@@ -507,6 +507,16 @@ const SOUNDS = {
       engine.tone(context, { frequency, startTime: time + 0.45 + index * 0.03, peak: 0.045, decay: maxed ? 0.8 : 0.45, waveform: 'triangle' });
     });
     if (maxed) engine.bell(context, { frequency: 1567.98, startTime: time + 0.5, peak: 0.05, length: 0.9 });
+  },
+  // 보스 레이저 조준: 위로 차오르는 '위이이' 떨림음
+  bossLaserCharge(engine, context, time) {
+    ringTone(engine, context, { frequency: 300, sweepTo: 1400, startTime: time, peak: 0.035, decay: 0.6, modFrequency: 31, waveform: 'sawtooth' });
+  },
+  // 보스 레이저 발사: 굵은 '즈아앙' + 저음 충격
+  bossLaser(engine, context, time) {
+    engine.tone(context, { frequency: 900, sweepTo: 180, startTime: time, peak: 0.07, decay: 0.32, waveform: 'sawtooth', filter: { type: 'lowpass', frequency: 3200 } });
+    engine.noise(context, { startTime: time, peak: 0.08, decay: 0.28, filterType: 'bandpass', frequency: 2400, sweepTo: 500, q: 1.5 });
+    engine.tone(context, { frequency: 110, sweepTo: 50, startTime: time, peak: 0.1, decay: 0.2 });
   },
   // 판매: 동전 '짤랑' 두 번
   sell(engine, context, time) {
