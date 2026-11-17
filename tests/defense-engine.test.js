@@ -144,6 +144,20 @@ test('공중 공격: 길을 무시하고 곧장 날아오며, 요격포만 맞�
   assert.equal(drone.state, 'dead', '요격포가 떨어뜨린다');
 });
 
+test('요격포: 공중·지상 모두 쏘고, 사거리가 가장 넓으며, 공중을 먼저 노린다', () => {
+  assert.ok(TOWER_TYPES.interceptor.range > TOWER_TYPES.antivirus.range);
+  const { engine } = setup();
+  const tower = { id: 999, type: 'interceptor', x: 0.5, y: 0.5, level: 1 };
+  const ground = { air: false, progress: 0.9 };
+  const air = { air: true, progress: 0.1 };
+  assert.equal(engine.canTarget(tower, ground), true);
+  assert.equal(engine.canTarget(tower, air), true);
+  assert.ok(engine.targetPriority(tower, air) > engine.targetPriority(tower, ground), '공중 먼저');
+  const antivirus = { ...tower, type: 'antivirus' };
+  assert.equal(engine.canTarget(antivirus, air), false);
+  assert.ok(engine.targetPriority(antivirus, ground) > engine.targetPriority(antivirus, { air: false, progress: 0.2 }));
+});
+
 test('보스: 5웨이브 랜섬웨어 · 10웨이브 루트킷, 체력 절반에서 2페이즈(잠깐 무적·소환·타워 잠금)', () => {
   assert.equal(DEFENSE_RULES.bossWaves[5], 'ransomware');
   assert.equal(DEFENSE_RULES.bossWaves[10], 'rootkit');
