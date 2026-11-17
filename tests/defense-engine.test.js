@@ -378,6 +378,40 @@ test('가디언 봇과 적이 서로 때린다: 봇을 만난 지상 적은 (보
   assert.ok(events.some(event => event.type === 'guardian-spawn' && event.payload.respawn));
 });
 
+test('보스 레이저: 봇이 가까우면 조준(예고) 뒤 원거리 레이저, 2페이즈는 더 자주', () => {
+  const { engine, events } = setup();
+  engine.coins = 100000;
+  engine.upgradeComputer();
+  engine.upgradeComputer();
+  engine.phase = 'spawning';
+  engine.phaseUntil = Infinity;
+  engine.nextSpawnAt = Infinity;
+  const bot = engine.guardian;
+  engine.gameTime += 1;
+  engine.updateGuardian(0.05);
+  const boss = engine.spawnBug('rootkit');
+  boss.x = bot.x + 0.15; boss.y = bot.y;
+  assert.ok(engine.fieldDistance(boss, bot) > GUARDIAN.blockReach, '닿지 않은 거리에서도');
+  engine.bossLasersHitGuardian();
+  assert.ok(events.some(event => event.type === 'boss-laser-charge'), '먼저 조준');
+  const hp = bot.hp;
+  engine.gameTime += GUARDIAN.bossLaser.charge;
+  engine.bossLasersHitGuardian();
+  assert.equal(bot.hp, hp - GUARDIAN.bossLaser.damage, '레이저 피해');
+  assert.ok(events.some(event => event.type === 'boss-laser'));
+  assert.equal(boss.nextLaserAt, engine.gameTime + GUARDIAN.bossLaser.every);
+  boss.phase = 2;
+  engine.gameTime = boss.nextLaserAt;
+  engine.bossLasersHitGuardian();
+  engine.gameTime += GUARDIAN.bossLaser.charge;
+  engine.bossLasersHitGuardian();
+  assert.equal(boss.nextLaserAt, engine.gameTime + GUARDIAN.bossLaser.rageEvery, '2페이즈는 더 자주');
+  boss.x = bot.x + 0.6;
+  engine.gameTime = boss.nextLaserAt;
+  engine.bossLasersHitGuardian();
+  assert.equal(boss.laserChargeAt, null, '멀면 안 쏜다');
+});
+
 test('가격과 성능: 요격포가 백신보다 강하고(사거리·화력·공중) 더 비싸다', () => {
   const antivirus = towerStats('antivirus', 1), interceptor = towerStats('interceptor', 1);
   assert.ok(interceptor.range > antivirus.range);

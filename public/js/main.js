@@ -843,6 +843,12 @@ function handleDefenseEvent(type, payload) {
     case 'guardian-hurt':
       sound.play('hit');
       return true;
+    case 'boss-laser-charge':
+      sound.play('bossLaserCharge');
+      return true;
+    case 'boss-laser':
+      sound.play('bossLaser');
+      return true;
     case 'guardian-down':
       sound.play('explode');
       ui.log('warn', `🤖 가디언 봇이 쓰러졌어요 — 8초 뒤 재출동`);
