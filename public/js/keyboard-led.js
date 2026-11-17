@@ -18,19 +18,30 @@ function smoothNoise(position, seed) {
   return hash(cell, seed) * (1 - eased) + hash(cell + 1, seed) * eased;
 }
 
-// 한 가지 색뿐인 팔레트는 같은 색 계열의 어두운·밝은 색을 더해 세 색으로 늘린다.
-// 그래야 웨이브·빗방울·스펙트럼처럼 색이 흐르는 무늬를 단색 스킨에 덮어써도 움직임이 보인다(단색이면 정적과 똑같아 보였다).
-// 결과는 팔레트마다 한 번만 만들어 둔다. O(1)
+// 색 차이가 작은 팔레트(한 가지 색, 또는 색상 30° 안·밝기 15 안으로 거의 같은 색들)는 같은 계열의 어두운·밝은 색을 더해 넷으로 늘리고,
+// 채도도 최소 80으로 올린다. 그래야 웨이브·빗방울·스펙트럼처럼 색이 흐르는 무늬를 이런 스킨에 덮어써도 움직임이 보인다
+// (그대로면 모든 키가 거의 같은 색이라 '고정'과 똑같아 보였다). 결과는 팔레트마다 한 번만 만들어 둔다. O(팔레트 길이)
 const expandedPalettes = new WeakMap();
+const hueGap = (first, second) => {
+  const gap = Math.abs(first - second) % 360;
+  return gap > 180 ? 360 - gap : gap;
+};
+export function isFlatPalette(palette) {
+  if (!Array.isArray(palette) || !palette.length) return false;
+  const [first] = palette;
+  return palette.every(([hue, , lightness]) => hueGap(hue, first[0]) <= 30 && Math.abs(lightness - first[2]) <= 15);
+}
 export function expandPalette(palette) {
-  if (!Array.isArray(palette) || palette.length !== 1) return palette;
+  if (!isFlatPalette(palette)) return palette;
   const cached = expandedPalettes.get(palette);
   if (cached) return cached;
   const [hue, saturation, lightness] = palette[0];
+  const vivid = Math.max(80, saturation);
   const expanded = Object.freeze([
     palette[0],
-    [hue, saturation, Math.max(22, lightness - 30)],
-    [(hue + 28) % 360, saturation, Math.min(82, lightness + 12)]
+    [hue, vivid, Math.max(22, lightness - 30)],
+    [(hue + 28) % 360, vivid, Math.min(82, lightness + 12)],
+    [(hue + 330) % 360, vivid, Math.max(30, lightness - 12)]
   ]);
   expandedPalettes.set(palette, expanded);
   return expanded;
@@ -355,7 +366,7 @@ export function createLedState(keys) {
     paint[index] = paint[index] === order % 6 ? -1 : order % 6;
   }
 
-  // led = { pattern, reactive, palette, reactivePalette, speed, strength }. 결과를 out[키 번호]에 쓴다
+  // led = { pattern, reactive, palette, reactivePalette, speed, strength, overridden(무늬를 덮어썼나) }. 결과를 out[키 번호]에 쓴다
   function frame(time, led, env = {}, out = []) {
     const dt = lastTime === null ? 0 : Math.max(0, Math.min(10, time - lastTime));
     lastTime = time;
@@ -364,7 +375,8 @@ export function createLedState(keys) {
     const longest = reactive?.life ?? 0;
     hits = hits.filter(entry => time - entry.time <= Math.max(longest, 0.05));
     const ambient = AMBIENT[led.pattern] ?? AMBIENT.off;
-    const scene = { palette: expandPalette(led.palette), reactivePalette: led.reactivePalette, bands: env.bands, level: env.level };
+    // 스킨 원래 무늬는 설계한 색 그대로, 다른 무늬를 덮어썼을 때만 비슷한 색 팔레트를 늘린다
+    const scene = { palette: led.overridden ? expandPalette(led.palette) : led.palette, reactivePalette: led.reactivePalette, bands: env.bands, level: env.level };
     const speed = (led.speed ?? 1) * (1 + (env.energy ?? 0) * (led.energy ? 1.5 : 0));
     const strength = (led.strength ?? 1) * (led.energy ? 0.7 + 0.3 * (env.energy ?? 0) : 1);
 
