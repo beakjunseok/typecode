@@ -53,6 +53,15 @@ export const DEFENSE_PATH = Object.freeze([
   [0.08, 0], [0.08, 0.16], [0.92, 0.16], [0.92, 0.38], [0.08, 0.38], [0.08, 0.58], [0.5, 0.58]
 ].map(([x, y]) => Object.freeze({ x, y })));
 export const DEFENSE_COMPUTER = Object.freeze({ x: 0.5, y: 0.84 });
+// 컴퓨터 대공 포탑(돔 꼭대기): 가까이 온 공중 적에게 코드 조각(방금 친 낱말)을 던진다. 날아가 닿는 순간 피해. 최후 방어선
+export const COMPUTER_GUARD = Object.freeze({ x: 0.5, y: 0.7, range: 0.24, cooldown: 1.6, damage: 1, flightSeconds: 0.32, snippets: Object.freeze(['patch()', '{ }', 'fix;', '0x1F', 'kill -9', '</>']) });
+// 컴퓨터 강화(Lv.1~3): 대공 사거리·간격·동시 표적, 최대 체력 보너스, 초당 자동 복구. price = 그 레벨로 올리는 값(난이도 배율 적용)
+export const COMPUTER_LEVELS = Object.freeze([
+  null,
+  Object.freeze({ range: 0.24, cooldown: 1.6, shots: 1, bonusHealth: 0, regen: 0, price: 0 }),
+  Object.freeze({ range: 0.3, cooldown: 1.2, shots: 1, bonusHealth: 25, regen: 0, price: 250 }),
+  Object.freeze({ range: 0.36, cooldown: 0.9, shots: 2, bonusHealth: 50, regen: 0.5, price: 450, perk: '2발 동시 + 자동 복구' })
+]);
 
 // 설치 규칙(들판 좌표, 가로·세로 반지름이 다른 타원으로 잰다): 길과 띄울 거리, 타워끼리 띄울 거리, 컴퓨터 둘레
 // 자유 배치(BTD6식): 판정은 그림보다 작게. 길은 (길 반폭 + 타워 판정 0.7배)까지만 막아 가장자리에 붙여 놓을 수 있고,
@@ -229,11 +238,14 @@ export class DefenseEngine extends TargetGameEngine {
     this.lives = 1;
     this.maxHealth = DEFENSE_RULES.maxHealth[this.level];
     this.health = this.maxHealth;
+    this.computerLevel = 1;
     this.coins = DEFENSE_RULES.startCoins;
     this.coinsEarned = 0;
     this.bugs = [];
     this.towers = [];
     this.towerShots = [];
+    this.guardShots = [];
+    this.guardReadyAt = 0;
     this.puddles = [];
     this.wave = 1;
     this.wavesCleared = 0;
@@ -310,6 +322,7 @@ export class DefenseEngine extends TargetGameEngine {
       return;
     }
     this.towerShots = this.towerShots.filter(shot => this.gameTime - shot.at < 0.3);
+    this.guardShots = this.guardShots.filter(shot => this.gameTime - shot.at < COMPUTER_GUARD.flightSeconds + 0.35);
     if (this.buildMode && this.gameTime >= this.buildMode.until && this.targetId == null) this.cancelBuild('timeout');
     this.advancePhase();
     this.spawnIfDue();
@@ -319,6 +332,9 @@ export class DefenseEngine extends TargetGameEngine {
     if (this.status !== 'running') return;
     this.runBossSkills();
     this.fireTowers();
+    if (this.status !== 'running') return;
+    this.fireGuard();
+    this.landGuardShots();
     this.bugs = this.bugs.filter(bug => bug.state === 'alive' || this.gameTime - bug.resolvedAt < 0.8);
     this.checkWaveClear();
   }
@@ -404,10 +420,83 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   // 방화벽 사거리 안이면 느려진다(가장 강한 감속 하나만)
+  // 컴퓨터 대공 포탑: 쿨다운이 끝나면 사거리 안 공중 적 중 컴퓨터에 가장 가까운 것을 쏜다. O(적 수)
+  fireGuard() {
+    if (this.gameTime < this.guardReadyAt) return;
+    const guard = COMPUTER_GUARD;
+    const stats = this.computerStats();
+    const targets = this.bugs
+      .filter(bug => bug.state === 'alive' && bug.air && bug.hp > 0 && Math.hypot(bug.x - guard.x, bug.y - guard.y) <= stats.range)
+      .sort((first, second) => second.progress - first.progress)
+      .slice(0, stats.shots);
+    if (!targets.length) return;
+    this.guardReadyAt = this.gameTime + stats.cooldown;
+    targets.forEach((target, index) => {
+      const text = (index === 0 ? this.lastWord : null) ?? guard.snippets[Math.floor(this.random() * guard.snippets.length)];
+      const shot = { id: this.nextId++, bugId: target.id, x: target.x, y: target.y, at: this.gameTime, hitAt: this.gameTime + guard.flightSeconds, text, landed: false, level: this.computerLevel };
+      this.guardShots.push(shot);
+      this.emit('guard-shot', { bug: target, shot });
+    });
+  }
+
+  // 지금 컴퓨터 레벨의 능력치
+  computerStats(level = this.computerLevel) {
+    return COMPUTER_LEVELS[Math.max(1, Math.min(COMPUTER_LEVELS.length - 1, level))];
+  }
+
+  // 컴퓨터 강화 카드 정보: 다음 레벨 능력치·가격·살 수 있는지(최고 레벨이면 next = null)
+  computerUpgradeInfo() {
+    const maxed = this.computerLevel >= COMPUTER_LEVELS.length - 1;
+    const next = maxed ? null : this.computerStats(this.computerLevel + 1);
+    const price = maxed ? null : Math.round(next.price * (DEFENSE_RULES.priceFactor[this.level] ?? 1));
+    return { level: this.computerLevel, maxed, price, affordable: !maxed && this.coins >= price, current: this.computerStats(), next };
+  }
+
+  // 컴퓨터 강화: 코인을 내고 레벨 +1, 늘어난 최대 체력만큼 지금 체력도 채운다
+  upgradeComputer() {
+    const info = this.computerUpgradeInfo();
+    if (info.maxed) {
+      this.emit('place-denied', { reason: 'max-level', x: DEFENSE_COMPUTER.x, y: DEFENSE_COMPUTER.y, price: null, coins: this.coins });
+      return { bought: false, reason: 'max-level' };
+    }
+    if (this.coins < info.price) {
+      this.emit('place-denied', { reason: 'coins', x: DEFENSE_COMPUTER.x, y: DEFENSE_COMPUTER.y, price: info.price, coins: this.coins });
+      return { bought: false, reason: 'coins' };
+    }
+    this.coins -= info.price;
+    const gained = info.next.bonusHealth - info.current.bonusHealth;
+    this.computerLevel += 1;
+    this.maxHealth += gained;
+    this.health = Math.min(this.maxHealth, this.health + gained);
+    this.computerUpgradedAt = this.gameTime;
+    this.emit('computer-upgraded', { level: this.computerLevel, price: info.price, stats: info.next, maxed: this.computerLevel >= COMPUTER_LEVELS.length - 1 });
+    return { bought: true, level: this.computerLevel };
+  }
+
+  // 날아간 코드 조각이 닿을 시각이 되면 피해(표적이 이미 사라졌으면 허공에서 흩어진다). 닿는 자리는 표적을 따라간다
+  landGuardShots() {
+    for (const shot of this.guardShots) {
+      if (shot.landed) continue;
+      const target = this.bugs.find(bug => bug.id === shot.bugId);
+      if (target?.state === 'alive') {
+        shot.x = target.x;
+        shot.y = target.y;
+      }
+      if (this.gameTime < shot.hitAt) continue;
+      shot.landed = true;
+      this.emit('guard-hit', { shot, bug: target?.state === 'alive' ? target : null });
+      if (target?.state === 'alive') this.damageBug(target, 'guard', COMPUTER_GUARD.damage);
+      if (this.status !== 'running') return;
+    }
+  }
+
   // 지속 피해: 화상(방화벽에 맞은 뒤 몇 초) + 끈끈이 웅덩이(위에 있는 지상 적 모두).
   // 웅덩이에 처음 발을 디디면 밟음 피해를 한 번 바로 준다(맞음 알림 → 번쩍). 웅덩이는 시간이 지나면 마른다. O(적 × 웅덩이)
   applyLingeringDamage(frameSeconds) {
     this.puddles = this.puddles.filter(puddle => this.gameTime < puddle.until);
+    // 컴퓨터 자동 복구(Lv.3)
+    const regen = this.computerStats().regen;
+    if (regen > 0 && this.health > 0) this.health = Math.min(this.maxHealth, this.health + regen * frameSeconds);
     for (const bug of this.bugs) {
       if (bug.state !== 'alive') continue;
       let damage = 0;
@@ -668,6 +757,7 @@ export class DefenseEngine extends TargetGameEngine {
     this.wordsTyped++;
     this.stream = this.stream.filter(word => word.id !== target.id);
     this.refillStream();
+    this.lastWord = target.token.text;
     this.emit('word-done', { word: target, coins, combo: this.combo });
   }
 

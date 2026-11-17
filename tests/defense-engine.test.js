@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DefenseEngine, isOnPath, DEFENSE_COMPUTER, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, bpmForWave, wordCoins, waveBonusCoins, comboCoinFactor, towerStats, PLACEMENT } from '../public/js/defense-engine.js';
+import { DefenseEngine, isOnPath, DEFENSE_COMPUTER, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, bpmForWave, wordCoins, waveBonusCoins, comboCoinFactor, towerStats, PLACEMENT, COMPUTER_GUARD, COMPUTER_LEVELS } from '../public/js/defense-engine.js';
 import { rewardBreakdown } from '../public/js/rewards.js';
 
 const POOL = ['let', 'var', 'map', 'if', 'do', 'go', 'use', 'mut', 'xor', 'nil', 'new', 'try', 'int', 'out', 'end']
@@ -229,6 +229,66 @@ test('EMP포: 떨어진 곳 반경 안의 지상 적 모두에게 피해(스플�
   assert.equal(drone.hp, 9.5, '드론은 절반 피해');
   assert.ok(engine.slowFactor(drone) <= 0.5, '그리고 느려진다');
   assert.ok(events.some(event => event.type === 'air-jammed'));
+});
+
+test('컴퓨터 대공 포탑: 가까이 온 공중 적만 자동으로 쏜다', () => {
+  const { engine, events, clock } = setup();
+  engine.phase = 'spawning';
+  engine.phaseUntil = Infinity;
+  engine.nextSpawnAt = Infinity;
+  const drone = engine.spawnBug('drone');
+  drone.hp = drone.maxHp = 5;
+  const ground = engine.spawnBug('malware');
+  ground.hp = ground.maxHp = 5;
+  drone.x = ground.x = COMPUTER_GUARD.x;
+  drone.y = ground.y = COMPUTER_GUARD.y - 0.05;
+  engine.lastWord = 'const';
+  engine.fireGuard();
+  assert.equal(engine.guardShots[0].text, 'const', '방금 친 낱말을 던진다');
+  assert.equal(drone.hp, 5, '날아가는 중에는 아직');
+  engine.gameTime += COMPUTER_GUARD.flightSeconds;
+  engine.landGuardShots();
+  assert.equal(drone.hp, 4, '닿으면 피해');
+  assert.equal(ground.hp, 5, '지상은 안 쏜다');
+  engine.fireGuard();
+  engine.gameTime += COMPUTER_GUARD.flightSeconds;
+  engine.landGuardShots();
+  assert.equal(drone.hp, 4, '쿨다운');
+  assert.ok(events.some(event => event.type === 'guard-shot'));
+  const farDrone = engine.spawnBug('drone');
+  farDrone.x = 0.5; farDrone.y = 0.05;
+  engine.guardReadyAt = 0;
+  drone.state = 'dead';
+  engine.fireGuard();
+  assert.equal(farDrone.hp, farDrone.maxHp, '멀리 있으면 안 쏜다');
+});
+
+test('컴퓨터 강화: Lv.3까지 대공 사거리·연사·체력, Lv.3은 2발 동시 + 자동 복구', () => {
+  const { engine } = setup();
+  engine.coins = 100000;
+  const health = engine.maxHealth;
+  const first = engine.computerUpgradeInfo();
+  assert.equal(first.level, 1);
+  assert.ok(first.next.range > first.current.range && first.next.cooldown < first.current.cooldown);
+  assert.equal(engine.upgradeComputer().bought, true);
+  assert.equal(engine.maxHealth, health + COMPUTER_LEVELS[2].bonusHealth);
+  engine.upgradeComputer();
+  assert.equal(engine.computerLevel, 3);
+  assert.equal(engine.upgradeComputer().reason, 'max-level');
+  engine.health = 10;
+  engine.applyLingeringDamage(2);
+  assert.equal(engine.health, 10 + COMPUTER_LEVELS[3].regen * 2, '자동 복구');
+  engine.phase = 'spawning';
+  engine.phaseUntil = Infinity;
+  engine.nextSpawnAt = Infinity;
+  const drones = [engine.spawnBug('drone'), engine.spawnBug('drone')];
+  for (const drone of drones) { drone.x = COMPUTER_GUARD.x; drone.y = COMPUTER_GUARD.y - 0.05; }
+  engine.guardReadyAt = 0;
+  engine.fireGuard();
+  assert.equal(engine.guardShots.filter(shot => !shot.landed).length, 2, '두 표적 동시');
+  const poor = setup().engine;
+  poor.coins = 0;
+  assert.equal(poor.upgradeComputer().reason, 'coins');
 });
 
 test('가격과 성능: 요격포가 백신보다 강하고(사거리·화력·공중) 더 비싸다', () => {
