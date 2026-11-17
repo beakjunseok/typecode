@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DefenseEngine, isOnPath, DEFENSE_COMPUTER, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, bpmForWave, bossHp, wordCoins, waveBonusCoins, comboCoinFactor, towerStats, PLACEMENT, COMPUTER_GUARD, COMPUTER_LEVELS, GUARDIAN, ENEMY_TIERS, enemyTier } from '../public/js/defense-engine.js';
+import { DefenseEngine, ATTACK_TYPES, isOnPath, DEFENSE_COMPUTER, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, bpmForWave, bossHp, bossesForWave, wordCoins, waveBonusCoins, comboCoinFactor, towerStats, PLACEMENT, COMPUTER_GUARD, COMPUTER_LEVELS, GUARDIAN, ENEMY_TIERS, enemyTier } from '../public/js/defense-engine.js';
 import { rewardBreakdown } from '../public/js/rewards.js';
 
 const POOL = ['let', 'var', 'map', 'if', 'do', 'go', 'use', 'mut', 'xor', 'nil', 'new', 'try', 'int', 'out', 'end']
@@ -50,6 +50,8 @@ test('수치: 웨이브 25개, BPM은 웨이브마다 2씩(보통 110→158), �
   assert.equal(bossHp('ransomware', 15), 72);
   assert.equal(bossHp('rootkit', 25), 198);
   assert.deepEqual(Object.keys(DEFENSE_RULES.bossWaves).map(Number), [5, 10, 15, 20, 25]);
+  assert.deepEqual(bossesForWave(25), ['ransomware', 'rootkit'], '25웨이브는 보스 둘');
+  assert.equal(bossHp('ransomware', 25), Math.round(40 * (1 + DEFENSE_RULES.bossHpGrowth * 20)));
   assert.equal(bpmForWave(1, 1), 100);
   assert.equal(bpmForWave(2, 99), 158, '웨이브는 25까지만');
   assert.equal(wordCoins(5, 1, 0), 7, '(2 + 5) × 1 × 1');
@@ -470,6 +472,22 @@ test('웨이브 10 이후 적 강화: 11웨이브부터 v2, 21웨이브부터 v3
   engine.wave = 10;
   engine.startWave(11);
   assert.ok(events.some(event => event.type === 'wave-intro' && event.payload.tierUp && event.payload.tier === 2));
+});
+
+test('25웨이브: 졸개를 다 내보낸 뒤 랜섬웨어와 루트킷이 차례로 둘 다 나온다', () => {
+  const { engine, events } = setup();
+  engine.startWave(25);
+  assert.equal(engine.bugsInWave(25), Math.round(DEFENSE_RULES.bugsPerWave.base + DEFENSE_RULES.bugsPerWave.step * 24) + 2);
+  engine.phase = 'spawning';
+  engine.phaseUntil = Infinity;
+  for (let step = 0; step < 400; step++) {
+    engine.nextSpawnAt = 0;
+    engine.spawnIfDue();
+    if (engine.bossSpawned) break;
+  }
+  const appeared = events.filter(event => event.type === 'boss-appear').map(event => event.payload.boss);
+  assert.deepEqual(appeared, ['ransomware', 'rootkit']);
+  assert.equal(engine.bugs.filter(bug => ATTACK_TYPES[bug.type].boss).length, 2);
 });
 
 test('가격과 성능: 요격포가 백신보다 강하고(사거리·화력·공중) 더 비싸다', () => {

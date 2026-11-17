@@ -219,7 +219,8 @@ export class DefenseRenderer {
     } else if (type === 'boss-appear') {
       const label = ATTACK_TYPES[payload.bug?.type]?.label ?? '보스';
       const final = engine?.wave === DEFENSE_RULES.waves;
-      this.banner = { text: final ? 'FINAL BOSS!' : `${payload.bug?.type === 'rootkit' ? 'ROOTKIT' : 'RANSOMWARE'}!`, sub: `${label} 체력 ${payload.bug?.maxHp ?? ''} · 절반에서 2페이즈`, at: now, color: SCENE.danger };
+      const pair = payload.total > 1 ? ` (${payload.index}/${payload.total})` : '';
+      this.banner = { text: final ? 'FINAL BOSS!' : `${payload.bug?.type === 'rootkit' ? 'ROOTKIT' : 'RANSOMWARE'}!`, sub: `${label}${pair} 체력 ${payload.bug?.maxHp ?? ''} · 절반에서 2페이즈`, at: now, color: SCENE.danger };
     }
     if (!this.context) return;
     const juice = this.juice;
@@ -2538,12 +2539,17 @@ export class DefenseRenderer {
 
   // 보스 체력 막대(HUD 아래 가운데): 이름 · 페이즈 표시, 절반 자리에 금
   drawBossBar(context, engine) {
-    const boss = engine.bugs.find(bug => bug.state === 'alive' && ATTACK_TYPES[bug.type].boss);
-    if (!boss) return;
+    // 살아 있는 보스마다 막대 하나씩 위에서부터 쌓는다(25웨이브는 둘)
+    const bosses = engine.bugs.filter(bug => bug.state === 'alive' && ATTACK_TYPES[bug.type].boss);
+    const firstTop = HUD_HEIGHT + (engine.buildMode ? 30 : 8);
+    bosses.forEach((boss, index) => this.drawOneBossBar(context, boss, firstTop + index * 30));
+  }
+
+  // 보스 체력 막대 하나: 이름 · 페이즈 표시, 2페이즈로 넘어가는 자리에 흰 금
+  drawOneBossBar(context, boss, top) {
     const field = this.field();
     const barWidth = Math.min(320, field.width * 0.7);
     const left = field.left + field.width / 2 - barWidth / 2;
-    const top = HUD_HEIGHT + (engine.buildMode ? 30 : 8);
     const type = ATTACK_TYPES[boss.type];
     const color = boss.phase === 2 ? '#ff4dd2' : BUG_STYLE[boss.type].body;
     context.fillStyle = 'rgba(14, 18, 34, 0.9)';
