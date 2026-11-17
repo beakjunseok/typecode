@@ -2536,25 +2536,17 @@ export class DefenseRenderer {
     context.restore();
   }
 
-  // 컴퓨터 대공 포탑(돔 꼭대기, 레벨별): 코드 조각을 던지는 작은 단말 포탑. 마지막 표적(없으면 하늘을 천천히 훑음)을 향한다.
-  // Lv.1 쌍포신 · Lv.2 넓은 받침 + 안테나 + 도는 고리 · Lv.3 금 테두리 + 쌍포드 + 왕관 고리. 공중 적이 있으면 사거리 점선
+  // 컴퓨터 대공 방어(포탑 그림 없음): 공중 적이 있거나 컴퓨터를 고르면 사거리 점선(골랐을 때는 다음 레벨 사거리 금색 점선도),
+  // 강화 직후에는 모니터 위로 빛기둥과 모여드는 고리
   drawGuard(context, engine) {
     const position = this.toScreen(COMPUTER_GUARD);
     const unit = this.unit();
     const level = engine.computerLevel ?? 1;
     const stats = engine.computerStats?.() ?? COMPUTER_GUARD;
-    const motion = this.motion('guard');
     const time = wallSeconds();
-    const shot = (engine.guardShots ?? []).at(-1);
-    const sinceShot = shot ? engine.gameTime - shot.at : Infinity;
-    const aimTarget = shot && sinceShot < 0.8 ? Math.atan2(this.toScreen(shot).y - position.y, this.toScreen(shot).x - position.x) : -Math.PI / 2 + Math.sin(time * 0.7) * 0.8;
-    motion.aim = motion.aim == null ? aimTarget : approachAngle(motion.aim, aimTarget, this.frameSeconds * (sinceShot < 0.8 ? 18 : 2.5));
-    const fired = Math.max(0, 1 - sinceShot / 0.25);
-    const ready = engine.gameTime >= (engine.guardReadyAt ?? 0);
     const airNear = engine.bugs.some(bug => bug.state === 'alive' && bug.air);
     const selected = this.selectedTowerId === 'computer';
     const upgradeAge = engine.computerUpgradedAt == null ? Infinity : engine.gameTime - engine.computerUpgradedAt;
-    const gold = level >= 3 ? '#ffd166' : SCENE.shield;
     context.save();
     if (airNear || selected) {
       context.strokeStyle = selected ? 'rgba(255, 255, 255, 0.55)' : 'rgba(54, 226, 255, 0.35)';
@@ -2572,88 +2564,20 @@ export class DefenseRenderer {
       }
       context.setLineDash([]);
     }
-    const hop = upgradeAge < 0.6 ? Math.sin(upgradeAge / 0.6 * Math.PI) * 10 : 0;
-    context.translate(position.x, position.y - hop * unit);
-    context.scale(unit, unit);
-    if (upgradeAge < 1) this.drawLightColumn(context, '#ffd166', 1 - upgradeAge, 34);
-    if (upgradeAge < 0.45) this.drawConvergingRings(context, gold, upgradeAge / 0.45);
-    // 받침
-    const baseWidth = level >= 2 ? 15 : 11;
-    context.fillStyle = '#1b2240';
-    context.strokeStyle = gold;
-    context.lineWidth = level >= 3 ? 2 : 1.5;
-    context.beginPath();
-    context.ellipse(0, 4, baseWidth, 4.5, 0, 0, Math.PI * 2);
-    context.fill();
-    context.stroke();
-    if (level >= 2) {
-      // 도는 데이터 고리 + 안테나
-      context.strokeStyle = 'rgba(54, 226, 255, 0.6)';
-      context.setLineDash([2, 3]);
-      context.lineDashOffset = -time * 25;
-      context.beginPath();
-      context.ellipse(0, 4, baseWidth + 4, 6.5, 0, 0, Math.PI * 2);
-      context.stroke();
-      context.setLineDash([]);
-      context.strokeStyle = '#c9d2f2';
-      context.lineWidth = 1.2;
-      context.beginPath();
-      context.moveTo(-8, 0);
-      context.lineTo(-11, -12);
-      context.stroke();
-      context.fillStyle = Math.sin(time * 6) > 0 ? SCENE.shield : '#ffffff';
-      context.beginPath();
-      context.arc(-11, -12, 1.8, 0, Math.PI * 2);
-      context.fill();
-    }
-    // 단말 머리(작은 모니터 + 프롬프트)
-    context.fillStyle = '#2c3866';
-    context.strokeStyle = gold;
-    context.lineWidth = 1.5;
-    roundedRect(context, -7, -7, 14, 9, 2);
-    context.fill();
-    context.stroke();
-    context.fillStyle = ready ? '#7dffc4' : 'rgba(125, 255, 196, 0.35)';
-    context.font = canvasFont(6, 'code', 700);
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillText(Math.sin(time * 5) > 0 ? '>_' : '> ', 0, -2.5);
-    // 포신(레벨별)
-    context.save();
-    context.translate(0, -3);
-    context.rotate(motion.aim);
-    const barrels = level >= 3 ? [-5, -1.7, 1.7, 5] : level >= 2 ? [-3.5, 0, 3.5] : [-2.6, 2.6];
-    for (const offset of barrels) {
-      const recoil = fired * 3;
-      context.fillStyle = level >= 3 ? '#fff4d0' : '#d8f6ff';
-      roundedRect(context, 6 - recoil, offset - 1.2, 11 + level, 2.4, 1.2);
-      context.fill();
-      context.fillStyle = ready ? SCENE.shield : 'rgba(54, 226, 255, 0.3)';
-      context.beginPath();
-      context.arc(17 + level - recoil, offset, 1.4, 0, Math.PI * 2);
-      context.fill();
-    }
-    if (fired > 0) {
-      context.globalCompositeOperation = 'lighter';
-      context.fillStyle = `rgba(160, 240, 255, ${fired})`;
-      context.beginPath();
-      context.arc(19 + level, 0, 4 + fired * 6, 0, Math.PI * 2);
-      context.fill();
-      context.globalCompositeOperation = 'source-over';
+    if (upgradeAge < 1) {
+      const origin = this.guardOrigin();
+      context.translate(origin.x, origin.y);
+      context.scale(unit, unit);
+      this.drawLightColumn(context, '#ffd166', 1 - upgradeAge, 40);
+      if (upgradeAge < 0.45) this.drawConvergingRings(context, level >= 3 ? '#ffd166' : SCENE.shield, upgradeAge / 0.45);
     }
     context.restore();
-    if (level >= 3) {
-      context.save();
-      context.translate(0, 26);
-      context.scale(0.7, 0.7);
-      this.drawCrownHalo(context, SCENE.shield);
-      context.restore();
-    }
-    // 레벨 별(포탑 아래)
-    context.font = canvasFont(8, 'ui', 700);
-    context.fillStyle = '#ffd166';
-    context.fillText('★'.repeat(level) + '☆'.repeat(COMPUTER_LEVELS_COUNT - level), 0, 13);
-    context.restore();
+  }
+
+  // 코드 조각이 출발하는 곳: 모니터 화면 위쪽
+  guardOrigin() {
+    const desk = this.computerPosition();
+    return { x: desk.x, y: desk.y - 34 * this.unit() };
   }
 
   // 날아가는 코드 조각: 친 낱말(또는 patch() 같은 조각)이 빙글 돌며 포물선으로 날아가고, 뒤로 작은 글자 꼬리가 남는다.
@@ -2663,7 +2587,7 @@ export class DefenseRenderer {
     const total = shot.hitAt - shot.at;
     if (shot.landed || flight > total + 0.05) return;
     const unit = this.unit();
-    const from = this.toScreen(COMPUTER_GUARD);
+    const from = this.guardOrigin();
     const to = this.toScreen(shot);
     const path = progress => ({
       x: from.x + (to.x - from.x) * progress,
