@@ -272,6 +272,10 @@ export class DefenseRenderer {
       const center = this.toScreen(payload);
       this.empBlasts.push({ x: center.x, y: center.y, radiusY: payload.radius * this.field().height, at: now + 0.15, level: payload.tower.level, seed: Math.random() * 10, burst: false });
       if (this.empBlasts.length > 16) this.empBlasts.shift();
+    } else if (type === 'air-jammed') {
+      const { x, y } = this.bugPosition(payload.bug);
+      this.particles.burst(x, y, { color: '#d8c8ff', count: 10, speed: 140, life: 0.35, size: 1.8 });
+      juice.popup(x, y - 22 * this.unit(), '⚡ 교란', { color: TOWER_STYLE.emp, size: 12, life: 0.7 });
     } else if (type === 'honey-step') {
       const { x, y } = this.bugPosition(payload.bug);
       this.particles.burst(x, y + 8 * this.unit(), { color: HONEY.body, count: 8, speed: 90, life: 0.35, gravity: 300, size: 2.5 });
@@ -1510,6 +1514,8 @@ export class DefenseRenderer {
     // 화상(방화벽에 맞은 뒤): 몸 위로 타오르는 불길, 끝나 갈수록 작아진다
     const burnLeft = (bug.burnUntil ?? 0) - time;
     if (bug.state === 'alive' && burnLeft > 0) this.drawBurning(context, style.size, time, bug.id, Math.min(1, burnLeft / 0.6));
+    // EMP 교란(공중 드론): 몸을 감싸는 보라 전기 고리 + 튀는 번개
+    if (bug.state === 'alive' && time < (bug.jamUntil ?? 0)) this.drawJammed(context, style.size, time, bug.id);
     // 끈끈이 웅덩이 위: 발에 꿀이 엉겨 붙어 늘어진다
     if (bug.state === 'alive' && engine.activePuddlesUnder?.(bug).length) this.drawStuckGoo(context, style.size, time, bug.id);
     // 2페이즈로 바뀌는 중(무적): 흰 육각 방패가 감싼다
@@ -1588,6 +1594,29 @@ export class DefenseRenderer {
     }
     context.restore();
     this.drawEmbers(context, size, time, seed);
+  }
+
+  // 전자기 교란: 기울어진 보라 고리가 깜빡이며 돌고, 짧은 번개 셋이 몸에서 튄다
+  drawJammed(context, size, time, seed) {
+    context.save();
+    context.globalCompositeOperation = 'lighter';
+    context.strokeStyle = `rgba(179, 140, 255, ${0.5 + 0.4 * Math.sin(time * 30)})`;
+    context.lineWidth = 2;
+    context.beginPath();
+    context.ellipse(0, 0, size * 1.4, size * 0.5, Math.sin(time * 3 + seed) * 0.4, 0, Math.PI * 2);
+    context.stroke();
+    context.strokeStyle = 'rgba(235, 225, 255, 0.9)';
+    context.lineWidth = 1.2;
+    for (let bolt = 0; bolt < 3; bolt++) {
+      if (Math.sin(time * 23 + bolt * 2 + seed) < 0) continue;
+      const angle = time * 7 + bolt * 2.1 + seed;
+      context.beginPath();
+      context.moveTo(Math.cos(angle) * size * 0.4, Math.sin(angle) * size * 0.4);
+      context.lineTo(Math.cos(angle + 0.4) * size * 0.9, Math.sin(angle + 0.4) * size * 0.9);
+      context.lineTo(Math.cos(angle) * size * 1.3, Math.sin(angle) * size * 1.3);
+      context.stroke();
+    }
+    context.restore();
   }
 
   // 끈끈이: 발밑에 꿀 덩어리 + 몸으로 늘어진 꿀 줄기 둘
@@ -2076,7 +2105,7 @@ export class DefenseRenderer {
       context.save();
       context.translate(dx * size, dy * size * 0.6 - 3);
       context.scale(1, 0.32);
-      context.rotate(time * 40 * dx);
+      context.rotate((time < (bug.jamUntil ?? 0) ? time * 9 + Math.sin(time * 31) : time * 40) * dx);
       context.fillStyle = 'rgba(200, 255, 235, 0.5)';
       context.beginPath();
       context.ellipse(0, 0, size * 0.62, size * 0.14, 0, 0, Math.PI * 2);
