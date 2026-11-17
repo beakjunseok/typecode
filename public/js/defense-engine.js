@@ -61,8 +61,8 @@ export const COMPUTER_GUARD = Object.freeze({ x: 0.5, y: 0.7, range: 0.24, coold
 // 붙잡은 지상 졸개(보스 제외)는 걸음을 멈추고 봇과 싸운다. 붙어 있는 지상 적은 biteEvery초마다 봇을 때린다(enemyHit: 종류별 세기).
 // 체력이 0이면 쓰러졌다가 respawnSeconds 뒤 다시 출동, 집에서 쉬면 초당 regen 회복
 export const GUARDIAN = Object.freeze({
-  home: Object.freeze({ x: 0.5, y: 0.66 }), leash: 0.4, speed: 0.22, reach: 0.045, airReach: 0.07, cooldown: 0.7, damage: 1,
-  maxHp: 40, regen: 3, respawnSeconds: 8, biteEvery: 1, biteWindup: 0.5, biteReach: 0.11,
+  home: Object.freeze({ x: 0.5, y: 0.66 }), reach: 0.045, airReach: 0.07,
+  regen: 3, respawnSeconds: 8, biteEvery: 1, biteWindup: 0.5, biteReach: 0.11,
   // 싸울 때 서는 자리: 적 옆으로 standOff(가로, 들판 비율)만큼 떨어져 겹치지 않는다. 공중 적은 아래 airBelow만큼.
   // blockReach 안에 들어온 지상 적은 (보스까지) 모두 걸음을 멈춘다
   standOff: 0.055, airBelow: 0.06, blockReach: 0.11, arrive: 0.008, queueGap: 0.022,
@@ -75,8 +75,15 @@ export const COMPUTER_LEVELS = Object.freeze([
   null,
   Object.freeze({ range: 0.24, cooldown: 1.6, shots: 1, bonusHealth: 0, regen: 0, price: 0 }),
   Object.freeze({ range: 0.3, cooldown: 1.2, shots: 1, bonusHealth: 25, regen: 0, price: 250 }),
-  Object.freeze({ range: 0.36, cooldown: 0.9, shots: 2, bonusHealth: 50, regen: 0.5, price: 450, perk: '2발 동시 + 자동 복구' })
+  Object.freeze({ range: 0.36, cooldown: 0.9, shots: 2, bonusHealth: 50, regen: 0.5, price: 450, perk: '2발 동시 + 자동 복구 + 가디언 봇',
+    guardian: Object.freeze({ leash: 0.4, maxHp: 40, damage: 1, cooldown: 0.7, speed: 0.22 }) }),
+  Object.freeze({ range: 0.4, cooldown: 0.8, shots: 3, bonusHealth: 75, regen: 0.6, price: 650, perk: '대공 3발 + 가디언 봇 강화',
+    guardian: Object.freeze({ leash: 0.55, maxHp: 60, damage: 1.5, cooldown: 0.6, speed: 0.26 }) }),
+  Object.freeze({ range: 0.45, cooldown: 0.7, shots: 3, bonusHealth: 100, regen: 1, price: 900, perk: '가디언 봇 최대 강화',
+    guardian: Object.freeze({ leash: 0.75, maxHp: 85, damage: 2, cooldown: 0.5, speed: 0.3 }) })
 ]);
+// 가디언 봇이 처음 출동하는 컴퓨터 레벨
+export const GUARDIAN_LEVEL = 3;
 
 // 설치 규칙(들판 좌표, 가로·세로 반지름이 다른 타원으로 잰다): 길과 띄울 거리, 타워끼리 띄울 거리, 컴퓨터 둘레
 // 자유 배치(BTD6식): 판정은 그림보다 작게. 길은 (길 반폭 + 타워 판정 0.7배)까지만 막아 가장자리에 붙여 놓을 수 있고,
@@ -219,6 +226,21 @@ function inComputerZone(point) {
 }
 
 // 웨이브 BPM: 레벨 시작 BPM + 5 × (웨이브 - 1). O(1)
+// 웨이브 10 이후 적 강화(보스 제외): v2(11~20) · v3(21~) — 체력·속도·봇 들이받기·처치 코인 배율
+export const ENEMY_TIERS = Object.freeze([
+  null,
+  Object.freeze({ fromWave: 1, hp: 1, speed: 1, bite: 1, coins: 1, label: '' }),
+  Object.freeze({ fromWave: 11, hp: 1.5, speed: 1.12, bite: 1.5, coins: 2, label: 'v2' }),
+  Object.freeze({ fromWave: 21, hp: 2.1, speed: 1.25, bite: 2, coins: 3, label: 'v3' })
+]);
+
+// 이 웨이브의 적 강화 단계(1~3)
+export function enemyTier(wave) {
+  let tier = 1;
+  for (let index = 1; index < ENEMY_TIERS.length; index++) if (wave >= ENEMY_TIERS[index].fromWave) tier = index;
+  return tier;
+}
+
 // 보스 체력: 기본 × (1 + bossHpGrowth × (이 웨이브 - 그 보스가 처음 나오는 웨이브)). 정수. O(보스 웨이브 수)
 export function bossHp(typeKey, wave) {
   const firstWave = Math.min(...Object.entries(DEFENSE_RULES.bossWaves).filter(([, key]) => key === typeKey).map(([number]) => Number(number)));
@@ -385,7 +407,8 @@ export class DefenseEngine extends TargetGameEngine {
     this.bossSpawned = false;
     this.phase = 'intro';
     this.phaseUntil = this.gameTime + DEFENSE_RULES.introSeconds;
-    this.emit('wave-intro', { wave, bpm: this.bpm(), boss: DEFENSE_RULES.bossWaves[wave] ?? null });
+    const tier = enemyTier(wave);
+    this.emit('wave-intro', { wave, bpm: this.bpm(), boss: DEFENSE_RULES.bossWaves[wave] ?? null, tier, tierUp: tier > 1 && ENEMY_TIERS[tier].fromWave === wave });
   }
 
   spawnInterval() {
@@ -436,7 +459,8 @@ export class DefenseEngine extends TargetGameEngine {
       hp: 0, maxHp: 0, state: 'alive', spawnedAt: this.gameTime, resolvedAt: null, wave: this.wave,
       phase: 1, shieldUntil: 0, nextSummonAt: Infinity, nextLockAt: Infinity
     };
-    bug.hp = bug.maxHp = type.boss ? bossHp(typeKey, this.wave) : type.hp + Math.floor((this.wave - 1) / DEFENSE_RULES.hpEveryWaves);
+    bug.tier = type.boss ? 1 : enemyTier(this.wave);
+    bug.hp = bug.maxHp = type.boss ? bossHp(typeKey, this.wave) : Math.round((type.hp + Math.floor((this.wave - 1) / DEFENSE_RULES.hpEveryWaves)) * ENEMY_TIERS[bug.tier].hp);
     this.bugs.push(bug);
     this.waveSpawned++;
     this.emit('spawn', { bug });
@@ -467,7 +491,7 @@ export class DefenseEngine extends TargetGameEngine {
   spawnGuardian() {
     const home = GUARDIAN.home;
     const respawn = Boolean(this.guardian);
-    this.guardian = { x: home.x, y: home.y + 0.08, state: 'spawning', targetId: null, holdingId: null, readyAt: this.gameTime + 0.6, spawnedAt: this.gameTime, facing: 1, lastHitAt: -Infinity, lastHurtAt: -Infinity, moving: false, hp: GUARDIAN.maxHp, maxHp: GUARDIAN.maxHp, respawnAt: null };
+    this.guardian = { x: home.x, y: home.y + 0.08, state: 'spawning', targetId: null, holdingId: null, readyAt: this.gameTime + 0.6, spawnedAt: this.gameTime, facing: 1, lastHitAt: -Infinity, lastHurtAt: -Infinity, moving: false, hp: this.guardianStats().maxHp, maxHp: this.guardianStats().maxHp, respawnAt: null, level: this.computerLevel };
     this.emit('guardian-spawn', { guardian: this.guardian, respawn });
   }
 
@@ -492,9 +516,10 @@ export class DefenseEngine extends TargetGameEngine {
     if (this.bossLasersHitGuardian()) return;
     const home = GUARDIAN.home;
     let target = this.bugs.find(bug => bug.id === bot.targetId && bug.state === 'alive');
-    if (!target || this.fieldDistance(target, home) > GUARDIAN.leash) {
+    const stats = this.guardianStats();
+    if (!target || this.fieldDistance(target, home) > stats.leash) {
       target = this.bugs
-        .filter(bug => bug.state === 'alive' && bug.hp > 0 && this.fieldDistance(bug, home) <= GUARDIAN.leash)
+        .filter(bug => bug.state === 'alive' && bug.hp > 0 && this.fieldDistance(bug, home) <= stats.leash)
         .sort((first, second) => this.fieldDistance(first, bot) - this.fieldDistance(second, bot))[0] ?? null;
       bot.targetId = target?.id ?? null;
     }
@@ -510,7 +535,7 @@ export class DefenseEngine extends TargetGameEngine {
     const distance = Math.hypot((goal.x - bot.x) / 0.6, goal.y - bot.y);
     bot.moving = distance > GUARDIAN.arrive;
     if (bot.moving) {
-      const step = Math.min(distance, GUARDIAN.speed * frameSeconds);
+      const step = Math.min(distance, stats.speed * frameSeconds);
       const dx = (goal.x - bot.x) / 0.6, dy = goal.y - bot.y;
       const length = Math.hypot(dx, dy) || 1;
       bot.x += dx / length * step * 0.6;
@@ -523,11 +548,11 @@ export class DefenseEngine extends TargetGameEngine {
     bot.holdingId = target && !bot.moving && !target.air ? target.id : null;
     if (bot.state === 'idle') bot.hp = Math.min(bot.maxHp, bot.hp + GUARDIAN.regen * frameSeconds);
     if (target && !bot.moving && this.gameTime >= bot.readyAt) {
-      bot.readyAt = this.gameTime + GUARDIAN.cooldown;
+      bot.readyAt = this.gameTime + stats.cooldown;
       bot.lastHitAt = this.gameTime;
       bot.lastHitAir = Boolean(target.air);
       this.emit('guardian-hit', { guardian: bot, bug: target });
-      this.damageBug(target, 'guardian', GUARDIAN.damage);
+      this.damageBug(target, 'guardian', stats.damage);
     }
   }
 
@@ -544,7 +569,7 @@ export class DefenseEngine extends TargetGameEngine {
         continue;
       }
       if (this.gameTime < bug.nextBiteAt) continue;
-      const damage = GUARDIAN.enemyHit[bug.type] ?? 2;
+      const damage = Math.round((GUARDIAN.enemyHit[bug.type] ?? 2) * ENEMY_TIERS[bug.tier ?? 1].bite);
       bug.nextBiteAt = this.gameTime + GUARDIAN.biteEvery;
       bug.lastBiteAt = this.gameTime;
       bot.hp = Math.max(0, bot.hp - damage);
@@ -625,6 +650,11 @@ export class DefenseEngine extends TargetGameEngine {
     return this.fieldDistance(bug, bot) <= GUARDIAN.blockReach;
   }
 
+  // 지금 컴퓨터 레벨의 가디언 봇 능력치(범위·체력·공격·간격·속도). 봇이 없는 레벨이면 Lv.3 값
+  guardianStats(level = this.computerLevel) {
+    return this.computerStats(Math.max(GUARDIAN_LEVEL, level)).guardian;
+  }
+
   // 지금 컴퓨터 레벨의 능력치
   computerStats(level = this.computerLevel) {
     return COMPUTER_LEVELS[Math.max(1, Math.min(COMPUTER_LEVELS.length - 1, level))];
@@ -655,7 +685,15 @@ export class DefenseEngine extends TargetGameEngine {
     this.maxHealth += gained;
     this.health = Math.min(this.maxHealth, this.health + gained);
     this.computerUpgradedAt = this.gameTime;
-    if (this.computerLevel >= COMPUTER_LEVELS.length - 1 && !this.guardian) this.spawnGuardian();
+    if (this.computerLevel >= GUARDIAN_LEVEL && !this.guardian) this.spawnGuardian();
+    else if (this.guardian && this.computerLevel > GUARDIAN_LEVEL) {
+      // 봇 강화: 늘어난 최대 체력만큼 채운다
+      const nextHp = this.guardianStats().maxHp;
+      this.guardian.hp = Math.min(nextHp, this.guardian.hp + nextHp - this.guardian.maxHp);
+      this.guardian.maxHp = nextHp;
+      this.guardian.level = this.computerLevel;
+      this.guardian.upgradedAt = this.gameTime;
+    }
     this.emit('computer-upgraded', { level: this.computerLevel, price: info.price, stats: info.next, maxed: this.computerLevel >= COMPUTER_LEVELS.length - 1 });
     return { bought: true, level: this.computerLevel };
   }
@@ -748,7 +786,8 @@ export class DefenseEngine extends TargetGameEngine {
       const rage = bug.phase === 2 ? type.phaseTwo.speedFactor : 1;
       const stunned = this.gameTime < bug.shieldUntil ? 0 : 1;
       const distance = bug.air ? Math.max(0.2, Math.hypot(DEFENSE_COMPUTER.x - bug.origin.x, DEFENSE_COMPUTER.y - bug.origin.y)) : 1;
-      bug.progress += type.speed * this.difficulty.speed * this.slowFactor(bug) * rage * stunned * frameSeconds / distance * (bug.air ? 0.9 : 1);
+      const tierSpeed = ENEMY_TIERS[bug.tier ?? 1].speed;
+      bug.progress += type.speed * tierSpeed * this.difficulty.speed * this.slowFactor(bug) * rage * stunned * frameSeconds / distance * (bug.air ? 0.9 : 1);
       const point = bug.air
         ? { x: bug.origin.x + (DEFENSE_COMPUTER.x - bug.origin.x) * Math.min(1, bug.progress), y: bug.origin.y + (DEFENSE_COMPUTER.y - 0.1 - bug.origin.y) * Math.min(1, bug.progress) }
         : pointOnPath(bug.progress);
@@ -863,7 +902,7 @@ export class DefenseEngine extends TargetGameEngine {
     this.kills[bug.type]++;
     this.waveKilled++;
     this.score += type.bounty;
-    this.gainCoins(type.towerCoins, 'tower');
+    this.gainCoins(type.towerCoins * ENEMY_TIERS[bug.tier ?? 1].coins, 'tower');
     this.emit('bug-kill', { bug, source, combo: this.combo });
   }
 

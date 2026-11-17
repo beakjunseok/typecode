@@ -2,7 +2,7 @@
 // 오른쪽(휴대폰은 상점 위 띠): 연습 모드처럼 칠 낱말이 줄지어 올라오는 패널. 맨 아래: 누를 수 있는 상점(숫자 키 1~4).
 // 배경 그림(public/art/defense-stage.webp)이 있으면 그림 속 돔이 컴퓨터 자리에 오도록 깔고, 없으면 격자·코드 비·컴퓨터를 직접 그린다.
 import { ARCADE_RULES } from './target-game.js';
-import { DEFENSE_RULES, TOWER_TYPES, SHOP_ITEMS, DEFENSE_PATH, DEFENSE_COMPUTER, ATTACK_TYPES, COMPUTER_GUARD, GUARDIAN, wordCoins, towerStats, TOWER_MAX_PERKS, pointOnPath } from './defense-engine.js';
+import { DEFENSE_RULES, TOWER_TYPES, SHOP_ITEMS, DEFENSE_PATH, DEFENSE_COMPUTER, ATTACK_TYPES, COMPUTER_GUARD, GUARDIAN, GUARDIAN_LEVEL, ENEMY_TIERS, wordCoins, towerStats, TOWER_MAX_PERKS, pointOnPath } from './defense-engine.js';
 import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
 
 const HUD_HEIGHT = 34;
@@ -15,7 +15,7 @@ const STAGE_ART = loadArt('/art/defense-stage.webp');
 // 그림 속 방패 돔(컴퓨터) 중심과 반지름(그림 크기 비율)
 const ART_DOME = Object.freeze({ x: 0.502, y: 0.846, radius: 0.117 });
 const wallSeconds = () => performance.now() / 1000;
-const COMPUTER_LEVELS_COUNT = 3;
+const COMPUTER_LEVELS_COUNT = 5;
 // 타워 설치 연출(게임 초): 설계도 → 낙하 → 착지 흔들림
 const BUILD_MOTION = Object.freeze({ blueprint: 0.2, drop: 0.25, settle: 0.55 });
 const HIT_FLASH_SECONDS = 0.14;
@@ -204,7 +204,10 @@ export class DefenseRenderer {
     }
     if (type === 'wave-intro' || (type === 'start' && engine)) {
       const wave = payload.wave ?? 1;
-      this.banner = { text: wave === DEFENSE_RULES.waves ? `FINAL WAVE ${wave}` : `WAVE ${wave}`, sub: `BPM ${payload.bpm ?? engine?.bpm?.() ?? ''} · 해킹을 막으세요`, at: now, color: wave === DEFENSE_RULES.waves ? SCENE.danger : SCENE.shield };
+      const tierUp = payload.tierUp ? ENEMY_TIERS[payload.tier] : null;
+      this.banner = tierUp
+        ? { text: `WAVE ${wave} · 적 ${tierUp.label} 업그레이드!`, sub: `체력 ×${tierUp.hp} · 속도 ×${tierUp.speed} · 장갑 강화`, at: now, color: payload.tier >= 3 ? SCENE.danger : SCENE.amber }
+        : { text: wave === DEFENSE_RULES.waves ? `FINAL WAVE ${wave}` : `WAVE ${wave}`, sub: `BPM ${payload.bpm ?? engine?.bpm?.() ?? ''} · 해킹을 막으세요`, at: now, color: wave === DEFENSE_RULES.waves ? SCENE.danger : SCENE.shield };
     } else if (type === 'wave-clear') {
       this.banner = { text: `WAVE ${payload.wave} CLEAR`, sub: `+${payload.bonus} 코인${payload.perfect ? ' · 무피해 보너스' : ''}`, at: now, color: '#4df0a6' };
     } else if (type === 'goal') {
@@ -329,8 +332,13 @@ export class DefenseRenderer {
       this.particles.burst(x, y, { color: SCENE.shield, count: 24, speed: 220, life: 0.6 });
       juice.shake(payload.maxed ? 0.45 : 0.2);
       if (payload.maxed) juice.flash('#ffd166', 0.3, 0.45);
+      if (engine?.guardian && payload.level > GUARDIAN_LEVEL) {
+        const robot = this.toScreen(engine.guardian);
+        juice.ring(robot.x, robot.y - 20 * unit, { color: '#ffd166', radius: 50 * unit, width: 4, life: 0.5 });
+        this.spawnSpiralSparks(robot.x, robot.y, 16, ['#ffd166', SCENE.shield]);
+      }
       const center = this.computerPosition();
-      juice.popup(center.x, center.y - 90 * unit, payload.maxed ? `컴퓨터 MAX ★ ${payload.stats.perk}` : `컴퓨터 Lv.${payload.level} ▲ 체력 +${payload.stats.bonusHealth}`, { color: '#ffd166', size: 17, life: 1.3 });
+      juice.popup(center.x, center.y - 90 * unit, payload.maxed ? `컴퓨터 MAX ★ ${payload.stats.perk}` : `컴퓨터 Lv.${payload.level} ▲${payload.stats.perk ? ` ${payload.stats.perk}` : ''}`, { color: '#ffd166', size: 17, life: 1.3 });
     } else if (type === 'air-jammed') {
       const { x, y } = this.bugPosition(payload.bug);
       this.particles.burst(x, y, { color: '#d8c8ff', count: 10, speed: 140, life: 0.35, size: 1.8 });
@@ -1572,6 +1580,7 @@ export class DefenseRenderer {
     else if (bug.type === 'rootkit') this.drawRootkit(context, style, time, bug, engine);
     else this.drawRansomware(context, style, time, bug, engine);
     context.filter = 'none';
+    if ((bug.tier ?? 1) > 1) this.drawTierArmor(context, style, bug.tier, time, bug.id);
     // 출현 글리치: 가로 줄 몇 개가 몸을 가로지른다
     if (spawn < 1) {
       context.globalCompositeOperation = 'lighter';
@@ -1644,6 +1653,92 @@ export class DefenseRenderer {
     const stomp = Math.abs(Math.sin(phase * 2.6 * rage));
     const ground = Math.max(0, 1 - stomp * 5);
     return { lift: -stomp * 6, tilt: Math.sin(phase * 1.3 * rage) * 0.05, scaleX: 1 + ground * 0.08, scaleY: 1 - ground * 0.08, shadow: 1 - stomp * 0.2 };
+  }
+
+  // 강화 적 장갑: v2 = 강철 투구판 + 양옆 장갑판 + 하늘색 방어막 테, v3 = 붉은 가시 왕관 + 검붉은 기운 + 장갑 균열 빛.
+  // 오른쪽 위에 v2·v3 배지
+  drawTierArmor(context, style, tier, time, seed) {
+    const size = style.size;
+    context.save();
+    if (tier >= 3) {
+      const aura = context.createRadialGradient(0, 0, size * 0.6, 0, 0, size * 1.7);
+      aura.addColorStop(0, 'rgba(255, 40, 70, 0)');
+      aura.addColorStop(0.7, `rgba(255, 40, 70, ${0.18 + 0.1 * Math.sin(time * 5 + seed)})`);
+      aura.addColorStop(1, 'rgba(255, 40, 70, 0)');
+      context.globalCompositeOperation = 'lighter';
+      context.fillStyle = aura;
+      context.beginPath();
+      context.arc(0, 0, size * 1.7, 0, Math.PI * 2);
+      context.fill();
+      context.globalCompositeOperation = 'source-over';
+    } else {
+      context.strokeStyle = `rgba(54, 226, 255, ${0.35 + 0.2 * Math.sin(time * 4 + seed)})`;
+      context.lineWidth = 1.5;
+      context.beginPath();
+      context.ellipse(0, 0, size * 1.35, size * 1.2, 0, 0, Math.PI * 2);
+      context.stroke();
+    }
+    // 투구판(머리 위)
+    const plate = tier >= 3 ? '#4a1420' : '#8a93b8';
+    const rim = tier >= 3 ? '#ff4d6d' : '#d9e2ff';
+    context.fillStyle = plate;
+    context.strokeStyle = '#0b1024';
+    context.lineWidth = 1.2;
+    context.beginPath();
+    context.moveTo(-size * 0.8, -size * 0.75);
+    context.quadraticCurveTo(0, -size * 1.35, size * 0.8, -size * 0.75);
+    context.lineTo(size * 0.6, -size * 0.55);
+    context.lineTo(-size * 0.6, -size * 0.55);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    context.strokeStyle = rim;
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(-size * 0.6, -size * 0.62);
+    context.lineTo(size * 0.6, -size * 0.62);
+    context.stroke();
+    if (tier >= 3) {
+      // 가시 왕관 셋
+      context.fillStyle = '#ff4d6d';
+      for (const spike of [-0.45, 0, 0.45]) {
+        context.beginPath();
+        context.moveTo(size * (spike - 0.14), -size * 1.02);
+        context.lineTo(size * spike, -size * (1.45 + (spike === 0 ? 0.2 : 0)));
+        context.lineTo(size * (spike + 0.14), -size * 1.02);
+        context.closePath();
+        context.fill();
+      }
+    }
+    // 양옆 장갑판
+    for (const side of [-1, 1]) {
+      context.fillStyle = plate;
+      context.strokeStyle = '#0b1024';
+      context.lineWidth = 1;
+      context.beginPath();
+      context.moveTo(side * size * 0.95, -size * 0.3);
+      context.lineTo(side * size * 1.2, 0);
+      context.lineTo(side * size * 0.95, size * 0.45);
+      context.closePath();
+      context.fill();
+      context.stroke();
+      context.fillStyle = rim;
+      context.beginPath();
+      context.arc(side * size * 1.02, 0.05 * size, 1, 0, Math.PI * 2);
+      context.fill();
+    }
+    // 배지
+    const label = ENEMY_TIERS[tier].label;
+    context.font = canvasFont(Math.max(7, Math.round(size * 0.55)), 'code', 700);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    const badgeX = size * 0.95, badgeY = -size * 1.05;
+    context.fillStyle = tier >= 3 ? '#ff4d6d' : '#36e2ff';
+    roundedRect(context, badgeX - size * 0.45, badgeY - size * 0.3, size * 0.9, size * 0.6, 3);
+    context.fill();
+    context.fillStyle = '#0b1024';
+    context.fillText(label, badgeX, badgeY + 0.5);
+    context.restore();
   }
 
   // 화상 불길: 몸 둘레에서 위로 일렁이는 불꽃 다섯 + 튀는 불씨. strength 0~1(꺼져 갈수록 작게)
@@ -2690,7 +2785,7 @@ export class DefenseRenderer {
       context.save();
       context.rotate(Math.PI / 2 * 0.95);
       context.globalAlpha = 0.6;
-      this.drawGuardianBody(context, wall, { walk: 0, punch: 0, hurt: 0, idle: false, dark: true });
+      this.drawGuardianBody(context, wall, { walk: 0, punch: 0, hurt: 0, idle: false, dark: true, level: bot.level ?? GUARDIAN_LEVEL });
       context.restore();
       if (Math.sin(wall * 19) > 0.3) {
         context.strokeStyle = '#ffd166';
@@ -2735,7 +2830,9 @@ export class DefenseRenderer {
     context.translate(-bot.facing * hurt * 5, -Math.abs(walk) * 2 - jump);
     context.scale(appear * bot.facing, appear);
     if (hurt > 0) context.filter = `brightness(${1 + hurt * 1.8})`;
-    this.drawGuardianBody(context, wall, { walk, punch, hurt, idle: bot.state === 'idle', dark: false });
+    this.drawGuardianBody(context, wall, { walk, punch, hurt, idle: bot.state === 'idle', dark: false, level: bot.level ?? GUARDIAN_LEVEL });
+    const upgradeAge = time - (bot.upgradedAt ?? -Infinity);
+    if (upgradeAge >= 0 && upgradeAge < 1) this.drawLightColumn(context, '#ffd166', 1 - upgradeAge, 30);
     context.filter = 'none';
     context.restore();
     // 체력 막대(닳았을 때만)
@@ -2754,7 +2851,7 @@ export class DefenseRenderer {
   // 봇 몸(오른쪽을 보는 기준, 발바닥 y = 4). punch 0~1 = 앞팔 뻗기, walk -1~1 = 다리 흔들기, dark = 쓰러진(꺼진) 모습.
   // 그리는 순서(뒤 → 앞): 등 배터리 팩 → 뒷다리 → 뒷팔 → 허리띠 → 앞다리 → 몸통 장갑 → 머리 → 앞팔.
   // 모든 부품은 짙은 남색 외곽선(OUTLINE)을 둘러 작게 그려져도 형태가 또렷하다
-  drawGuardianBody(context, wall, { walk, punch, hurt, idle, dark }) {
+  drawGuardianBody(context, wall, { walk, punch, hurt, idle, dark, level = GUARDIAN_LEVEL }) {
     const palette = dark
       ? { plate: '#5a6280', plateDark: '#363c58', joint: '#2a3050', glow: '#3a4060', gold: '#6b5320', goldLight: '#7a6430', visor: '#2a3050' }
       : { plate: '#eef7ff', plateDark: '#8fb0d4', joint: '#2b3560', glow: SCENE.shield, gold: '#e8b33a', goldLight: '#ffe08a', visor: '#0c1a33' };
@@ -2779,6 +2876,41 @@ export class DefenseRenderer {
       context.arc(bx, by, radius, 0, Math.PI * 2);
       context.fill();
     };
+
+    // ── Lv.4+: 등 날개 추진기(비스듬한 날개 둘 + 아래로 뿜는 불꽃) ──
+    if (level >= 4) {
+      for (const tilt of [-0.5, -0.15]) {
+        context.save();
+        context.translate(-11, -22);
+        context.rotate(tilt - 0.6);
+        outlined(() => {
+          context.beginPath();
+          context.moveTo(0, 0);
+          context.lineTo(-13, -3);
+          context.lineTo(-11, 2.5);
+          context.lineTo(0, 4);
+          context.closePath();
+        }, dark ? '#3a4060' : (level >= 5 ? '#e8b33a' : '#7f9cc4'), 1);
+        context.fillStyle = dark ? '#2a3050' : palette.glow;
+        context.fillRect(-10, -0.6, 7, 1.2);
+        context.restore();
+      }
+      if (!dark) {
+        const flame = 4 + Math.sin(wall * 30) * 1.5 + (walk ? 3 : 0);
+        context.globalCompositeOperation = 'lighter';
+        const jet = context.createLinearGradient(0, -10, 0, -10 + flame * 2);
+        jet.addColorStop(0, 'rgba(191, 246, 255, 0.95)');
+        jet.addColorStop(1, 'rgba(54, 226, 255, 0)');
+        context.fillStyle = jet;
+        context.beginPath();
+        context.moveTo(-14.5, -11);
+        context.lineTo(-9.5, -11);
+        context.lineTo(-12, -11 + flame * 2);
+        context.closePath();
+        context.fill();
+        context.globalCompositeOperation = 'source-over';
+      }
+    }
 
     // ── 등 배터리 팩 + 전선 ──
     outlined(() => roundedRect(context, -15, -27, 7, 15, 2), dark ? '#2a3050' : '#34416e');
@@ -3046,6 +3178,32 @@ export class DefenseRenderer {
       context.stroke();
       context.globalCompositeOperation = 'source-over';
     }
+    // ── Lv.5: 금 가슴 테두리 + 헬멧 볏 + 머리 위 왕관 고리 ──
+    if (level >= 5) {
+      context.strokeStyle = dark ? '#6b5320' : '#ffd166';
+      context.lineWidth = 1.2;
+      context.beginPath();
+      context.moveTo(-9, -25);
+      context.lineTo(9, -25);
+      context.lineTo(10, -19);
+      context.moveTo(-9, -25);
+      context.lineTo(-10, -19);
+      context.stroke();
+      outlined(() => {
+        context.beginPath();
+        context.moveTo(-1, -40.5);
+        context.lineTo(1.5, -46);
+        context.lineTo(4, -40);
+        context.closePath();
+      }, dark ? '#6b5320' : '#ffd166', 1);
+      if (!dark) {
+        context.save();
+        context.translate(1, -10);
+        context.scale(0.55, 0.55);
+        this.drawCrownHalo(context, SCENE.shield);
+        context.restore();
+      }
+    }
   }
 
   // 컴퓨터 대공 방어(포탑 그림 없음): 공중 적이 있거나 컴퓨터를 고르면 사거리 점선(골랐을 때는 다음 레벨 사거리 금색 점선도),
@@ -3068,6 +3226,26 @@ export class DefenseRenderer {
       context.beginPath();
       context.arc(position.x, position.y, this.rangePixels(stats.range), 0, Math.PI * 2);
       context.stroke();
+      if (selected && level + 1 >= GUARDIAN_LEVEL) {
+        // 가디언 봇 활동 범위(지금 = 하늘색, 다음 레벨 = 금색)
+        const home = this.toScreen(GUARDIAN.home);
+        const leashNow = level >= GUARDIAN_LEVEL ? engine.guardianStats(level).leash : null;
+        const leashNext = level < COMPUTER_LEVELS_COUNT ? engine.guardianStats(level + 1).leash : null;
+        context.lineWidth = 1.5;
+        if (leashNow) {
+          context.strokeStyle = 'rgba(125, 255, 196, 0.6)';
+          context.beginPath();
+          context.ellipse(home.x, home.y, this.field().width * leashNow * 0.6, this.field().height * leashNow, 0, 0, Math.PI * 2);
+          context.stroke();
+        }
+        if (leashNext && leashNext !== leashNow) {
+          context.strokeStyle = 'rgba(255, 209, 102, 0.55)';
+          context.beginPath();
+          context.ellipse(home.x, home.y, this.field().width * leashNext * 0.6, this.field().height * leashNext, 0, 0, Math.PI * 2);
+          context.stroke();
+        }
+        context.lineWidth = 1;
+      }
       if (selected && level < COMPUTER_LEVELS_COUNT) {
         context.strokeStyle = 'rgba(255, 209, 102, 0.5)';
         context.beginPath();
@@ -3565,7 +3743,7 @@ export class DefenseRenderer {
     const guard = this.toScreen(COMPUTER_GUARD);
     const field = this.field();
     const unit = this.unit();
-    const width = 220, height = 78;
+    const width = 236, height = 78;
     // 옆에 자리가 있으면 포탑 오른쪽(없으면 왼쪽), 둘 다 없으면(좁은 화면) 위
     const besideRight = guard.x + 70 * unit;
     const besideLeft = guard.x - 70 * unit - width;
@@ -3592,7 +3770,7 @@ export class DefenseRenderer {
     context.fillStyle = SCENE.fog;
     const detail = info.maxed
       ? `MAX · ${info.current.perk ?? ''}`
-      : `Lv.${info.level + 1} → 대공 사거리·연사 ↑ · 체력 +${info.next.bonusHealth - info.current.bonusHealth}${info.next.perk ? ` · ${info.next.perk}` : ''}`;
+      : `Lv.${info.level + 1} → ${info.next.guardian && info.level >= GUARDIAN_LEVEL ? `봇 범위·체력·공격 ↑ · 체력 +${info.next.bonusHealth - info.current.bonusHealth}` : `대공 ↑ · 체력 +${info.next.bonusHealth - info.current.bonusHealth}${info.next.perk ? ` · ${info.next.perk}` : ''}`}`;
     context.fillText(detail, left + 10, top + 32);
     const upgrade = { x: left + 8, y: top + 44, width: width - 16, height: 26 };
     context.globalAlpha = info.maxed ? 0.35 : info.affordable ? 1 : 0.5;

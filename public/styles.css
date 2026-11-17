@@ -505,6 +505,13 @@ td.num:last-child { font-weight: 600; }
 .input-bar .caret { width: 2px; height: 20px; background: var(--amber); animation: blink 1s steps(2) infinite; }
 .input-bar .target-hint { color: var(--dim); font: 400 12px/1 var(--font-ui); margin-left: 10px; }
 .input-bar .target-hint.notice { color: var(--amber); font-weight: 700; }
+/* 게임 닫기 버튼: 입력줄 오른쪽 끝. 이 버튼으로만 판을 끝낸다(화면을 눌러도 게임이 닫히지 않음) */
+.input-bar .close-game {
+  margin-left: auto; flex: none; height: 30px; padding: 0 12px; border-radius: 8px; cursor: pointer;
+  border: 1px solid rgba(255, 93, 115, 0.55); background: rgba(255, 93, 115, 0.12); color: #ffb3c0;
+  font: 700 13px/1 var(--font-ui);
+}
+.input-bar .close-game:hover, .input-bar .close-game:focus-visible { background: rgba(255, 93, 115, 0.28); outline: none; }
 #hiddenInput { position: fixed; opacity: 0; left: 0; top: 0; width: 1px; height: 1px; border: 0; padding: 0; resize: none; font-size: 16px; }
 
 /* ---------- 화면 키보드: 스킨(--kc-*, --case-bg, data-material) + LED(키마다 --led 색, --led-a 세기) ---------- */

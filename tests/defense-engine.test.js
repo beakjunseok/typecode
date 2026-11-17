@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DefenseEngine, isOnPath, DEFENSE_COMPUTER, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, bpmForWave, bossHp, wordCoins, waveBonusCoins, comboCoinFactor, towerStats, PLACEMENT, COMPUTER_GUARD, COMPUTER_LEVELS, GUARDIAN } from '../public/js/defense-engine.js';
+import { DefenseEngine, isOnPath, DEFENSE_COMPUTER, DEFENSE_RULES, BUG_TYPES, TOWER_TYPES, DEFENSE_PATH, bpmForWave, bossHp, wordCoins, waveBonusCoins, comboCoinFactor, towerStats, PLACEMENT, COMPUTER_GUARD, COMPUTER_LEVELS, GUARDIAN, ENEMY_TIERS, enemyTier } from '../public/js/defense-engine.js';
 import { rewardBreakdown } from '../public/js/rewards.js';
 
 const POOL = ['let', 'var', 'map', 'if', 'do', 'go', 'use', 'mut', 'xor', 'nil', 'new', 'try', 'int', 'out', 'end']
@@ -277,7 +277,6 @@ test('컴퓨터 강화: Lv.3까지 대공 사거리·연사·체력, Lv.3은 2�
   assert.equal(engine.maxHealth, health + COMPUTER_LEVELS[2].bonusHealth);
   engine.upgradeComputer();
   assert.equal(engine.computerLevel, 3);
-  assert.equal(engine.upgradeComputer().reason, 'max-level');
   engine.health = 10;
   engine.applyLingeringDamage(2);
   assert.equal(engine.health, 10 + COMPUTER_LEVELS[3].regen * 2, '자동 복구');
@@ -373,7 +372,7 @@ test('가디언 봇과 적이 서로 때린다: 봇을 만난 지상 적은 (보
   assert.equal(engine.isHeldByGuardian(bug), false, '쓰러지면 적이 다시 걷는다');
   engine.gameTime += GUARDIAN.respawnSeconds;
   engine.updateGuardian(0.05);
-  assert.equal(engine.guardian.hp, GUARDIAN.maxHp, '다시 출동');
+  assert.equal(engine.guardian.hp, engine.guardianStats().maxHp, '다시 출동');
   assert.ok(events.some(event => event.type === 'guardian-spawn' && event.payload.respawn));
 });
 
@@ -427,6 +426,50 @@ test('EMP포는 공중 드론도 직접 겨냥한다(드론만 있어도 쏨)', 
   assert.equal(drone.hp, 9.5, '드론에 절반 피해');
   assert.ok(engine.slowFactor(drone) < 1, '그리고 감속');
   assert.ok(events.some(event => event.type === 'splash' && event.payload.jammed === 1 && event.payload.hits === 0));
+});
+
+test('컴퓨터 강화 Lv.5: Lv.4·5에서 가디언 봇 범위·체력·공격·속도가 오르고, Lv.5가 끝', () => {
+  const { engine, events } = setup();
+  engine.coins = 100000;
+  for (let step = 0; step < 4; step++) engine.upgradeComputer();
+  assert.equal(engine.computerLevel, 5);
+  assert.equal(engine.upgradeComputer().reason, 'max-level', 'Lv.5가 끝');
+  const lv3 = engine.guardianStats(3), lv5 = engine.guardianStats(5);
+  assert.ok(lv5.leash > lv3.leash && lv5.maxHp > lv3.maxHp && lv5.damage > lv3.damage && lv5.speed > lv3.speed && lv5.cooldown < lv3.cooldown);
+  assert.equal(engine.guardian.maxHp, lv5.maxHp, '봇 체력도 강화');
+  assert.equal(engine.guardian.level, 5);
+  assert.ok(events.some(event => event.type === 'computer-upgraded' && event.payload.level === 5 && event.payload.maxed));
+  assert.equal(engine.computerStats().shots, 3);
+});
+
+test('웨이브 10 이후 적 강화: 11웨이브부터 v2, 21웨이브부터 v3(체력·속도↑), 보스는 제외', () => {
+  assert.equal(enemyTier(10), 1);
+  assert.equal(enemyTier(11), 2);
+  assert.equal(enemyTier(21), 3);
+  const { engine, events } = setup();
+  engine.phase = 'spawning';
+  engine.phaseUntil = Infinity;
+  engine.nextSpawnAt = Infinity;
+  engine.wave = 11;
+  const v2 = engine.spawnBug('malware');
+  assert.equal(v2.tier, 2);
+  const base = BUG_TYPES.malware.hp + Math.floor(10 / DEFENSE_RULES.hpEveryWaves);
+  assert.equal(v2.maxHp, Math.round(base * ENEMY_TIERS[2].hp));
+  engine.wave = 21;
+  const v3 = engine.spawnBug('packet');
+  assert.equal(v3.tier, 3);
+  const boss = engine.spawnBug('rootkit');
+  assert.equal(boss.tier, 1, '보스는 따로 커진다');
+  v2.progress = v3.progress = 0.1;
+  const plain = engine.spawnBug('packet');
+  plain.tier = 1;
+  plain.progress = 0.1;
+  v3.type = 'packet';
+  engine.moveBugs(0.5);
+  assert.ok(v3.progress > plain.progress, 'v3가 더 빠르다');
+  engine.wave = 10;
+  engine.startWave(11);
+  assert.ok(events.some(event => event.type === 'wave-intro' && event.payload.tierUp && event.payload.tier === 2));
 });
 
 test('가격과 성능: 요격포가 백신보다 강하고(사거리·화력·공중) 더 비싸다', () => {
