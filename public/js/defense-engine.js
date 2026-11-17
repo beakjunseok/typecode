@@ -55,7 +55,7 @@ export const DEFENSE_PATH = Object.freeze([
 ].map(([x, y]) => Object.freeze({ x, y })));
 export const DEFENSE_COMPUTER = Object.freeze({ x: 0.5, y: 0.84 });
 // 컴퓨터 대공 포탑(돔 꼭대기): 가까이 온 공중 적에게 코드 조각(방금 친 낱말)을 던진다. 날아가 닿는 순간 피해. 최후 방어선
-export const COMPUTER_GUARD = Object.freeze({ x: 0.5, y: 0.7, range: 0.24, cooldown: 1.6, damage: 1, flightSeconds: 0.32, snippets: Object.freeze(['patch()', '{ }', 'fix;', '0x1F', 'kill -9', '</>']) });
+export const COMPUTER_GUARD = Object.freeze({ x: 0.5, y: 0.7, range: 0.24, cooldown: 1.6, damage: 1, flightSeconds: 0.32, projectile: '{ }' });
 // 가디언 봇(컴퓨터 Lv.3에서 출동): 컴퓨터 둘레 leash 안의 가장 가까운 적에게 달려가 reach 안에서 cooldown마다 피해.
 // 적이 없으면 컴퓨터 앞(home)으로 돌아온다. 무적. 가로 거리는 0.6으로 나눠 잰다(들판이 가로로 넓어서)
 // 붙잡은 지상 졸개(보스 제외)는 걸음을 멈추고 봇과 싸운다. 붙어 있는 지상 적은 biteEvery초마다 봇을 때린다(enemyHit: 종류별 세기).
@@ -136,7 +136,7 @@ export const TOWER_TYPES = Object.freeze({
   firewall: Object.freeze({ label: '방화벽', word: 'firewall', price: 120, cooldown: 3, range: 0.26, slow: 0.65, targets: 'ground', damage: 0.6, burn: Object.freeze({ seconds: 2.5, dps: 0.4 }) }),
   honeypot: Object.freeze({ label: '허니팟', word: 'honeypot', price: 150, cooldown: 3.5, range: 0.3, slow: 1, targets: 'ground', damage: 0, puddle: Object.freeze({ radius: 0.07, seconds: 4, slow: 0.35, dps: 0.5, stepDamage: 0.5 }) }),
   antivirus: Object.freeze({ label: '백신', word: 'antivirus', price: 200, cooldown: 1.5, range: 0.32, slow: 1, targets: 'ground', damage: 1 }),
-  emp: Object.freeze({ label: 'EMP포', word: 'emp', price: 250, cooldown: 2.4, range: 0.34, slow: 1, targets: 'ground', damage: 1, splash: 0.085, airJam: Object.freeze({ seconds: 2.5, slow: 0.5, damageFactor: 0.5 }) }),
+  emp: Object.freeze({ label: 'EMP포', word: 'emp', price: 250, cooldown: 2.4, range: 0.34, slow: 1, targets: 'all', damage: 1, splash: 0.085, airJam: Object.freeze({ seconds: 2.5, slow: 0.5, damageFactor: 0.5 }) }),
   interceptor: Object.freeze({ label: '요격포', word: 'interceptor', price: 300, cooldown: 1.1, range: 0.44, slow: 1, targets: 'all', damage: 1 })
 });
 // 강화 단계(Lv.1~3): 사거리 더하기, 쏘는 간격 배율. Lv.3은 타워별 특수 능력(TOWER_MAX_PERKS)
@@ -456,7 +456,7 @@ export class DefenseEngine extends TargetGameEngine {
     if (!targets.length) return;
     this.guardReadyAt = this.gameTime + stats.cooldown;
     targets.forEach((target, index) => {
-      const text = (index === 0 ? this.lastWord : null) ?? guard.snippets[Math.floor(this.random() * guard.snippets.length)];
+      const text = guard.projectile;
       const shot = { id: this.nextId++, bugId: target.id, x: target.x, y: target.y, at: this.gameTime, hitAt: this.gameTime + guard.flightSeconds, text, landed: false, level: this.computerLevel };
       this.guardShots.push(shot);
       this.emit('guard-shot', { bug: target, shot });
@@ -807,7 +807,8 @@ export class DefenseEngine extends TargetGameEngine {
         if (stats.splash > 0) {
           // EMP: 떨어진 곳 반경 안의 (이 타워가 맞힐 수 있는) 적 모두에게 같은 피해
           const center = { x: target.x, y: target.y };
-          const hits = this.bugs.filter(bug => bug.state === 'alive' && this.canTarget(tower, bug) && Math.hypot((bug.x - center.x) / 0.6, bug.y - center.y) <= stats.splash);
+          // 지상 적은 전부 피해, 공중 드론은 아래(교란)에서 따로 처리
+          const hits = this.bugs.filter(bug => bug.state === 'alive' && !bug.air && Math.hypot((bug.x - center.x) / 0.6, bug.y - center.y) <= stats.splash);
           // 반경 안의 공중 드론: 전자기 교란으로 몇 초 동안 느려지고, 피해는 지상의 절반
           const airJam = TOWER_TYPES[tower.type].airJam;
           const jammed = airJam ? this.bugs.filter(bug => bug.state === 'alive' && bug.air && Math.hypot((bug.x - center.x) / 0.6, bug.y - center.y) <= stats.splash) : [];
@@ -946,7 +947,6 @@ export class DefenseEngine extends TargetGameEngine {
     this.wordsTyped++;
     this.stream = this.stream.filter(word => word.id !== target.id);
     this.refillStream();
-    this.lastWord = target.token.text;
     this.emit('word-done', { word: target, coins, combo: this.combo });
   }
 

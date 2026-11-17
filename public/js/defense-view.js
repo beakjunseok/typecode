@@ -212,7 +212,7 @@ export class DefenseRenderer {
     } else if (type === 'boss-phase') {
       this.banner = { text: `PHASE 2 · ${payload.label}`, sub: `${ATTACK_TYPES[payload.bug.type].label}이(가) 폭주합니다! 졸개를 부르고 타워를 잠가요`, at: now, color: '#ff4dd2' };
     } else if (type === 'air-warning') {
-      this.banner = { text: 'AIR RAID!', sub: '드론은 길을 무시해요 · 요격포(5)만 떨어뜨릴 수 있어요(요격포는 땅도 쏴요)', at: now, color: TOWER_STYLE.interceptor };
+      this.banner = { text: 'AIR RAID!', sub: '드론은 길을 무시해요 · 요격포(5)·EMP포(4)·컴퓨터가 쏠 수 있어요', at: now, color: TOWER_STYLE.interceptor };
     } else if (type === 'boss-appear') {
       const label = ATTACK_TYPES[payload.bug?.type]?.label ?? '보스';
       const final = engine?.wave === DEFENSE_RULES.waves;
@@ -317,9 +317,9 @@ export class DefenseRenderer {
       for (const character of [...payload.shot.text].slice(0, 8)) {
         const angle = Math.random() * Math.PI * 2;
         const speed = 90 + Math.random() * 140;
-        this.debris.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 100, rotation: 0, spin: (Math.random() - 0.5) * 12, size: 4, life: 0, maxLife: 0.55, color: '#bff6ff', shape: 'bit', unit, text: character });
+        this.debris.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 100, rotation: 0, spin: (Math.random() - 0.5) * 12, size: 4, life: 0, maxLife: 0.55, color: '#7dffc4', shape: 'bit', unit, text: character });
       }
-      juice.ring(x, y, { color: SCENE.shield, radius: 22 * unit, width: 2, life: 0.25 });
+      juice.ring(x, y, { color: '#7dffc4', radius: 22 * unit, width: 2, life: 0.25 });
     } else if (type === 'computer-upgraded') {
       const { x, y } = this.toScreen(COMPUTER_GUARD);
       const unit = this.unit();
@@ -3092,8 +3092,8 @@ export class DefenseRenderer {
     return { x: desk.x, y: desk.y - 34 * this.unit() };
   }
 
-  // 날아가는 코드 조각: 친 낱말(또는 patch() 같은 조각)이 빙글 돌며 포물선으로 날아가고, 뒤로 작은 글자 꼬리가 남는다.
-  // 닿으면(landGuardShots) guard-hit 이벤트에서 글자 파편으로 흩어진다
+  // 날아가는 패치: 모니터에서 초록 { }가 빛나며 포물선으로 날아가고, 뒤로 옅은 { } 잔상이 남는다.
+  // 닿으면(landGuardShots) guard-hit 이벤트에서 초록 글자 파편으로 흩어진다
   drawGuardShot(context, shot, engine) {
     const flight = engine.gameTime - shot.at;
     const total = shot.hitAt - shot.at;
@@ -3109,31 +3109,20 @@ export class DefenseRenderer {
     context.save();
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    // 꼬리: 글자 하나씩 뒤처지며 흐려짐
-    const characters = [...shot.text];
-    for (let index = 1; index <= Math.min(5, characters.length); index++) {
-      const point = path(Math.max(0, travel - index * 0.06));
-      context.globalAlpha = 0.5 - index * 0.08;
-      context.font = canvasFont(Math.round(10 - index), 'code', 700);
-      context.fillStyle = SCENE.shield;
-      context.fillText(characters[characters.length - index] ?? '', point.x, point.y);
+    context.font = canvasFont(Math.round(15 * Math.max(0.8, unit)), 'code', 700);
+    for (let ghost = 3; ghost >= 1; ghost--) {
+      const point = path(Math.max(0, travel - ghost * 0.07));
+      context.globalAlpha = 0.35 - ghost * 0.09;
+      context.fillStyle = '#7dffc4';
+      context.fillText(shot.text, point.x, point.y);
     }
     const head = path(travel);
     context.globalAlpha = 1;
-    context.translate(head.x, head.y);
-    context.rotate(Math.sin(flight * 14) * 0.35);
-    context.font = canvasFont(Math.round(12 * Math.min(1.2, unit + 0.2)), 'code', 700);
-    const width = context.measureText(shot.text).width;
-    context.fillStyle = 'rgba(10, 30, 40, 0.75)';
-    roundedRect(context, -width / 2 - 4, -8, width + 8, 16, 5);
-    context.fill();
-    context.strokeStyle = SCENE.shield;
-    context.lineWidth = 1;
-    context.stroke();
-    context.shadowColor = SCENE.shield;
-    context.shadowBlur = 10;
-    context.fillStyle = '#bff6ff';
-    context.fillText(shot.text, 0, 0.5);
+    context.fillStyle = '#7dffc4';
+    context.shadowColor = '#7dffc4';
+    context.shadowBlur = 14;
+    context.fillText(shot.text, head.x, head.y);
+    context.shadowBlur = 0;
     context.restore();
   }
 
