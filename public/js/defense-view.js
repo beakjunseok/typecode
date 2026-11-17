@@ -2578,7 +2578,7 @@ export class DefenseRenderer {
     if (!bot) return;
     const time = engine.gameTime;
     const wall = wallSeconds();
-    const unit = this.unit() * 1.25;
+    const unit = this.unit() * 1.45;
     const { x, y } = this.toScreen(bot);
     context.save();
     context.translate(x, y);
@@ -2644,7 +2644,7 @@ export class DefenseRenderer {
     // 체력 막대(닳았을 때만)
     if (bot.hp < bot.maxHp && appear >= 1) {
       const barWidth = 26 * unit;
-      const barY = y - 46 * unit - jump * unit;
+      const barY = y - 52 * unit - jump * unit;
       context.fillStyle = 'rgba(0, 0, 0, 0.6)';
       roundedRect(context, x - barWidth / 2, barY, barWidth, 4, 2);
       context.fill();
@@ -2654,89 +2654,299 @@ export class DefenseRenderer {
     }
   }
 
-  // 봇 몸(오른쪽을 보는 기준, 발바닥 y = 4). punch 0~1 = 앞팔 뻗기, walk -1~1 = 다리 흔들기
+  // 봇 몸(오른쪽을 보는 기준, 발바닥 y = 4). punch 0~1 = 앞팔 뻗기, walk -1~1 = 다리 흔들기, dark = 쓰러진(꺼진) 모습.
+  // 그리는 순서(뒤 → 앞): 등 배터리 팩 → 뒷다리 → 뒷팔 → 허리띠 → 앞다리 → 몸통 장갑 → 머리 → 앞팔.
+  // 모든 부품은 짙은 남색 외곽선(OUTLINE)을 둘러 작게 그려져도 형태가 또렷하다
   drawGuardianBody(context, wall, { walk, punch, hurt, idle, dark }) {
-    const steel = dark ? '#5a6280' : '#e9f6ff';
-    const accent = dark ? '#3a4060' : SCENE.shield;
-    // 다리
-    context.fillStyle = dark ? '#3a4060' : '#3a4a78';
-    for (const side of [-1, 1]) {
-      const swing = walk * side * 3;
-      roundedRect(context, side * 4 - 2.5 + swing, -6, 5, 10, 2);
+    const palette = dark
+      ? { plate: '#5a6280', plateDark: '#363c58', joint: '#2a3050', glow: '#3a4060', gold: '#6b5320', goldLight: '#7a6430', visor: '#2a3050' }
+      : { plate: '#eef7ff', plateDark: '#8fb0d4', joint: '#2b3560', glow: SCENE.shield, gold: '#e8b33a', goldLight: '#ffe08a', visor: '#0c1a33' };
+    const OUTLINE = '#0b1024';
+    const outlined = (draw, fill, width = 1.2) => {
+      draw();
+      context.fillStyle = fill;
       context.fill();
-      context.fillStyle = dark ? '#2a3050' : '#1b2240';
-      roundedRect(context, side * 4 - 3.5 + swing, 2, 7, 3, 1.5);
+      context.strokeStyle = OUTLINE;
+      context.lineWidth = width;
+      context.stroke();
+    };
+    const plateGradient = (top, bottom) => {
+      const gradient = context.createLinearGradient(0, top, 0, bottom);
+      gradient.addColorStop(0, palette.plate);
+      gradient.addColorStop(1, palette.plateDark);
+      return gradient;
+    };
+    const bolt = (bx, by, radius = 0.9) => {
+      context.fillStyle = dark ? '#2a3050' : '#5b6b94';
+      context.beginPath();
+      context.arc(bx, by, radius, 0, Math.PI * 2);
       context.fill();
-      context.fillStyle = dark ? '#3a4060' : '#3a4a78';
+    };
+
+    // ── 등 배터리 팩 + 전선 ──
+    outlined(() => roundedRect(context, -15, -27, 7, 15, 2), dark ? '#2a3050' : '#34416e');
+    context.fillStyle = palette.glow;
+    for (let cell = 0; cell < 3; cell++) {
+      const lit = dark ? 0.2 : (Math.sin(wall * 3 - cell) > -0.3 ? 1 : 0.35);
+      context.globalAlpha = lit;
+      context.fillRect(-13.5, -24.5 + cell * 4, 4, 2.4);
     }
-    // 뒷팔
-    context.fillStyle = dark ? '#4a5070' : '#9fb8d8';
-    roundedRect(context, -12, -19, 5, 11, 2.5);
-    context.fill();
-    // 몸통
-    const torso = context.createLinearGradient(0, -24, 0, -6);
-    torso.addColorStop(0, steel);
-    torso.addColorStop(1, dark ? '#2a3050' : '#7fa4c8');
-    context.fillStyle = torso;
-    roundedRect(context, -9, -24, 18, 18, 5);
-    context.fill();
-    context.strokeStyle = accent;
+    context.globalAlpha = 1;
+    context.strokeStyle = dark ? '#3a4060' : '#ff9f43';
     context.lineWidth = 1.2;
+    context.beginPath();
+    context.moveTo(-8, -14);
+    context.bezierCurveTo(-12, -10 + Math.sin(wall * 4) * 1, -13, -6, -10, -4);
     context.stroke();
-    // 가슴 코어(맥박)
+
+    // ── 다리(허벅지 · 무릎 관절 · 정강이 · 부츠 · 뒤꿈치 추진구) ──
+    const drawLeg = side => {
+      const swing = walk * side * 3.2;
+      const kneeX = side * 3.6 + swing * 0.5;
+      const footX = side * 3.6 + swing;
+      // 허벅지
+      outlined(() => roundedRect(context, kneeX - 2.6, -10, 5.2, 6, 2), dark ? palette.joint : '#4a5a8c');
+      // 무릎 관절
+      outlined(() => { context.beginPath(); context.arc(kneeX, -4.5, 2.1, 0, Math.PI * 2); }, palette.joint, 1);
+      // 정강이(장갑) + 유압 피스톤
+      outlined(() => roundedRect(context, footX - 2.8, -4, 5.6, 6, 1.8), plateGradient(-4, 2));
+      context.strokeStyle = dark ? '#3a4060' : '#9fb8d8';
+      context.lineWidth = 0.8;
+      context.beginPath();
+      context.moveTo(footX + 1.6, -3.2);
+      context.lineTo(footX + 1.6, 1.4);
+      context.stroke();
+      // 부츠(앞코 장갑)
+      outlined(() => {
+        context.beginPath();
+        context.moveTo(footX - 3.6, 1.5);
+        context.lineTo(footX + 3, 1.5);
+        context.quadraticCurveTo(footX + 5.4, 2, footX + 5, 4);
+        context.lineTo(footX - 3.6, 4);
+        context.closePath();
+      }, dark ? '#2a3050' : '#2b3560');
+      // 뒤꿈치 추진구(걸을 때 깜빡)
+      if (!dark && Math.abs(walk) > 0.4) {
+        context.globalCompositeOperation = 'lighter';
+        context.fillStyle = `rgba(54, 226, 255, ${Math.abs(walk) * 0.8})`;
+        context.beginPath();
+        context.ellipse(footX - 4.4, 3, 1.6, 1, 0, 0, Math.PI * 2);
+        context.fill();
+        context.globalCompositeOperation = 'source-over';
+      }
+    };
+    drawLeg(-1);
+
+    // ── 뒷팔(위팔 · 팔꿈치 · 아래팔) ──
+    outlined(() => roundedRect(context, -12.5, -20, 4.6, 6, 2), dark ? palette.joint : '#7f9cc4');
+    outlined(() => { context.beginPath(); context.arc(-10.2, -13.6, 1.8, 0, Math.PI * 2); }, palette.joint, 1);
+    outlined(() => roundedRect(context, -12.8, -12.5, 5.2, 6, 2), plateGradient(-12.5, -6.5));
+
+    // ── 허리띠(경고 줄무늬) ──
+    outlined(() => roundedRect(context, -8, -11, 16, 3.6, 1.2), dark ? '#3a3a2a' : '#1d2340');
+    context.save();
+    context.beginPath();
+    context.rect(-7.4, -10.4, 14.8, 2.4);
+    context.clip();
+    for (let stripe = -10; stripe < 10; stripe += 3) {
+      context.fillStyle = dark ? '#5a5030' : '#ffd166';
+      context.beginPath();
+      context.moveTo(stripe, -8);
+      context.lineTo(stripe + 1.5, -8);
+      context.lineTo(stripe + 3, -10.4);
+      context.lineTo(stripe + 1.5, -10.4);
+      context.closePath();
+      context.fill();
+    }
+    context.restore();
+
+    drawLeg(1);
+
+    // ── 몸통(경사 가슴 장갑 · 옆 환기구 · 일련번호 · 육각 코어) ──
+    outlined(() => {
+      context.beginPath();
+      context.moveTo(-9, -25);
+      context.lineTo(9, -25);
+      context.lineTo(10, -19);
+      context.lineTo(8, -11);
+      context.lineTo(-8, -11);
+      context.lineTo(-10, -19);
+      context.closePath();
+    }, plateGradient(-25, -11), 1.4);
+    // 가슴 윗면 반사(경사면)
+    context.fillStyle = dark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.55)';
+    context.beginPath();
+    context.moveTo(-7.5, -24);
+    context.lineTo(7.5, -24);
+    context.lineTo(6.5, -22.2);
+    context.lineTo(-6.5, -22.2);
+    context.closePath();
+    context.fill();
+    // 판 이음선
+    context.strokeStyle = dark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(43, 53, 96, 0.45)';
+    context.lineWidth = 0.7;
+    context.beginPath();
+    context.moveTo(-9.4, -18.5);
+    context.lineTo(-5.5, -18.5);
+    context.moveTo(5.5, -18.5);
+    context.lineTo(9.4, -18.5);
+    context.stroke();
+    // 옆 환기구 세 줄
+    context.fillStyle = dark ? '#2a3050' : '#2b3560';
+    for (let vent = 0; vent < 3; vent++) context.fillRect(5.2, -16.6 + vent * 1.6, 3, 0.8);
+    // 일련번호
+    if (!dark) {
+      context.fillStyle = '#5b6b94';
+      context.font = canvasFont(3.2, 'code', 700);
+      context.textAlign = 'left';
+      context.textBaseline = 'middle';
+      context.fillText('G-01', -8.4, -13);
+    }
+    // 육각 코어 하우징 + 도는 고리 + 맥박
     const pulse = 0.6 + 0.4 * Math.sin(wall * (idle ? 3 : 7));
-    context.fillStyle = dark ? '#2a3050' : SCENE.shield;
+    outlined(() => {
+      context.beginPath();
+      for (let corner = 0; corner < 6; corner++) {
+        const angle = Math.PI / 6 + corner * Math.PI / 3;
+        const px = Math.cos(angle) * 4.2, py = -18 + Math.sin(angle) * 4.2;
+        if (corner) context.lineTo(px, py);
+        else context.moveTo(px, py);
+      }
+      context.closePath();
+    }, dark ? '#2a3050' : '#14203f', 1);
     if (!dark) {
       context.shadowColor = SCENE.shield;
-      context.shadowBlur = 8 * pulse;
+      context.shadowBlur = 10 * pulse;
     }
+    context.fillStyle = palette.glow;
     context.beginPath();
-    context.arc(0, -15, 3.2, 0, Math.PI * 2);
+    context.arc(0, -18, 2 + pulse * 0.6, 0, Math.PI * 2);
     context.fill();
     context.shadowBlur = 0;
-    // 금 어깨 보호대
-    context.fillStyle = dark ? '#6b5320' : '#ffd166';
-    roundedRect(context, -11, -25, 7, 4, 2);
-    context.fill();
-    roundedRect(context, 4, -25, 7, 4, 2);
-    context.fill();
-    // 머리 + 바이저 + 안테나
-    context.fillStyle = dark ? '#2a3050' : '#1b2240';
-    roundedRect(context, -7, -36, 14, 11, 4);
-    context.fill();
-    context.strokeStyle = accent;
-    context.stroke();
-    context.fillStyle = dark ? '#3a4060' : SCENE.shield;
-    context.fillRect(-4, -32, 10, 2.6);
-    if (!dark && Math.sin(wall * 2.3) < 0.95) {
-      context.fillStyle = '#ffffff';
-      context.fillRect(1.5, -32, 2.5, 2.6);
+    if (!dark) {
+      context.strokeStyle = 'rgba(191, 246, 255, 0.85)';
+      context.lineWidth = 0.7;
+      context.beginPath();
+      context.arc(0, -18, 3.3, wall * 4, wall * 4 + Math.PI * 1.2);
+      context.stroke();
     }
-    context.strokeStyle = '#9fb8d8';
+
+    // ── 머리(헬멧 · 귀 모듈 · 바이저 · 스캔 눈 · 턱 환기구 · 안테나) ──
+    // 목
+    outlined(() => roundedRect(context, -2.4, -27.5, 4.8, 3, 1), palette.joint, 1);
+    // 헬멧
+    outlined(() => {
+      context.beginPath();
+      context.moveTo(-7.5, -28);
+      context.lineTo(-7.5, -35);
+      context.quadraticCurveTo(-7.5, -40, 0, -40.5);
+      context.quadraticCurveTo(7.5, -40, 8, -35);
+      context.lineTo(8.5, -30);
+      context.lineTo(6, -27.5);
+      context.lineTo(-6, -27.5);
+      context.closePath();
+    }, plateGradient(-40.5, -27.5), 1.4);
+    // 헬멧 정수리 금 줄
+    context.strokeStyle = palette.gold;
+    context.lineWidth = 1.4;
+    context.beginPath();
+    context.moveTo(-1, -40.2);
+    context.quadraticCurveTo(4.5, -39.6, 7.4, -36);
+    context.stroke();
+    // 귀 모듈
+    outlined(() => roundedRect(context, -9.6, -35.5, 3.4, 5.5, 1.4), dark ? '#2a3050' : '#34416e', 1);
+    context.fillStyle = palette.glow;
+    context.fillRect(-8.9, -33.6, 2, 1.6);
+    // 바이저(유리) + 반사 + 스캔 눈
+    outlined(() => roundedRect(context, -4.5, -36.5, 12, 5, 2.2), palette.visor, 1);
+    if (!dark) {
+      const glass = context.createLinearGradient(0, -36.5, 0, -31.5);
+      glass.addColorStop(0, 'rgba(54, 226, 255, 0.35)');
+      glass.addColorStop(1, 'rgba(54, 226, 255, 0.05)');
+      context.fillStyle = glass;
+      roundedRect(context, -4, -36, 11, 4, 2);
+      context.fill();
+      const scan = Math.sin(wall * (idle ? 1.6 : 5)) * 3.6;
+      context.shadowColor = SCENE.shield;
+      context.shadowBlur = 6;
+      context.fillStyle = hurt > 0 ? '#ff5d73' : '#bff6ff';
+      roundedRect(context, 1.5 + scan - 1.6, -35, 3.2, 2, 1);
+      context.fill();
+      context.shadowBlur = 0;
+      context.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      context.fillRect(-3, -36, 3, 0.8);
+    }
+    // 턱 환기구
+    context.fillStyle = dark ? '#2a3050' : '#2b3560';
+    for (let vent = 0; vent < 3; vent++) context.fillRect(2 + vent * 1.7, -30, 1, 1.8);
+    // 안테나
+    context.strokeStyle = dark ? '#3a4060' : '#9fb8d8';
     context.lineWidth = 1;
     context.beginPath();
-    context.moveTo(-3, -36);
-    context.lineTo(-5, -42);
+    context.moveTo(-4, -39.5);
+    context.lineTo(-6.5, -45);
     context.stroke();
     context.fillStyle = dark ? '#3a4060' : (Math.sin(wall * 6) > 0 ? '#ff5d73' : '#ffffff');
     context.beginPath();
-    context.arc(-5, -42, 1.6, 0, Math.PI * 2);
+    context.arc(-6.5, -45.3, 1.5, 0, Math.PI * 2);
     context.fill();
-    // 앞팔(때릴 때 쭉 뻗음) + 주먹
-    const reach = 8 + punch * 12;
-    context.fillStyle = dark ? '#4a5070' : '#c9dcf0';
-    roundedRect(context, 6, -19, reach, 5, 2.5);
-    context.fill();
-    context.fillStyle = dark ? '#3a4060' : steel;
+
+    // ── 어깨 보호대(금, 볼트) ──
+    for (const shoulderX of [-11.8, 6.2]) {
+      outlined(() => {
+        context.beginPath();
+        context.moveTo(shoulderX, -21.5);
+        context.quadraticCurveTo(shoulderX, -27, shoulderX + 2.8, -27);
+        context.lineTo(shoulderX + 3, -27);
+        context.quadraticCurveTo(shoulderX + 5.6, -27, shoulderX + 5.6, -21.5);
+        context.closePath();
+      }, palette.gold, 1.1);
+      context.fillStyle = palette.goldLight;
+      context.fillRect(shoulderX + 1.2, -25.6, 3.2, 0.9);
+      bolt(shoulderX + 2.8, -23);
+    }
+
+    // ── 앞팔(위팔 · 팔꿈치 · 아래팔 · 손목 에너지 고리 · 주먹 마디 장갑) ──
+    const extend = punch * 12;
+    outlined(() => roundedRect(context, 7, -21, 5, 5.6, 2), dark ? palette.joint : '#7f9cc4');
+    outlined(() => { context.beginPath(); context.arc(12, -18.2, 1.9, 0, Math.PI * 2); }, palette.joint, 1);
+    outlined(() => roundedRect(context, 12.5, -20.6, 6 + extend, 5, 2), plateGradient(-20.6, -15.6));
+    // 손목 에너지 고리(때릴 때 빛남)
+    const wristX = 18.2 + extend;
+    context.strokeStyle = dark ? '#3a4060' : `rgba(54, 226, 255, ${0.5 + punch * 0.5})`;
+    context.lineWidth = 1.4;
     context.beginPath();
-    context.arc(6 + reach + 2, -16.5, 4, 0, Math.PI * 2);
-    context.fill();
-    if (punch > 0.4 && !dark) {
-      context.globalCompositeOperation = 'lighter';
-      context.fillStyle = `rgba(160, 240, 255, ${punch})`;
+    context.ellipse(wristX, -18.1, 1, 3, 0, 0, Math.PI * 2);
+    context.stroke();
+    // 주먹
+    outlined(() => roundedRect(context, wristX + 0.6, -21.4, 6, 6.6, 2.2), dark ? '#4a5070' : palette.plate, 1.3);
+    context.strokeStyle = dark ? '#2a3050' : '#8fb0d4';
+    context.lineWidth = 0.7;
+    for (let knuckle = 0; knuckle < 3; knuckle++) {
       context.beginPath();
-      context.arc(6 + reach + 3, -16.5, 6 + punch * 5, 0, Math.PI * 2);
+      context.moveTo(wristX + 5.2, -20.2 + knuckle * 2);
+      context.lineTo(wristX + 6.4, -20.2 + knuckle * 2);
+      context.stroke();
+    }
+    if (punch > 0.35 && !dark) {
+      context.globalCompositeOperation = 'lighter';
+      const blast = context.createRadialGradient(wristX + 7, -18, 0, wristX + 7, -18, 7 + punch * 6);
+      blast.addColorStop(0, `rgba(255, 255, 255, ${punch})`);
+      blast.addColorStop(1, 'rgba(54, 226, 255, 0)');
+      context.fillStyle = blast;
+      context.beginPath();
+      context.arc(wristX + 7, -18, 7 + punch * 6, 0, Math.PI * 2);
       context.fill();
+      // 충격 별(네 갈래)
+      context.strokeStyle = `rgba(255, 255, 255, ${punch})`;
+      context.lineWidth = 1;
+      context.beginPath();
+      for (let ray = 0; ray < 4; ray++) {
+        const angle = ray * Math.PI / 2 + Math.PI / 4;
+        context.moveTo(wristX + 8 + Math.cos(angle) * 3, -18 + Math.sin(angle) * 3);
+        context.lineTo(wristX + 8 + Math.cos(angle) * (6 + punch * 4), -18 + Math.sin(angle) * (6 + punch * 4));
+      }
+      context.stroke();
       context.globalCompositeOperation = 'source-over';
     }
   }
