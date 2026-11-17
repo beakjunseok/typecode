@@ -62,7 +62,10 @@ export const COMPUTER_GUARD = Object.freeze({ x: 0.5, y: 0.7, range: 0.24, coold
 // 체력이 0이면 쓰러졌다가 respawnSeconds 뒤 다시 출동, 집에서 쉬면 초당 regen 회복
 export const GUARDIAN = Object.freeze({
   home: Object.freeze({ x: 0.5, y: 0.66 }), leash: 0.4, speed: 0.22, reach: 0.045, airReach: 0.07, cooldown: 0.7, damage: 1,
-  maxHp: 40, regen: 3, respawnSeconds: 8, biteEvery: 1, biteWindup: 0.5, biteReach: 0.06,
+  maxHp: 40, regen: 3, respawnSeconds: 8, biteEvery: 1, biteWindup: 0.5, biteReach: 0.11,
+  // 싸울 때 서는 자리: 적 옆으로 standOff(가로, 들판 비율)만큼 떨어져 겹치지 않는다. 공중 적은 아래 airBelow만큼.
+  // blockReach 안에 들어온 지상 적은 (보스까지) 모두 걸음을 멈춘다
+  standOff: 0.055, airBelow: 0.06, blockReach: 0.11, arrive: 0.008, queueGap: 0.022,
   enemyHit: Object.freeze({ packet: 2, spam: 2, malware: 3, drone: 0, ransomware: 8, rootkit: 8 })
 });
 // 컴퓨터 강화(Lv.1~3): 대공 사거리·간격·동시 표적, 최대 체력 보너스, 초당 자동 복구. price = 그 레벨로 올리는 값(난이도 배율 적용)
@@ -492,20 +495,29 @@ export class DefenseEngine extends TargetGameEngine {
         .sort((first, second) => this.fieldDistance(first, bot) - this.fieldDistance(second, bot))[0] ?? null;
       bot.targetId = target?.id ?? null;
     }
-    const goal = target ?? home;
-    const distance = this.fieldDistance(goal, bot);
-    const reach = target ? (target.air ? GUARDIAN.airReach : GUARDIAN.reach) : 0.005;
-    bot.moving = distance > reach;
+    // 싸울 자리: 적 옆(봇이 오던 쪽) standOff만큼 떨어진 곳. 공중 적은 그 아래
+    let goal = home;
+    if (target) {
+      const side = bot.x <= target.x ? -1 : 1;
+      goal = target.air
+        ? { x: target.x + side * GUARDIAN.standOff * 0.5, y: target.y + GUARDIAN.airBelow }
+        : { x: target.x + side * GUARDIAN.standOff, y: target.y };
+      goal.x = Math.max(0.02, Math.min(0.98, goal.x));
+    }
+    const distance = Math.hypot((goal.x - bot.x) / 0.6, goal.y - bot.y);
+    bot.moving = distance > GUARDIAN.arrive;
     if (bot.moving) {
-      const step = Math.min(distance - reach * 0.8, GUARDIAN.speed * frameSeconds);
+      const step = Math.min(distance, GUARDIAN.speed * frameSeconds);
       const dx = (goal.x - bot.x) / 0.6, dy = goal.y - bot.y;
       const length = Math.hypot(dx, dy) || 1;
       bot.x += dx / length * step * 0.6;
       bot.y += dy / length * step;
       if (Math.abs(dx) > 1e-4) bot.facing = dx > 0 ? 1 : -1;
     }
+    // 싸울 때는 적을 바라본다
+    if (target && !bot.moving) bot.facing = target.x >= bot.x ? 1 : -1;
     bot.state = target ? (bot.moving ? 'chase' : 'fight') : (bot.moving ? 'return' : 'idle');
-    bot.holdingId = target && !bot.moving && !target.air && !ATTACK_TYPES[target.type].boss ? target.id : null;
+    bot.holdingId = target && !bot.moving && !target.air ? target.id : null;
     if (bot.state === 'idle') bot.hp = Math.min(bot.maxHp, bot.hp + GUARDIAN.regen * frameSeconds);
     if (target && !bot.moving && this.gameTime >= bot.readyAt) {
       bot.readyAt = this.gameTime + GUARDIAN.cooldown;
@@ -548,10 +560,27 @@ export class DefenseEngine extends TargetGameEngine {
     return false;
   }
 
-  // 지금 봇이 붙잡고 있어 걸음을 멈춘 지상 적인가
+  // 봇 앞에서 멈춘 적 + 그 뒤로 줄 선 적(앞 적과 길 진행도 queueGap 안이면 같이 멈춤, 겹쳐 쌓이지 않게). O(n log n)
+  queuedBehindGuardian() {
+    const stopped = new Set();
+    const bot = this.guardian;
+    if (!bot || bot.state === 'down' || bot.state === 'spawning') return stopped;
+    const ground = this.bugs.filter(bug => bug.state === 'alive' && !bug.air).sort((first, second) => second.progress - first.progress);
+    let lastStopped = null;
+    for (const bug of ground) {
+      if (this.isHeldByGuardian(bug) || (lastStopped != null && lastStopped - bug.progress < GUARDIAN.queueGap)) {
+        stopped.add(bug.id);
+        lastStopped = bug.progress;
+      }
+    }
+    return stopped;
+  }
+
+  // 봇에게 막혀 걸음을 멈춘 지상 적인가: 봇이 서 있고(출동·쓰러짐 아님) blockReach 안이면 보스까지 멈춘다
   isHeldByGuardian(bug) {
     const bot = this.guardian;
-    return Boolean(bot && bot.state === 'fight' && bot.holdingId === bug.id);
+    if (!bot || bug.air || bot.state === 'down' || bot.state === 'spawning') return false;
+    return this.fieldDistance(bug, bot) <= GUARDIAN.blockReach;
   }
 
   // 지금 컴퓨터 레벨의 능력치
@@ -669,9 +698,10 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   moveBugs(frameSeconds) {
+    const queued = this.queuedBehindGuardian();
     for (const bug of this.bugs) {
       if (bug.state !== 'alive') continue;
-      if (this.isHeldByGuardian(bug)) continue;
+      if (queued.has(bug.id)) continue;
       const type = BUG_TYPES[bug.type];
       const rage = bug.phase === 2 ? type.phaseTwo.speedFactor : 1;
       const stunned = this.gameTime < bug.shieldUntil ? 0 : 1;

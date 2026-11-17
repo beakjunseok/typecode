@@ -295,7 +295,7 @@ test('컴퓨터 강화: Lv.3까지 대공 사거리·연사·체력, Lv.3은 2�
   assert.equal(poor.upgradeComputer().reason, 'coins');
 });
 
-test('가디언 봇: 컴퓨터 최대 강화 때 출동, 가까운 적에게 달려가 때리고, 없으면 집으로', () => {
+test('가디언 봇: 컴퓨터 최대 강화 때 출동, 적 옆에 떨어져 서서(겹치지 않게) 때리고, 없으면 집으로', () => {
   const { engine, events } = setup();
   engine.coins = 100000;
   engine.upgradeComputer();
@@ -314,15 +314,18 @@ test('가디언 봇: 컴퓨터 최대 강화 때 출동, 가까운 적에게 달
     engine.gameTime += 0.05;
     engine.updateGuardian(0.05);
   }
+  const bot = engine.guardian;
   assert.ok(bug.hp < 10, '때렸다');
-  assert.ok(engine.fieldDistance(engine.guardian, bug) <= GUARDIAN.reach + 1e-6, '붙어서 싸운다');
+  assert.ok(Math.abs(bot.x - bug.x) >= GUARDIAN.standOff * 0.9, '겹치지 않고 옆에 선다');
+  assert.ok(Math.abs(bot.y - bug.y) < 0.01);
+  assert.equal(bot.facing, bot.x < bug.x ? 1 : -1, '적을 바라본다');
   bug.state = 'dead';
   for (let frame = 0; frame < 120; frame++) { engine.gameTime += 0.05; engine.updateGuardian(0.05); }
-  assert.ok(engine.fieldDistance(engine.guardian, GUARDIAN.home) < 0.01, '집으로 돌아옴');
-  assert.equal(engine.guardian.state, 'idle');
+  assert.ok(engine.fieldDistance(bot, GUARDIAN.home) < 0.01, '집으로 돌아옴');
+  assert.equal(bot.state, 'idle');
 });
 
-test('가디언 봇과 적이 서로 때린다: 붙잡힌 졸개는 멈추고, 봇은 맞다가 쓰러지면 잠시 뒤 다시 출동', () => {
+test('가디언 봇과 적이 서로 때린다: 봇을 만난 지상 적은 (보스까지) 멈추고, 봇은 맞다가 쓰러지면 잠시 뒤 다시 출동', () => {
   const { engine, events } = setup();
   engine.coins = 100000;
   engine.upgradeComputer();
@@ -337,12 +340,30 @@ test('가디언 봇과 적이 서로 때린다: 붙잡힌 졸개는 멈추고, �
   bug.hp = bug.maxHp = 1000;
   bug.progress = 0.97;
   engine.moveBugs(0);
-  bot.x = bug.x; bot.y = bug.y;
+  bot.x = bug.x - GUARDIAN.standOff; bot.y = bug.y;
   engine.updateGuardian(0.05);
-  assert.equal(bot.holdingId, bug.id, '붙잡았다');
+  assert.ok(engine.isHeldByGuardian(bug), '봇을 만나면 멈춘다');
   const progress = bug.progress;
   engine.moveBugs(1);
-  assert.equal(bug.progress, progress, '붙잡힌 적은 멈춘다');
+  assert.equal(bug.progress, progress, '걸음이 멈췄다');
+  const follower = engine.spawnBug('packet');
+  follower.progress = bug.progress - GUARDIAN.queueGap * 0.5;
+  const followerStart = follower.progress;
+  engine.moveBugs(1);
+  assert.equal(follower.progress, followerStart, '뒤에 오던 적도 간격을 두고 줄 서서 멈춘다');
+  const far = engine.spawnBug('packet');
+  far.progress = 0.2;
+  engine.moveBugs(0.5);
+  assert.ok(far.progress > 0.2, '멀리 있는 적은 계속 걷는다');
+  follower.state = far.state = 'dead';
+  const boss = engine.spawnBug('ransomware');
+  boss.x = bot.x + 0.04; boss.y = bot.y;
+  assert.ok(engine.isHeldByGuardian(boss), '보스도 멈춘다');
+  boss.state = 'dead';
+  const drone = engine.spawnBug('drone');
+  drone.x = bot.x; drone.y = bot.y;
+  assert.equal(engine.isHeldByGuardian(drone), false, '공중은 막지 못한다');
+  drone.state = 'dead';
   for (let frame = 0; frame < 400 && bot.state !== 'down'; frame++) {
     engine.gameTime += 0.05;
     engine.updateGuardian(0.05);
@@ -350,7 +371,7 @@ test('가디언 봇과 적이 서로 때린다: 붙잡힌 졸개는 멈추고, �
   assert.ok(events.some(event => event.type === 'guardian-hurt' && event.payload.damage === GUARDIAN.enemyHit.malware), '적이 봇을 때린다');
   assert.ok(events.some(event => event.type === 'guardian-hit'), '봇도 적을 때린다');
   assert.equal(bot.state, 'down', '쓰러진다');
-  assert.ok(events.some(event => event.type === 'guardian-down'));
+  assert.equal(engine.isHeldByGuardian(bug), false, '쓰러지면 적이 다시 걷는다');
   engine.gameTime += GUARDIAN.respawnSeconds;
   engine.updateGuardian(0.05);
   assert.equal(engine.guardian.hp, GUARDIAN.maxHp, '다시 출동');
