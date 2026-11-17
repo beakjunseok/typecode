@@ -12,7 +12,8 @@ import { SCORING, MAX_MULTIPLIER } from './engine.js';
 export const DEFENSE_RULES = Object.freeze({
   waves: 25,
   // 보스가 나오는 웨이브(그 웨이브 졸개를 다 내보낸 뒤). 다시 나올 때마다 체력이 커진다(bossHpGrowth: 처음 나온 웨이브부터 웨이브당 +8%)
-  bossWaves: Object.freeze({ 5: 'ransomware', 10: 'rootkit', 15: 'ransomware', 20: 'rootkit', 25: 'rootkit' }),
+  // 한 웨이브에 보스가 여럿이면 배열(25웨이브 = 랜섬웨어 + 루트킷 동시)
+  bossWaves: Object.freeze({ 5: 'ransomware', 10: 'rootkit', 15: 'ransomware', 20: 'rootkit', 25: Object.freeze(['ransomware', 'rootkit']) }),
   bossHpGrowth: 0.08,
   // 보스 2페이즈로 바뀔 때 잠깐 무적(초)
   phaseShieldSeconds: 1.5,
@@ -241,9 +242,16 @@ export function enemyTier(wave) {
   return tier;
 }
 
+// 이 웨이브에 나오는 보스 목록(없으면 빈 배열)
+export function bossesForWave(wave) {
+  const entry = DEFENSE_RULES.bossWaves[wave];
+  if (!entry) return [];
+  return Array.isArray(entry) ? [...entry] : [entry];
+}
+
 // 보스 체력: 기본 × (1 + bossHpGrowth × (이 웨이브 - 그 보스가 처음 나오는 웨이브)). 정수. O(보스 웨이브 수)
 export function bossHp(typeKey, wave) {
-  const firstWave = Math.min(...Object.entries(DEFENSE_RULES.bossWaves).filter(([, key]) => key === typeKey).map(([number]) => Number(number)));
+  const firstWave = Math.min(...Object.keys(DEFENSE_RULES.bossWaves).map(Number).filter(number => bossesForWave(number).includes(typeKey)));
   const extra = Number.isFinite(firstWave) ? Math.max(0, wave - firstWave) : 0;
   return Math.round(ATTACK_TYPES[typeKey].hp * (1 + DEFENSE_RULES.bossHpGrowth * extra));
 }
@@ -302,6 +310,7 @@ export class DefenseEngine extends TargetGameEngine {
     this.noDamageWaves = 0;
     this.summoned = 0;
     this.bossSpawned = false;
+    this.bossesSpawned = 0;
     this.airWarned = false;
     this.nextSpawnAt = Infinity;
     this.kills = Object.fromEntries(Object.keys(BUG_TYPES).map(type => [type, 0]));
@@ -356,7 +365,7 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   bugsInWave(wave) {
-    return Math.round(DEFENSE_RULES.bugsPerWave.base + DEFENSE_RULES.bugsPerWave.step * (wave - 1)) + (DEFENSE_RULES.bossWaves[wave] ? 1 : 0);
+    return Math.round(DEFENSE_RULES.bugsPerWave.base + DEFENSE_RULES.bugsPerWave.step * (wave - 1)) + bossesForWave(wave).length;
   }
 
   // ---------- 진행 ----------
@@ -405,10 +414,11 @@ export class DefenseEngine extends TargetGameEngine {
     this.waveTookDamage = false;
     this.summoned = 0;
     this.bossSpawned = false;
+    this.bossesSpawned = 0;
     this.phase = 'intro';
     this.phaseUntil = this.gameTime + DEFENSE_RULES.introSeconds;
     const tier = enemyTier(wave);
-    this.emit('wave-intro', { wave, bpm: this.bpm(), boss: DEFENSE_RULES.bossWaves[wave] ?? null, tier, tierUp: tier > 1 && ENEMY_TIERS[tier].fromWave === wave });
+    this.emit('wave-intro', { wave, bpm: this.bpm(), boss: bossesForWave(wave)[0] ?? null, bosses: bossesForWave(wave), tier, tierUp: tier > 1 && ENEMY_TIERS[tier].fromWave === wave });
   }
 
   spawnInterval() {
@@ -418,8 +428,8 @@ export class DefenseEngine extends TargetGameEngine {
 
   spawnIfDue() {
     if (this.phase !== 'spawning' || this.gameTime < this.nextSpawnAt) return;
-    const boss = DEFENSE_RULES.bossWaves[this.wave];
-    const regular = this.waveTotal - (boss ? 1 : 0) - this.summoned;
+    const bosses = bossesForWave(this.wave);
+    const regular = this.waveTotal - bosses.length - this.summoned;
     if (this.waveSpawned - this.summoned < regular) {
       const type = this.chooseBugType();
       const bug = this.spawnBug(type);
@@ -428,11 +438,14 @@ export class DefenseEngine extends TargetGameEngine {
         this.emit('air-warning', { bug });
       }
       this.nextSpawnAt = this.gameTime + this.spawnInterval() * randomBetween(this.random, [0.8, 1.2]);
-    } else if (boss && !this.bossSpawned) {
-      // 보스 웨이브: 졸개를 다 내보낸 뒤 보스. 경고를 먼저 띄운다
-      this.bossSpawned = true;
+    } else if ((this.bossesSpawned ?? 0) < bosses.length) {
+      // 보스 웨이브: 졸개를 다 내보낸 뒤 보스. 여럿이면 1.5초 간격으로 차례로(둘째는 길 입구에서 조금 뒤에)
+      const boss = bosses[this.bossesSpawned ?? 0];
+      this.bossesSpawned = (this.bossesSpawned ?? 0) + 1;
+      this.bossSpawned = this.bossesSpawned >= bosses.length;
       const bug = this.spawnBug(boss);
-      this.emit('boss-appear', { bug, boss });
+      this.emit('boss-appear', { bug, boss, index: this.bossesSpawned, total: bosses.length });
+      this.nextSpawnAt = this.gameTime + 1.5;
     }
   }
 
