@@ -257,10 +257,14 @@ def load_entries():
     return json.loads(text[start:end])
 
 
-def main(skin_id, image_path, keys_area=None, wide=False):
+def main(skin_id, image_path, keys_area=None, wide=False, detect_path=None):
     image = Image.open(image_path).convert('RGB')
+    # 키 찾기는 다른 그림(같은 배치, 장식만 다른 원본)으로 할 수 있다. 결과 그림은 image_path
+    detect_image = Image.open(detect_path).convert('RGB') if detect_path else image
+    if detect_image.size != image.size:
+        sys.exit('키 찾기용 그림과 결과 그림의 크기가 달라요.')
     ratio, keys = board_layout.unit_layout()
-    edges = edge_map(image)
+    edges = edge_map(detect_image)
     if keys_area:
         # 손으로 잡은 키 영역(x1,y1,x2,y2: 첫 키 왼쪽 위 ~ 스페이스 줄 오른쪽 아래)에서 케이스 테두리만큼 넓힌다
         x1, y1, x2, y2 = keys_area
@@ -273,7 +277,7 @@ def main(skin_id, image_path, keys_area=None, wide=False):
     # 1순위: 키캡 덩어리를 직접 찾아 배열과 짝짓기. 안 맞으면 템플릿 정렬 방식으로
     import cv2
     layout_names = [[name for name, _ in row] for row in board_layout.ROWS]
-    bgr = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
+    bgr = cv2.cvtColor(np.asarray(detect_image), cv2.COLOR_RGB2BGR)
     rows_found, _ = detect_keys.best_rows(bgr, layout_names)
     detected = detect_keys.match_layout(rows_found, layout_names, bgr)
     if not detected:
@@ -329,8 +333,9 @@ def main(skin_id, image_path, keys_area=None, wide=False):
 
 
 if __name__ == '__main__':
-    arguments = [value for value in sys.argv[1:] if value != '--wide']
+    detect_path = next((value.split('=', 1)[1] for value in sys.argv[1:] if value.startswith('--detect=')), None)
+    arguments = [value for value in sys.argv[1:] if value != '--wide' and not value.startswith('--detect=')]
     if len(arguments) not in (2, 3):
-        sys.exit('사용: python3 scripts/fit-board.py <skin-id> <image-path> [x1,y1,x2,y2 키 영역] [--wide]')
+        sys.exit('사용: python3 scripts/fit-board.py <skin-id> <image-path> [x1,y1,x2,y2 키 영역] [--wide] [--detect=키 찾기용 그림]')
     area = tuple(float(v) for v in arguments[2].split(',')) if len(arguments) == 3 else None
-    main(arguments[0], arguments[1], area, '--wide' in sys.argv)
+    main(arguments[0], arguments[1], area, '--wide' in sys.argv, detect_path)

@@ -10,10 +10,10 @@ const seeded = seed => {
 };
 const day = index => `2026-01-${String(index).padStart(2, '0')}x${index}`;
 
-test('스킨 50종: 등급별 개수, 고유 아이디, 색·소재·LED 값이 올바르다', () => {
-  assert.equal(COLLECTIBLE_SKINS.length, 50);
+test('스킨 51종: 등급별 개수, 고유 아이디, 색·소재·LED 값이 올바르다', () => {
+  assert.equal(COLLECTIBLE_SKINS.length, 51);
   const counts = Object.fromEntries(RARITY_ORDER.map(rarity => [rarity, COLLECTIBLE_SKINS.filter(skin => skin.rarity === rarity).length]));
-  assert.deepEqual(counts, { common: 18, uncommon: 14, rare: 9, epic: 5, legendary: 4 });
+  assert.deepEqual(counts, { common: 18, uncommon: 14, rare: 9, epic: 5, legendary: 5 });
   assert.equal(new Set(SKINS.map(skin => skin.id)).size, SKINS.length);
   assert.equal(new Set(SKINS.map(skin => skin.name)).size, SKINS.length);
   for (const skin of SKINS) {
