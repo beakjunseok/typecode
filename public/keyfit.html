@@ -464,7 +464,7 @@ async function createCustomBoard() {
     const boardName = preset ? preset.name : files.length > 1 ? `${name} ${index + 1}` : name;
     const id = `custom-${slug(boardName)}-${Date.now().toString(36).slice(-4)}${index}`;
     const entry = {
-      name: boardName, rarity: elements.newRarity.value, fileName: file.name,
+      name: boardName, rarity: preset?.rarity ?? elements.newRarity.value, fileName: file.name,
       led: { pattern: elements.newPattern.value, reactive: elements.newReactive.value, palette: (preset ? preset.leds : palette).map(hexToHsl) },
       keys: templateKeys(picture.width, picture.height), dataUrl: picture.dataUrl
     };
@@ -491,6 +491,7 @@ function colorWords(hex) {
   const [hue, saturation, lightness] = hexToHsl(hex);
   const tone = lightness < 18 ? 'very dark ' : lightness < 35 ? 'dark ' : lightness > 82 ? 'very light ' : lightness > 65 ? 'light ' : '';
   if (saturation < 12) return lightness < 15 ? 'black' : lightness > 88 ? 'white' : `${tone}gray`;
+  if (hue >= 38 && hue < 56 && saturation >= 45 && lightness >= 35 && lightness <= 70) return `metallic gold (${hex})`;
   const names = [[15, 'red'], [40, 'orange'], [65, 'yellow'], [90, 'lime'], [150, 'green'], [185, 'teal'], [205, 'cyan'], [250, 'blue'], [280, 'indigo'], [310, 'purple'], [340, 'pink'], [361, 'red']];
   const name = names.find(([limit]) => hue < limit)[1];
   return `${tone}${saturation < 35 ? 'muted ' : ''}${name}`.trim() + ` (${hex})`;
@@ -506,8 +507,9 @@ function rotateHue(hex, degrees) {
   return '#' + [r, g, b].map(value => Math.round((value + m) * 255).toString(16).padStart(2, '0')).join('');
 }
 
-// 자동 테마 모음: [이름, 테마(영어), 소재 번호(promptMaterial 순서), 글자키, 기능키, 케이스, LED 색들]. 기존 스킨과 안 겹치게 고름
+// 자동 테마 모음: [이름, 테마(영어), 소재(번호=promptMaterial 순서 또는 영어 문장), 글자키, 기능키, 케이스, LED 색들, 등급(없으면 창에서 고른 등급)]. 기존 스킨과 안 겹치게 고름
 const AUTO_THEMES = [
+  ['골드 에디션 20', 'gold-on-black 20th anniversary collector edition: black anodized aluminum case with polished 24K-gold trim along the edges, a small engraved gold commemorative nameplate reading "20" on the front edge of the case, a tiny round color screen and a gold control knob sitting on the case above the top-right corner (outside the key area, not replacing any key), a strip of carbon fiber texture on the case side', 'black anodized aluminum case with polished gold trim, translucent smoky black PBT keycaps over clear transparent switches', '#1a1a1a', '#d4af37', '#0a0a0a', ['#ffc94d'], 'legendary'],
   ['벚꽃 야경', 'cherry blossom night, falling pink petals, paper lanterns', 0, '#f6d7e3', '#ff6fa8', '#2a1b2e', ['#ff7eb6', '#ffd1e8']],
   ['등대 밤바다', 'lighthouse over a night sea, wave patterns, moonlight', 3, '#1d2a44', '#ffd56b', '#0c1424', ['#ffd56b', '#3fa9ff']],
   ['네온 한옥', 'neon-lit hanok rooftops, dancheong patterns glowing in neon', 0, '#2b2230', '#ff4d6d', '#15101a', ['#ff4d6d', '#2ef2c8']],
@@ -563,10 +565,10 @@ function autoOrder(seed) {
 function autoPreset(index) {
   const order = autoOrder(autoSeed);
   const lap = Math.floor(index / order.length);
-  const [name, theme, material, alpha, mod, caseColor, leds] = AUTO_THEMES[order[index % order.length]];
+  const [name, theme, material, alpha, mod, caseColor, leds, rarity] = AUTO_THEMES[order[index % order.length]];
   const shift = lap * 137;
   return {
-    name: lap ? `${name} ${lap + 1}` : name, theme, material,
+    name: lap ? `${name} ${lap + 1}` : name, theme, material, rarity: rarity ?? elements.newRarity.value,
     alpha: rotateHue(alpha, shift), mod: rotateHue(mod, shift), caseColor: rotateHue(caseColor, shift),
     leds: leds.map(hex => rotateHue(hex, shift))
   };
@@ -593,8 +595,17 @@ function buildPrompt(index = 0, total = 1) {
     alpha: rotateHue(elements.promptAlpha.value, shift), mod: rotateHue(elements.promptMod.value, shift), caseColor: rotateHue(elements.promptCase.value, shift)
   });
 }
-// 정해진 테마·소재·색으로 프롬프트 본문 만들기(소재는 번호나 영어 문장 둘 다 받음)
-function promptText({ theme, material, alpha, mod, caseColor, leds, ledColors }) {
+// 등급별 꾸밈 정도(게임 등급: 일반→전설). 높을수록 장식·광택·빛 효과를 늘린다
+const RARITY_PROMPT = {
+  common: ['일반', 'Rarity tier: common. Simple, clean everyday design with minimal decoration.'],
+  uncommon: ['고급', 'Rarity tier: uncommon. Tasteful design with a few accent details.'],
+  rare: ['희귀', 'Rarity tier: rare. Polished premium design with refined accent trim and a subtle glow.'],
+  epic: ['영웅', 'Rarity tier: epic. Highly detailed premium design with intricate trim, layered materials and strong glow effects.'],
+  legendary: ['전설', 'Rarity tier: legendary. Ultra-premium limited collector edition: ornate polished metal trim, engraved details, a commemorative nameplate on the case, dramatic glow and fine sparkles, museum-display quality.']
+};
+const rarityLabel = rarity => RARITY_PROMPT[rarity]?.[0] ?? '';
+// 정해진 테마·소재·색·등급으로 프롬프트 본문 만들기(소재는 번호나 영어 문장 둘 다 받음)
+function promptText({ theme, material, alpha, mod, caseColor, leds, ledColors, rarity = elements.newRarity.value }) {
   const materialText = typeof material === 'number' ? elements.promptMaterial.options[material]?.value ?? elements.promptMaterial.value : material;
   const ledWords = ledColors ?? (leds ?? []).map(colorWords);
   const glow = elements.promptGlow.checked && ledWords.length
@@ -604,9 +615,10 @@ function promptText({ theme, material, alpha, mod, caseColor, leds, ledColors })
     'Wide 2:1 image. A perfectly straight-on top-down orthographic view of a single 60% ANSI mechanical keyboard, centered, filling about 88% of the width, with a plain dark background around it.',
     'The keyboard must have exactly 5 rows: row 1 has 14 keys (13 square keys + a 2-unit Backspace), row 2 has 14 keys (1.5-unit Tab, 12 square keys, 1.5-unit backslash), row 3 has 13 keys (1.75-unit Caps Lock, 11 square keys, 2.25-unit Enter), row 4 has 12 keys (2.25-unit left Shift, 10 square keys, 2.75-unit right Shift), row 5 has 3 small keys, a 6.25-unit spacebar and 4 small keys.',
     'All keys evenly spaced in a straight grid, every keycap clearly separated by a thin gap, no perspective, no tilt, no shadows covering keys.',
-    'Keycaps are completely blank: no letters, no symbols, no legends, no logos, no text anywhere.',
+    'Keycaps are completely blank: no letters, no symbols, no legends. No brand logos, and no text anywhere except what the theme below explicitly asks for.',
     `Style: ${materialText}. Letter keys ${colorWords(alpha)}, modifier keys and spacebar accent ${colorWords(mod)}, case ${colorWords(caseColor)}.`,
     glow,
+    RARITY_PROMPT[rarity]?.[1] ?? '',
     theme ? `Theme and decoration on the case and background: ${theme}. Keep the theme decoration around the keyboard and on the case, never on top of the keycaps.` : '',
     'Cute cyberpunk game-asset illustration, clean lines, high detail, sharp edges.'
   ].filter(Boolean).join('\n');
@@ -616,7 +628,11 @@ function allPrompts() {
   const total = promptCount();
   const auto = isAutoPrompt();
   if (total === 1 && !auto) return [buildPrompt(0, 1)];
-  const header = index => auto ? `[키보드 ${index + 1}/${total} · ${autoPreset(index).name}]` : `[키보드 ${index + 1}/${total}]`;
+  const header = index => {
+    if (!auto) return `[키보드 ${index + 1}/${total} · ${rarityLabel(elements.newRarity.value)}]`;
+    const preset = autoPreset(index);
+    return `[키보드 ${index + 1}/${total} · ${preset.name} · ${rarityLabel(preset.rarity)}]`;
+  };
   return Array.from({ length: total }, (_, index) => `${header(index)}\n${buildPrompt(index, total)}`);
 }
 let nextPromptIndex = 0;
@@ -644,7 +660,7 @@ elements.copyOne.addEventListener('click', async () => {
   nextPromptIndex = (index + 1) % prompts.length;
   elements.copyOne.textContent = `${nextPromptIndex + 1}번 복사`;
 });
-['promptCount', 'promptVary', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newPattern'].forEach(id => {
+['promptCount', 'promptVary', 'promptTheme', 'promptMaterial', 'newRarity', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newPattern'].forEach(id => {
   elements[id].addEventListener('input', refreshPrompt);
   elements[id].addEventListener('change', refreshPrompt);
 });
