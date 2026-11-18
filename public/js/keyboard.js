@@ -271,7 +271,14 @@ export function createKeyboard(container, { compact = false, interactive = false
   // 정면 일러스트가 있는 스킨: 그림 한 장을 판으로 깔고, 키마다 같은 그림에서 제 자리만 잘라 보여 준다.
   // 그림을 다 받은 뒤에만 바꾼다. 못 받으면(네트워크·옛 캐시) 키캡이 투명해지지 않게 CSS 키보드를 그대로 둔다. O(키 수)
   let boardArtToken = 0;
+  let currentSkin = null;
+  // 서버 덮어쓰기(키 좌표·글씨 색)를 받은 뒤 지금 스킨 그림을 다시 깐다
+  function refreshArt() {
+    if (currentSkin) applyBoardArt(currentSkin);
+  }
+
   function applyBoardArt(skin) {
+    currentSkin = skin;
     const art = SKIN_BOARDS[skin.id];
     const token = ++boardArtToken;
     clearBoardArt();
@@ -416,9 +423,9 @@ export function createKeyboard(container, { compact = false, interactive = false
   const setAudioSource = source => { audioSource = typeof source === 'function' ? source : null; };
 
   setSkin(null);
-  return { setNext, press, flashZone, showZones, setVisible, setSkin, setEnergy, setAudioSource, element: board };
+  return { setNext, press, flashZone, showZones, setVisible, setSkin, setEnergy, setAudioSource, refreshArt, element: board };
 }
 
 function createNullKeyboard() {
-  return { setNext() {}, press() {}, flashZone() {}, showZones() {}, setVisible() {}, setSkin() {}, setEnergy() {}, setAudioSource() {}, element: null };
+  return { setNext() {}, press() {}, flashZone() {}, showZones() {}, setVisible() {}, setSkin() {}, setEnergy() {}, setAudioSource() {}, refreshArt() {}, element: null };
 }

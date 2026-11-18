@@ -20,6 +20,7 @@ import { SoundEngine } from './audio.js';
 import { BgmEngine } from './bgm.js';
 import { emitSparks, pulseClass } from './effects.js';
 import { createKeyboard } from './keyboard.js';
+import { loadSkinOverrides } from './skin-overrides.js';
 import { createKeyboardCollection } from './gacha-view.js';
 import { EARNING } from './gacha.js';
 import { DefenseEngine, DEFENSE_RULES, TOWER_TYPES, ATTACK_TYPES } from './defense-engine.js';
@@ -71,6 +72,8 @@ const bgm = new BgmEngine(sound);
 const rhythmMusic = new RhythmMusic(sound);
 const songPreview = createPreview(sound);
 const keyboard = createKeyboard(ui.elements.keyboardSection);
+// 키 위치 편집기에서 서버에 저장한 키 좌표·글씨 색을 받아 지금 키보드에 바로 반영
+loadSkinOverrides().then(applied => { if (applied) keyboard.refreshArt(); });
 keyboard.setAudioSource(() => sound.spectrum(8));
 const renderers = {};
 const savedMode = preferences.get('mode', 'practice') === 'rescue' ? 'battery' : preferences.get('mode', 'practice');

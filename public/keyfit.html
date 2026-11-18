@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>TYPE//CODE 키 위치 맞추기</title>
+<style>
+  :root {
+    --bg: #0f1220; --panel: #171b2e; --line: #2a3150; --ink: #e8ecff; --dim: #8b93b8;
+    --pick: #36e2ff; --row: #ffd166; --bad: #ff5d73; --ok: #4df0a6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 700; }
+  select, button, input[type=range] { font: inherit; color: var(--ink); }
+  select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; max-width: 220px; }
+  button { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; min-height: 36px; }
+  button:hover { border-color: #46507e; }
+  button:focus-visible, select:focus-visible { outline: 2px solid var(--pick); outline-offset: 1px; }
+  button.primary { background: #1d5a6b; border-color: #2c8aa3; }
+  button.on { border-color: var(--pick); color: var(--pick); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .badge { font-size: 12px; color: var(--row); min-width: 170px; }
+  main { display: grid; grid-template-columns: 1fr 300px; gap: 12px; padding: 12px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .stage { background: #070912; border: 1px solid var(--line); border-radius: 10px; overflow: auto; touch-action: pan-x pan-y; }
+  .board { position: relative; transform-origin: 0 0; }
+  .board img { display: block; width: 100%; user-select: none; -webkit-user-drag: none; }
+  .board svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+  .key rect.box { fill: rgba(54, 226, 255, 0.06); stroke: rgba(255, 255, 255, 0.55); stroke-width: 1.2; vector-effect: non-scaling-stroke; cursor: move; }
+  .key text { fill: #fff; font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; paint-order: stroke; stroke: rgba(0, 0, 0, 0.85); stroke-width: 0.12; }
+  .key.changed rect.box { stroke: var(--ok); }
+  .key.in-row rect.box { stroke: var(--row); fill: rgba(255, 209, 102, 0.1); }
+  .key.picked rect.box { stroke: var(--pick); stroke-width: 2.5; fill: rgba(54, 226, 255, 0.18); }
+  .hide-boxes .key rect.box { stroke: transparent; fill: transparent; }
+  .hide-boxes .key.picked rect.box { stroke: var(--pick); }
+  .handle { fill: var(--pick); stroke: #000; stroke-width: 1; vector-effect: non-scaling-stroke; cursor: nwse-resize; }
+  aside { display: flex; flex-direction: column; gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .card h2 { font-size: 13px; margin: 0 0 8px; color: var(--dim); font-weight: 600; }
+  .sel-name { font: 700 18px ui-monospace, Menlo, Consolas, monospace; color: var(--pick); }
+  .pad { display: grid; grid-template-columns: repeat(3, 44px); gap: 6px; justify-content: start; margin: 8px 0; }
+  .pad button { padding: 0; min-height: 44px; font-size: 18px; }
+  .row-btns, .size-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .size-btns button { min-width: 44px; }
+  label.inline { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 13px; }
+  .numbers { font: 12px ui-monospace, Menlo, Consolas, monospace; color: var(--dim); margin-top: 6px; }
+  textarea { width: 100%; min-height: 120px; background: #0b0e1a; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; font: 11px ui-monospace, Menlo, Consolas, monospace; padding: 8px; }
+  .note { font-size: 12px; color: var(--dim); margin: 6px 0 0; }
+  .status { font-size: 12px; color: var(--ok); min-height: 1em; }
+  .help { font-size: 13px; color: var(--dim); margin: 0; padding-left: 18px; }
+  .help li { margin: 2px 0; }
+  dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; width: min(440px, calc(100vw - 24px)); padding: 16px; }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+  dialog h2 { margin: 0 0 6px; font-size: 16px; }
+  dialog form > label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 13px; color: var(--dim); }
+  dialog input[type=text], dialog select, dialog input[type=file] { background: #0b0e1a; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; font: inherit; max-width: none; }
+  dialog fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 10px 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  dialog legend { font-size: 13px; color: var(--dim); }
+  dialog input[type=color] { width: 44px; height: 36px; border: 1px solid var(--line); border-radius: 8px; background: none; padding: 2px; }
+  .new-tag { color: var(--ok); font-size: 12px; }
+  .prompt-box { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 10px 0; }
+  dialog label.inline, .prompt-box > label.inline { flex-direction: row; align-items: center; gap: 8px; }
+  dialog { max-height: calc(100dvh - 24px); overflow: auto; }
+  .prompt-box summary { cursor: pointer; color: var(--pick); font-weight: 600; font-size: 13px; }
+  .prompt-box > label { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; font-size: 13px; color: var(--dim); }
+  .prompt-box textarea { min-height: 150px; margin-top: 8px; }
+  .prompt-box #promptTheme { min-height: 64px; margin-top: 0; font: 13px/1.4 system-ui, sans-serif; }
+  dialog input[type=number] { background: #0b0e1a; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; font: inherit; width: 90px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>키 위치 맞추기</h1>
+  <select id="skinSelect" aria-label="스킨 고르기"></select>
+  <button id="prevSkin" aria-label="이전 스킨">◀</button>
+  <button id="nextSkin" aria-label="다음 스킨">▶</button>
+  <span class="badge" id="changedBadge"></span>
+  <label class="inline">확대 <input type="range" id="zoom" min="1" max="3" step="0.25" value="1"></label>
+  <button id="toggleBoxes">칸 숨기기</button>
+  <button id="undo" disabled>되돌리기</button>
+  <button class="primary" id="openNew">＋ 새 키보드</button>
+</header>
+<dialog id="newDialog" aria-labelledby="newTitle">
+  <form id="newForm" method="dialog">
+    <h2 id="newTitle">새 키보드 추가</h2>
+    <p class="note">정면에서 본 키보드 그림을 고르면 표준 배열 칸이 그림 위에 깔려요. 그다음 "전부"·"그 줄 전체"로 크기와 위치를 맞추세요.</p>
+    <details class="prompt-box" id="promptBox">
+      <summary>그림이 없나요? Gemini 프롬프트 자동으로 만들기</summary>
+      <label>만들 키보드 개수 <input type="number" id="promptCount" min="1" max="20" value="1" inputmode="numeric"></label>
+      <label>테마(한글로, 줄마다 하나씩 쓰면 키보드마다 다른 테마) <textarea id="promptTheme" rows="3" maxlength="600" placeholder="예:&#10;밤바다 위 등대, 파도 무늬&#10;벚꽃 날리는 봄밤"></textarea></label>
+      <label class="inline"><input type="checkbox" id="promptVary" checked> 여러 개면 색·소재를 바꿔 가며 만들기</label>
+      <label>소재
+        <select id="promptMaterial">
+          <option value="matte PBT keycaps with a soft matte finish">PBT 무광</option>
+          <option value="semi-translucent pudding keycaps where light glows through the lower half">푸딩</option>
+          <option value="clear crystal keycaps, glassy and translucent">크리스탈</option>
+          <option value="glossy ceramic keycaps with a smooth porcelain sheen">세라믹</option>
+          <option value="anodized aluminum case with metallic keycaps">메탈</option>
+          <option value="walnut wood case with brass accents and cream keycaps">원목·황동</option>
+          <option value="frosted translucent case with soft diffused light">프로스트</option>
+        </select>
+      </label>
+      <fieldset>
+        <legend>색</legend>
+        <label class="inline">글자키 <input type="color" id="promptAlpha" value="#1e2133"></label>
+        <label class="inline">기능키 <input type="color" id="promptMod" value="#36e2ff"></label>
+        <label class="inline">케이스 <input type="color" id="promptCase" value="#0e1120"></label>
+      </fieldset>
+      <label class="inline"><input type="checkbox" id="promptGlow" checked> 아래 LED 색으로 키 사이 빛 번짐</label>
+      <textarea id="promptOut" readonly aria-label="만든 프롬프트"></textarea>
+      <div class="row-btns"><button id="copyPrompt" type="button">프롬프트 전부 복사</button><button id="copyOne" type="button">다음 1개만 복사</button></div>
+      <p class="note">Gemini에 붙여 넣어 그림을 만든 뒤, 받은 그림을 아래 "그림"에서 고르세요. 키 줄 수가 14·14·13·12개인지, 키캡에 글자가 없는지 확인하면 칸 맞추기가 쉬워요.</p>
+    </details>
+    <label>그림(여러 장 고르면 한 번에 여러 개 추가) <input type="file" id="newImage" accept="image/*" multiple required></label>
+    <label>이름 <input type="text" id="newName" maxlength="24" placeholder="예: 밤바다 키보드" required></label>
+    <label>등급
+      <select id="newRarity">
+        <option value="common">일반</option><option value="uncommon">고급</option><option value="rare" selected>희귀</option>
+        <option value="epic">영웅</option><option value="legendary">전설</option>
+      </select>
+    </label>
+    <label>LED 무늬 <select id="newPattern"></select></label>
+    <label>누를 때 반응 <select id="newReactive"></select></label>
+    <fieldset>
+      <legend>LED 색(1~3개)</legend>
+      <input type="color" id="newColor1" value="#36e2ff" aria-label="LED 색 1">
+      <input type="color" id="newColor2" value="#a855f7" aria-label="LED 색 2">
+      <input type="color" id="newColor3" value="#ff4dd2" aria-label="LED 색 3">
+      <label class="inline"><input type="checkbox" id="newUseColor2" checked> 2번 색</label>
+      <label class="inline"><input type="checkbox" id="newUseColor3"> 3번 색</label>
+    </fieldset>
+    <div class="status" id="newStatus" role="status"></div>
+    <div class="row-btns">
+      <button class="primary" id="createNew" value="create">추가하고 칸 맞추기</button>
+      <button id="cancelNew" value="cancel" formnovalidate>취소</button>
+    </div>
+  </form>
+</dialog>
+<main>
+  <div class="stage" id="stage">
+    <div class="board" id="board">
+      <img id="boardImage" alt="키보드 그림">
+      <svg id="overlay" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
+    </div>
+  </div>
+  <aside>
+    <div class="card">
+      <h2>고른 키</h2>
+      <div class="sel-name" id="selName">키를 누르세요</div>
+      <div class="pad" role="group" aria-label="위치 옮기기">
+        <span></span><button data-move="0,-1" aria-label="위로">↑</button><span></span>
+        <button data-move="-1,0" aria-label="왼쪽으로">←</button><button id="stepToggle" aria-label="이동 단위">1px</button><button data-move="1,0" aria-label="오른쪽으로">→</button>
+        <span></span><button data-move="0,1" aria-label="아래로">↓</button><span></span>
+      </div>
+      <div class="size-btns" role="group" aria-label="크기">
+        <button data-size="-1,0">폭 −</button><button data-size="1,0">폭 +</button>
+        <button data-size="0,-1">높이 −</button><button data-size="0,1">높이 +</button>
+      </div>
+      <div class="numbers" id="selNumbers"></div>
+    </div>
+    <div class="card">
+      <h2>글씨 색</h2>
+      <div class="row-btns" style="align-items:center">
+        <input type="color" id="legendColor" value="#ffffff" aria-label="글씨 색 고르기">
+        <button data-swatch="#ffffff" aria-label="흰색" style="background:#ffffff;width:36px"></button>
+        <button data-swatch="#1b1d2a" aria-label="검정" style="background:#1b1d2a;width:36px"></button>
+        <button data-swatch="#5ff3ff" aria-label="청록" style="background:#5ff3ff;width:36px"></button>
+        <button data-swatch="#ffd166" aria-label="금색" style="background:#ffd166;width:36px"></button>
+      </div>
+      <div class="row-btns" style="margin-top:8px">
+        <button class="primary" id="applyLegend">고른 범위에 칠하기</button>
+        <button id="clearLegend">원래 색으로</button>
+      </div>
+      <p class="note">아래 "무엇을 움직일까"의 범위(키 하나·그 줄·전부)에 적용돼요. 원래 색 = 게임이 그림 밝기를 보고 정한 흰색·짙은 색.</p>
+    </div>
+    <div class="card">
+      <h2>무엇을 움직일까</h2>
+      <div class="row-btns" role="group" aria-label="선택 범위">
+        <button data-scope="key" class="on">키 하나</button>
+        <button data-scope="row">그 줄 전체</button>
+        <button data-scope="all">전부</button>
+      </div>
+      <p class="note">줄 전체: 고른 키가 있는 줄을 함께 옮기고 늘립니다.</p>
+      <div class="size-btns" style="margin-top:8px" role="group" aria-label="줄 간격">
+        <button data-spread="-1">줄 간격 −</button><button data-spread="1">줄 간격 +</button>
+      </div>
+      <p class="note">줄 간격: 그 줄 글자 키 사이를 좁히거나 넓힙니다(첫 키 기준).</p>
+      <div class="size-btns" style="margin-top:8px" role="group" aria-label="통째로 늘리기">
+        <button data-scale="-1,0">가로 줄이기</button><button data-scale="1,0">가로 늘리기</button>
+        <button data-scale="0,-1">세로 줄이기</button><button data-scale="0,1">세로 늘리기</button>
+      </div>
+      <p class="note">늘리기: "그 줄 전체"·"전부"에서 칸 간격과 크기를 함께 키우거나 줄입니다(왼쪽 위 기준). 새 키보드는 "전부"로 먼저 크게 맞추세요.</p>
+    </div>
+    <div class="card">
+      <h2>게임에 넣기</h2>
+      <label class="inline" style="margin-bottom:8px">편집 비밀번호 <input type="password" id="password" autocomplete="current-password" style="flex:1;min-width:0;background:#0b0e1a;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 8px;font:inherit"></label>
+      <div class="row-btns">
+        <button class="primary" id="pushGame">게임에 바로 넣기</button>
+        <button id="resetServer">이 스킨 서버 수정 지우기</button>
+      </div>
+      <p class="note">처음 넣을 때 쓴 비밀번호가 앞으로의 편집 비밀번호가 돼요(4자 이상). 넣은 뒤 게임을 새로고침하면 바로 보여요.</p>
+      <div class="row-btns" style="margin-top:8px">
+        <button id="copyCode">바뀐 내용 복사</button>
+        <button id="deleteNew" hidden>이 새 키보드 지우기</button>
+        <button id="resetSkin">이 스킨 처음대로</button>
+      </div>
+      <div class="status" id="status" role="status"></div>
+      <textarea id="codeOut" readonly aria-label="바뀐 내용 코드"></textarea>
+      <p class="note" id="newNote" hidden>새 키보드가 있어요: 복사한 내용과 함께 <b>그 그림 파일도 채팅에 첨부</b>해 주세요(파일 이름이 내용에 들어 있어요).</p>
+      <p class="note">"바뀐 내용 복사"는 새 키보드를 Claude에게 보낼 때 써요(새 키보드는 그림과 스킨 정보가 필요해 자동으로는 안 들어가요). 고친 내용은 넣기 전까지 이 브라우저에 임시로 남아요.</p>
+    </div>
+    <div class="card">
+      <h2>쓰는 법</h2>
+      <ul class="help">
+        <li>키 칸을 끌어서 옮기고, 파란 모서리를 끌어 크기를 바꿔요.</li>
+        <li>휴대폰에서는 키를 누른 뒤 화살표 버튼으로 맞추는 게 정확해요.</li>
+        <li>초록 칸 = 이미 고친 키, 노랑 = 같이 움직일 줄.</li>
+        <li>"＋ 새 키보드": 정면 키보드 그림을 올리면 표준 배열이 깔려요. "전부"를 고르고 가로·세로 늘리기와 화살표로 맞춘 뒤, 줄별로 다듬으세요.</li>
+        <li>글자는 게임처럼 칸 가운데에 보여요. "칸 숨기기"로 글자만 보고 확인하세요.</li>
+      </ul>
+    </div>
+  </aside>
+</main>
+<script type="module">
+import { SKIN_BOARDS } from '/js/skin-boards.js';
+import { SKINS } from '/js/keyboard-skins.js';
+import { applySkinOverrides } from '/js/skin-overrides.js';
+// 키보드 그림 위 키 칸(그림 대비 0~1 [x, y, w, h])을 손으로 맞추는 편집기.
+// 원본(boards.json)과 고친 값을 따로 들고, 바뀐 키만 코드로 내보낸다. 고친 값은 이 브라우저(localStorage)에 임시 저장.
+const ROWS = [
+  ['`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 'Backspace'],
+  ['Tab', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\\'],
+  ['Caps', 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', "'", 'Enter'],
+  ['ShiftLeft', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 'ShiftRight'],
+  ['Space']
+];
+const LABELS = { Backspace: '⌫', Tab: 'Tab', Caps: 'Caps', Enter: 'Enter', ShiftLeft: 'Shift', ShiftRight: 'Shift', Space: 'Space' };
+const MOD_KEYS = new Set(Object.keys(LABELS));
+const STORE_KEY = 'keyfit:site-edits';
+const CUSTOM_KEY = 'keyfit:custom';
+// 표준 60% 배열 칸(키 묶음 상자 대비 0~1). 새 키보드 그림에 처음 깔 때 쓴다
+const TEMPLATE = {"0":[0.6833,0,0.0451,0.148],"1":[0.0698,0,0.0451,0.148],"2":[0.138,0,0.0451,0.148],"3":[0.2061,0,0.0451,0.148],"4":[0.2743,0,0.0451,0.148],"5":[0.3425,0,0.0451,0.148],"6":[0.4106,0,0.0451,0.148],"7":[0.4788,0,0.0451,0.148],"8":[0.547,0,0.0451,0.148],"9":[0.6151,0,0.0451,0.148],"`":[0.0017,0,0.0451,0.148],"-":[0.7515,0,0.0451,0.148],"=":[0.8196,0,0.0451,0.148],"Backspace":[0.8877,0,0.1123,0.148],"Tab":[0,0.2033,0.0814,0.1577],"q":[0.1045,0.2033,0.0451,0.1577],"w":[0.1724,0.2033,0.0451,0.1577],"e":[0.2403,0.2033,0.0451,0.1577],"r":[0.3083,0.2033,0.0451,0.1577],"t":[0.3762,0.2033,0.0451,0.1577],"y":[0.4442,0.2033,0.0451,0.1577],"u":[0.5121,0.2033,0.0451,0.1577],"i":[0.5801,0.2033,0.0451,0.1577],"o":[0.648,0.2033,0.0451,0.1577],"p":[0.7159,0.2033,0.0451,0.1577],"[":[0.7839,0.2033,0.0451,0.1577],"]":[0.8518,0.2033,0.0451,0.1577],"\\":[0.92,0.2033,0.08,0.1577],"Caps":[0,0.4131,0.0994,0.1609],"a":[0.1225,0.4131,0.0451,0.1609],"s":[0.1903,0.4131,0.0451,0.1609],"d":[0.258,0.4131,0.0451,0.1609],"f":[0.3258,0.4131,0.0451,0.1609],"g":[0.3936,0.4131,0.0451,0.1609],"h":[0.4614,0.4131,0.0451,0.1609],"j":[0.5291,0.4131,0.0451,0.1609],"k":[0.5969,0.4131,0.0451,0.1609],"l":[0.6647,0.4131,0.0451,0.1609],";":[0.7325,0.4131,0.0451,0.1609],"'":[0.8002,0.4131,0.0451,0.1609],"Enter":[0.8684,0.4131,0.1316,0.1609],"ShiftLeft":[0,0.6261,0.1318,0.1593],"z":[0.1548,0.6261,0.0451,0.1593],"x":[0.2228,0.6261,0.0451,0.1593],"c":[0.2908,0.6261,0.0451,0.1593],"v":[0.3589,0.6261,0.0451,0.1593],"b":[0.4269,0.6261,0.0451,0.1593],"n":[0.4949,0.6261,0.0451,0.1593],"m":[0.563,0.6261,0.0451,0.1593],",":[0.631,0.6261,0.0451,0.1593],".":[0.699,0.6261,0.0451,0.1593],"/":[0.767,0.6261,0.0451,0.1593],"ShiftRight":[0.8352,0.6261,0.1648,0.1593],"Space":[0.2549,0.8456,0.4055,0.1544]};
+const PATTERNS = { off: '꺼짐', static: '고정', alphaMods: '두 색', gradient: '세로 그라데이션', gradientSide: '가로 그라데이션', breathing: '숨쉬기', hueBreathing: '색 바뀌는 숨쉬기', heartbeat: '심장박동', spectrum: '스펙트럼 순환', wave: '웨이브', waveVertical: '세로 웨이브', waveDiagonal: '대각선 웨이브', chevron: '화살표 웨이브', outIn: '안에서 밖으로', pond: '연못 물결', pinwheel: '바람개비', spiral: '소용돌이', dualBeacon: '쌍등대', radar: '레이더', scanner: '스캐너', comet: '혜성', raindrops: '빗방울', starlight: '별빛', digitalRain: '문자비', fire: '불꽃', aurora: '오로라', plasma: '플라즈마', pendulum: '진자', checker: '체크 점멸', audio: '소리 막대', audioPulse: '소리 맥박' };
+const REACTIVES = { none: '없음', simple: '누른 키', afterglow: '잔광', wide: '주변 번짐', cross: '십자', nexus: '십자 질주', ripple: '물결', splash: '무지개 물결', shockwave: '충격파', rowSweep: '줄 훑기', drop: '낙하', sparkle: '불꽃놀이', blackhole: '블랙홀', heatmap: '열 지도', paint: '물감' };
+
+const LEGEND_KEY = 'keyfit:site-legend';
+const state = { legend: {}, boards: {}, order: [], skin: null, edits: {}, custom: {}, picked: null, scope: 'key', step: 1, undo: [], showBoxes: true, size: { width: 1, height: 1 } };
+const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'promptCount', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
+
+// 저장된 수정값 읽기·쓰기(브라우저가 막으면 조용히 넘어감)
+function loadEdits() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}') || {}; } catch { return {}; }
+}
+function saveEdits() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state.edits)); } catch { /* 저장 불가: 이번 화면에서만 유지 */ }
+}
+
+// 지금 보이는 키 상자(수정값이 있으면 그것, 없으면 원본)
+function currentBox(skin, key) {
+  return state.edits[skin]?.[key] ?? state.boards[skin].keys[key];
+}
+function isChanged(skin, key) {
+  const edited = state.edits[skin]?.[key];
+  if (!edited) return false;
+  const original = state.boards[skin].keys[key];
+  return edited.some((value, index) => Math.abs(value - original[index]) > 1e-6);
+}
+const round = value => Math.round(value * 100000) / 100000;
+
+// 키 글씨 색: 이번에 칠한 색 → 원래 지정된 색 → 그림 밝기 기준 기본(밝은 키캡이면 짙은 색, 아니면 흰색)
+function legendColorOf(skin, key) {
+  const painted = state.legend[skin]?.[key];
+  if (painted !== undefined) return painted ?? defaultLegend(skin, key);
+  return state.boards[skin].legendColors?.[key] ?? defaultLegend(skin, key);
+}
+function defaultLegend(skin, key) {
+  return (state.boards[skin].lightKeys ?? []).includes(key) ? '#2b2134' : '#ffffff';
+}
+function saveLegend() {
+  try { localStorage.setItem(LEGEND_KEY, JSON.stringify(state.legend)); } catch { /* 이번 화면에서만 */ }
+}
+// 범위 안 키에 색 칠하기(null = 원래 색으로). 원래와 같으면 기록에서 뺀다
+function paintLegend(color) {
+  if (!state.picked) return;
+  pushUndo();
+  const skin = state.skin;
+  state.legend[skin] ??= {};
+  for (const key of scopeKeys()) {
+    const original = state.boards[skin].legendColors?.[key] ?? null;
+    if ((color ?? null) === original) delete state.legend[skin][key];
+    else state.legend[skin][key] = color;
+  }
+  if (!Object.keys(state.legend[skin]).length) delete state.legend[skin];
+  saveLegend();
+  render();
+}
+
+function rowOf(key) {
+  return ROWS.find(row => row.includes(key)) ?? [key];
+}
+// 지금 범위(키 하나 / 그 줄 / 전부)에 드는 키 목록
+function scopeKeys() {
+  if (!state.picked) return [];
+  if (state.scope === 'all') return Object.keys(state.boards[state.skin].keys);
+  if (state.scope === 'row') return rowOf(state.picked).filter(key => key in state.boards[state.skin].keys);
+  return [state.picked];
+}
+
+function pushUndo() {
+  state.undo.push(JSON.stringify({ edits: state.edits[state.skin] ?? {}, legend: state.legend[state.skin] ?? {} }));
+  if (state.undo.length > 80) state.undo.shift();
+  elements.undo.disabled = false;
+}
+
+// 키 상자 고치기: change(box) → 새 box. 원본과 같아지면 수정 목록에서 뺀다
+function editKeys(keys, change) {
+  const skin = state.skin;
+  state.edits[skin] ??= {};
+  for (const key of keys) {
+    const next = change([...currentBox(skin, key)], key).map(round);
+    state.edits[skin][key] = next;
+    if (!isChanged(skin, key)) delete state.edits[skin][key];
+  }
+  if (!Object.keys(state.edits[skin]).length) delete state.edits[skin];
+  saveEdits();
+  render();
+}
+
+// 그림 픽셀 단위 이동량을 0~1 비율로
+const pxX = pixels => pixels / state.size.width;
+const pxY = pixels => pixels / state.size.height;
+
+function moveScope(dx, dy) {
+  if (!state.picked) return;
+  pushUndo();
+  editKeys(scopeKeys(), box => [box[0] + pxX(dx), box[1] + pxY(dy), box[2], box[3]]);
+}
+function resizeScope(dw, dh) {
+  if (!state.picked) return;
+  pushUndo();
+  editKeys(scopeKeys(), box => [box[0], box[1], Math.max(pxX(4), box[2] + pxX(dw)), Math.max(pxY(4), box[3] + pxY(dh))]);
+}
+// 줄 간격: 고른 키 줄의 글자 키들을 첫 글자 키 기준으로 index × d 만큼 벌림. 오른쪽 기능키는 마지막 글자 키만큼 같이 이동
+function spreadRow(direction) {
+  if (!state.picked) return;
+  const row = rowOf(state.picked).filter(key => key in state.boards[state.skin].keys);
+  const letters = row.filter(key => !MOD_KEYS.has(key));
+  if (letters.length < 2) return;
+  pushUndo();
+  const delta = pxX(direction * state.step * 0.5);
+  const lastIndex = letters.length - 1;
+  const rightMods = row.slice(row.indexOf(letters[lastIndex]) + 1);
+  editKeys(row, (box, key) => {
+    const index = letters.indexOf(key);
+    if (index >= 0) return [box[0] + index * delta, box[1], box[2], box[3]];
+    if (rightMods.includes(key)) {
+      const shift = lastIndex * delta;
+      return [box[0] + shift, box[1], Math.max(pxX(4), box[2] - shift), box[3]];
+    }
+    return box;
+  });
+}
+
+// 통째로 늘리기: 범위 안 키들의 왼쪽 위 모서리를 기준으로 위치와 크기를 2%씩 키우거나 줄인다
+function scaleScope(directionX, directionY) {
+  if (!state.picked || state.scope === 'key') return;
+  const keys = scopeKeys();
+  const boxes = keys.map(key => currentBox(state.skin, key));
+  const left = Math.min(...boxes.map(box => box[0])), top = Math.min(...boxes.map(box => box[1]));
+  const factorX = 1 + directionX * 0.02 * state.step, factorY = 1 + directionY * 0.02 * state.step;
+  pushUndo();
+  editKeys(keys, box => [left + (box[0] - left) * factorX, top + (box[1] - top) * factorY, box[2] * factorX, box[3] * factorY]);
+}
+
+// ---------- 새 키보드 ----------
+// 새 키보드는 원본이 '없는' 보드: 처음 깐 배열을 원본으로 두고, 고친 값은 일반 스킨처럼 edits에 쌓인다
+function saveCustom() {
+  try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(state.custom)); return true; } catch { return false; }
+}
+function addCustomBoard(id, entry) {
+  state.boards[id] = { name: entry.name, image: entry.dataUrl, keys: entry.keys, custom: true };
+  if (!state.order.includes(id)) state.order.push(id);
+  if (![...elements.skinSelect.options].some(option => option.value === id)) {
+    const option = document.createElement('option');
+    option.value = id;
+    elements.skinSelect.append(option);
+  }
+}
+// 그림을 고르면: 가로 6~94%, 세로 가운데에 표준 배열을 깐다(그림 비율에 맞춰 키 묶음 높이를 정함)
+function templateKeys(width, height) {
+  const boardWidth = 0.88;
+  const unitsTall = 0.36;
+  const boardHeight = Math.min(0.86, boardWidth * width * unitsTall / height);
+  const left = 0.06, top = (1 - boardHeight) / 2;
+  return Object.fromEntries(Object.entries(TEMPLATE).map(([key, [x, y, w, h]]) => [key, [left + x * boardWidth, top + y * boardHeight, w * boardWidth, h * boardHeight].map(round)]));
+}
+// 그림을 1400px 안쪽 webp로 줄여 data URL로(브라우저 저장 용량 때문). 실패하면 원본 그대로
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('decode'));
+      image.onload = () => {
+        const scale = Math.min(1, 1400 / Math.max(image.naturalWidth, image.naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(image.naturalWidth * scale);
+        canvas.height = Math.round(image.naturalHeight * scale);
+        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+        let dataUrl = reader.result;
+        try { dataUrl = canvas.toDataURL('image/webp', 0.86); } catch { /* 원본 사용 */ }
+        resolve({ dataUrl, width: canvas.width, height: canvas.height });
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+const hexToHsl = hex => {
+  const [r, g, b] = [1, 3, 5].map(offset => parseInt(hex.slice(offset, offset + 2), 16) / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), lightness = (max + min) / 2;
+  let hue = 0, saturation = 0;
+  if (max !== min) {
+    const delta = max - min;
+    saturation = lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+    hue = max === r ? (g - b) / delta + (g < b ? 6 : 0) : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
+    hue *= 60;
+  }
+  return [Math.round(hue), Math.round(saturation * 100), Math.round(lightness * 100)];
+};
+const slug = text => (text.normalize('NFKD').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'board');
+
+// 고른 그림마다 새 키보드 하나씩. 여러 장이면 이름 뒤에 번호, 색은 같은 설정
+async function createCustomBoard() {
+  const files = [...(elements.newImage.files ?? [])];
+  const name = elements.newName.value.trim();
+  if (!files.length || !name) {
+    elements.newStatus.textContent = '그림과 이름을 넣어 주세요.';
+    return false;
+  }
+  const palette = [elements.newColor1.value];
+  if (elements.newUseColor2.checked) palette.push(elements.newColor2.value);
+  if (elements.newUseColor3.checked) palette.push(elements.newColor3.value);
+  let firstId = null, failed = 0, saved = true;
+  for (const [index, file] of files.entries()) {
+    elements.newStatus.textContent = `그림 읽는 중… (${index + 1}/${files.length})`;
+    let picture;
+    try { picture = await shrinkImage(file); } catch { failed++; continue; }
+    const boardName = files.length > 1 ? `${name} ${index + 1}` : name;
+    const id = `custom-${slug(name)}-${Date.now().toString(36).slice(-4)}${index}`;
+    const entry = {
+      name: boardName, rarity: elements.newRarity.value, fileName: file.name,
+      led: { pattern: elements.newPattern.value, reactive: elements.newReactive.value, palette: palette.map(hexToHsl) },
+      keys: templateKeys(picture.width, picture.height), dataUrl: picture.dataUrl
+    };
+    state.custom[id] = entry;
+    saved = saveCustom() && saved;
+    addCustomBoard(id, entry);
+    firstId ??= id;
+  }
+  if (!firstId) {
+    elements.newStatus.textContent = '그림을 열 수 없어요. 다른 파일로 해 주세요.';
+    return false;
+  }
+  selectSkin(firstId);
+  state.scope = 'all';
+  document.querySelectorAll('[data-scope]').forEach(other => other.classList.toggle('on', other.dataset.scope === 'all'));
+  const added = files.length - failed;
+  setStatus(`새 키보드 ${added}개를 깔았어요${failed ? `(${failed}장은 못 열었어요)` : ''}. ◀ ▶로 넘기며 "전부"로 크기·위치를 맞추세요.` + (saved ? '' : ' 그림이 커서 브라우저 저장은 못 했으니, 창을 닫기 전에 복사해 주세요.'));
+  return true;
+}
+
+// ---------- 그림 프롬프트 ----------
+// 색 코드를 영어 색 이름 대략으로(Gemini가 hex보다 이름을 잘 따른다). 밝기·채도·색상 구간으로 고른다
+function colorWords(hex) {
+  const [hue, saturation, lightness] = hexToHsl(hex);
+  const tone = lightness < 18 ? 'very dark ' : lightness < 35 ? 'dark ' : lightness > 82 ? 'very light ' : lightness > 65 ? 'light ' : '';
+  if (saturation < 12) return lightness < 15 ? 'black' : lightness > 88 ? 'white' : `${tone}gray`;
+  const names = [[15, 'red'], [40, 'orange'], [65, 'yellow'], [90, 'lime'], [150, 'green'], [185, 'teal'], [205, 'cyan'], [250, 'blue'], [280, 'indigo'], [310, 'purple'], [340, 'pink'], [361, 'red']];
+  const name = names.find(([limit]) => hue < limit)[1];
+  return `${tone}${saturation < 35 ? 'muted ' : ''}${name}`.trim() + ` (${hex})`;
+}
+
+// 색상(hue)을 degrees만큼 돌린 색 코드(무채색은 그대로)
+function rotateHue(hex, degrees) {
+  const [hue, saturation, lightness] = hexToHsl(hex);
+  if (saturation < 12 || !degrees) return hex;
+  const h = ((hue + degrees) % 360 + 360) % 360, s1 = saturation / 100, l1 = lightness / 100;
+  const chroma = (1 - Math.abs(2 * l1 - 1)) * s1, x = chroma * (1 - Math.abs((h / 60) % 2 - 1)), m = l1 - chroma / 2;
+  const [r, g, b] = h < 60 ? [chroma, x, 0] : h < 120 ? [x, chroma, 0] : h < 180 ? [0, chroma, x] : h < 240 ? [0, x, chroma] : h < 300 ? [x, 0, chroma] : [chroma, 0, x];
+  return '#' + [r, g, b].map(value => Math.round((value + m) * 255).toString(16).padStart(2, '0')).join('');
+}
+
+// 만들 개수(1~20)
+const promptCount = () => Math.max(1, Math.min(20, Math.round(Number(elements.promptCount.value) || 1)));
+
+// 게임 칸 맞추기에 맞는 정면 키보드 그림 프롬프트(영어 + 한글 테마 그대로). index번째(0부터) 키보드:
+// 테마는 줄마다 돌아가며, '바꿔 가며'를 켜면 색은 개수만큼 색상환을 고르게 돌리고 소재도 차례로 바꾼다
+function buildPrompt(index = 0, total = 1) {
+  const themes = elements.promptTheme.value.split('\n').map(line => line.trim()).filter(Boolean);
+  const theme = themes.length ? themes[index % themes.length] : '';
+  const vary = elements.promptVary.checked && total > 1;
+  const shift = vary ? Math.round(index * 360 / total) : 0;
+  const materials = [...elements.promptMaterial.options].map(option => option.value);
+  const material = vary ? materials[(elements.promptMaterial.selectedIndex + index) % materials.length] : elements.promptMaterial.value;
+  const ledColors = [elements.newColor1.value, elements.newUseColor2.checked ? elements.newColor2.value : null, elements.newUseColor3.checked ? elements.newColor3.value : null]
+    .filter(Boolean).map(hex => colorWords(rotateHue(hex, shift)));
+  const glow = elements.promptGlow.checked && elements.newPattern.value !== 'off'
+    ? `Soft RGB underglow leaking between the keys in ${ledColors.join(', ')}.`
+    : 'No RGB lighting, natural soft studio light.';
+  return [
+    'Wide 2:1 image. A perfectly straight-on top-down orthographic view of a single 60% ANSI mechanical keyboard, centered, filling about 88% of the width, with a plain dark background around it.',
+    'The keyboard must have exactly 5 rows: row 1 has 14 keys (13 square keys + a 2-unit Backspace), row 2 has 14 keys (1.5-unit Tab, 12 square keys, 1.5-unit backslash), row 3 has 13 keys (1.75-unit Caps Lock, 11 square keys, 2.25-unit Enter), row 4 has 12 keys (2.25-unit left Shift, 10 square keys, 2.75-unit right Shift), row 5 has 3 small keys, a 6.25-unit spacebar and 4 small keys.',
+    'All keys evenly spaced in a straight grid, every keycap clearly separated by a thin gap, no perspective, no tilt, no shadows covering keys.',
+    'Keycaps are completely blank: no letters, no symbols, no legends, no logos, no text anywhere.',
+    `Style: ${material}. Letter keys ${colorWords(rotateHue(elements.promptAlpha.value, shift))}, modifier keys and spacebar accent ${colorWords(rotateHue(elements.promptMod.value, shift))}, case ${colorWords(rotateHue(elements.promptCase.value, shift))}.`,
+    glow,
+    theme ? `Theme and decoration on the case and background: ${theme}. Keep the theme decoration around the keyboard and on the case, never on top of the keycaps.` : '',
+    'Cute cyberpunk game-asset illustration, clean lines, high detail, sharp edges.'
+  ].filter(Boolean).join('\n');
+}
+// 개수만큼 번호를 붙여 이어 쓴 전체 프롬프트
+function allPrompts() {
+  const total = promptCount();
+  if (total === 1) return [buildPrompt(0, 1)];
+  return Array.from({ length: total }, (_, index) => `[키보드 ${index + 1}/${total}]\n${buildPrompt(index, total)}`);
+}
+let nextPromptIndex = 0;
+function refreshPrompt() {
+  const prompts = allPrompts();
+  elements.promptOut.value = prompts.join('\n\n');
+  nextPromptIndex = Math.min(nextPromptIndex, prompts.length - 1);
+  elements.copyOne.hidden = prompts.length === 1;
+  elements.copyOne.textContent = `${nextPromptIndex + 1}번 복사`;
+}
+async function copyText(text, done) {
+  try {
+    await navigator.clipboard.writeText(text);
+    elements.newStatus.textContent = done;
+  } catch {
+    elements.promptOut.focus();
+    elements.promptOut.select();
+    elements.newStatus.textContent = '자동 복사가 막혔어요. 프롬프트 칸을 선택해 복사해 주세요.';
+  }
+}
+elements.copyOne.addEventListener('click', async () => {
+  const prompts = allPrompts();
+  const index = nextPromptIndex % prompts.length;
+  await copyText(buildPrompt(index, prompts.length), `${index + 1}번 프롬프트를 복사했어요. Gemini는 한 번에 그림 하나씩 만드니 하나씩 붙여 넣으세요.`);
+  nextPromptIndex = (index + 1) % prompts.length;
+  elements.copyOne.textContent = `${nextPromptIndex + 1}번 복사`;
+});
+['promptCount', 'promptVary', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newPattern'].forEach(id => {
+  elements[id].addEventListener('input', refreshPrompt);
+  elements[id].addEventListener('change', refreshPrompt);
+});
+elements.copyPrompt.addEventListener('click', async () => {
+  refreshPrompt();
+  await copyText(elements.promptOut.value, '프롬프트를 복사했어요. Gemini에 하나씩 붙여 넣으세요.');
+});
+
+// 밝은 색인가(상대 휘도 0.55 이상)
+function isLightHex(hex) {
+  const [r, g, b] = [1, 3, 5].map(offset => {
+    const unit = parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b >= 0.55;
+}
+
+// ---------- 게임에 바로 넣기 ----------
+// 기존 스킨의 바뀐 키 좌표·글씨 색을 서버로. 성공하면 받은 덮어쓰기로 기준을 새로 잡고, 넣은 스킨의 임시 수정은 비운다
+function pendingChanges() {
+  const changes = {};
+  for (const [skin, keys] of Object.entries(state.edits)) {
+    if (!state.boards[skin] || state.boards[skin].custom) continue;
+    const entries = Object.entries(keys).filter(([key]) => isChanged(skin, key));
+    if (entries.length) changes[skin] = { keys: Object.fromEntries(entries) };
+  }
+  for (const [skin, colors] of Object.entries(state.legend)) {
+    if (!state.boards[skin] || state.boards[skin].custom || !Object.keys(colors).length) continue;
+    changes[skin] = { ...(changes[skin] ?? {}), legend: colors };
+  }
+  return changes;
+}
+async function sendToServer(body, busyButton) {
+  const password = elements.password.value;
+  if (password.length < 4) {
+    setStatus('편집 비밀번호를 4자 이상 넣어 주세요.');
+    elements.password.focus();
+    return null;
+  }
+  busyButton.disabled = true;
+  try {
+    const response = await fetch('/api/keyfit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password, ...body }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setStatus(result.message ?? `넣지 못했어요(${response.status}). 잠시 뒤 다시 해 주세요.`);
+      return null;
+    }
+    try { localStorage.setItem('keyfit:password', password); } catch { /* 무시 */ }
+    return result;
+  } catch {
+    setStatus('서버에 닿지 못했어요. 인터넷 연결을 확인해 주세요.');
+    return null;
+  } finally {
+    busyButton.disabled = false;
+  }
+}
+// 서버 결과로 기준(원본)을 새로 만들되, 새 키보드는 그대로 둔다
+function rebase(overrides, clearedSkins) {
+  const fresh = buildBoards(overrides);
+  for (const [id, board] of Object.entries(state.boards)) if (board.custom) fresh[id] = board;
+  state.boards = fresh;
+  for (const skin of clearedSkins) {
+    delete state.edits[skin];
+    delete state.legend[skin];
+  }
+  saveEdits();
+  saveLegend();
+  state.undo = [];
+  elements.undo.disabled = true;
+  render();
+}
+elements.pushGame.addEventListener('click', async () => {
+  const changes = pendingChanges();
+  const skins = Object.keys(changes);
+  if (!skins.length) { setStatus('게임에 넣을 바뀐 키가 없어요.'); return; }
+  const result = await sendToServer({ changes }, elements.pushGame);
+  if (!result) return;
+  rebase(result.overrides, skins);
+  setStatus(`${result.created ? '편집 비밀번호를 정하고 ' : ''}게임에 넣었어요(스킨 ${skins.length}개, 키 ${result.applied}개${result.skipped ? `, 건너뜀 ${result.skipped}` : ''}). 게임을 새로고침하면 보여요.`);
+});
+elements.resetServer.addEventListener('click', async () => {
+  const skin = state.skin;
+  if (state.boards[skin]?.custom) { setStatus('새 키보드는 아직 게임에 없어요.'); return; }
+  if (elements.resetServer.dataset.armed !== skin) {
+    elements.resetServer.dataset.armed = skin;
+    elements.resetServer.textContent = '한 번 더 누르면 지워요';
+    return;
+  }
+  delete elements.resetServer.dataset.armed;
+  elements.resetServer.textContent = '이 스킨 서버 수정 지우기';
+  const result = await sendToServer({ reset: skin }, elements.resetServer);
+  if (!result) return;
+  rebase(result.overrides, [skin]);
+  setStatus('이 스킨을 원래(처음 게임) 값으로 되돌렸어요.');
+});
+
+// ---------- 그리기 ----------
+const SVG = 'http://www.w3.org/2000/svg';
+function render() {
+  const skin = state.skin;
+  const board = state.boards[skin];
+  const { width, height } = state.size;
+  const svg = elements.overlay;
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.replaceChildren();
+  const inScope = new Set(state.scope === 'key' ? [] : scopeKeys());
+  for (const key of Object.keys(board.keys)) {
+    const [x, y, w, h] = currentBox(skin, key);
+    const group = document.createElementNS(SVG, 'g');
+    group.classList.add('key');
+    if (isChanged(skin, key)) group.classList.add('changed');
+    if (inScope.has(key)) group.classList.add('in-row');
+    if (key === state.picked) group.classList.add('picked');
+    group.dataset.key = key;
+    const rect = document.createElementNS(SVG, 'rect');
+    rect.classList.add('box');
+    rect.setAttribute('x', x * width); rect.setAttribute('y', y * height);
+    rect.setAttribute('width', w * width); rect.setAttribute('height', h * height);
+    rect.setAttribute('rx', Math.min(w * width, h * height) * 0.12);
+    const text = document.createElementNS(SVG, 'text');
+    const label = LABELS[key] ?? key.toUpperCase();
+    const fontSize = Math.min(h * height * 0.36, (w * width) / Math.max(1.6, label.length * 0.62));
+    text.setAttribute('x', (x + w / 2) * width); text.setAttribute('y', (y + h / 2) * height);
+    text.style.fontSize = `${fontSize}px`;
+    text.style.strokeWidth = `${fontSize * 0.14}px`;
+    text.textContent = label;
+    const legend = legendColorOf(skin, key);
+    text.style.fill = legend;
+    text.style.stroke = isLightHex(legend) ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.6)';
+    group.append(rect, text);
+    if (key === state.picked) {
+      const handle = document.createElementNS(SVG, 'rect');
+      const size = Math.max(10, width * 0.012);
+      handle.classList.add('handle');
+      handle.dataset.handle = key;
+      handle.setAttribute('x', (x + w) * width - size / 2); handle.setAttribute('y', (y + h) * height - size / 2);
+      handle.setAttribute('width', size); handle.setAttribute('height', size);
+      group.append(handle);
+    }
+    svg.append(group);
+  }
+  // 고른 키를 맨 위로
+  const picked = svg.querySelector('.picked');
+  if (picked) svg.append(picked);
+  renderPanel();
+}
+
+function renderPanel() {
+  const skin = state.skin;
+  if (state.picked) {
+    const [x, y, w, h] = currentBox(skin, state.picked);
+    const { width, height } = state.size;
+    elements.selName.textContent = (LABELS[state.picked] ?? state.picked) + (state.scope === 'row' ? ' 줄' : state.scope === 'all' ? ' (전부)' : '');
+    elements.selNumbers.textContent = `x ${(x * width).toFixed(1)} · y ${(y * height).toFixed(1)} · 폭 ${(w * width).toFixed(1)} · 높이 ${(h * height).toFixed(1)} (px)`;
+  } else {
+    elements.selName.textContent = '키를 누르세요';
+    elements.selNumbers.textContent = '';
+  }
+  const changedHere = new Set([...Object.keys(state.edits[skin] ?? {}), ...Object.keys(state.legend[skin] ?? {})]).size;
+  const changedSkins = new Set([...Object.keys(state.edits), ...Object.keys(state.legend)]).size;
+  elements.changedBadge.textContent = changedSkins ? `고친 스킨 ${changedSkins}개 · 이 스킨 ${changedHere}키` : '';
+  for (const option of elements.skinSelect.options) {
+    const board = state.boards[option.value];
+    option.textContent = (board.custom ? '＋ ' : state.edits[option.value] || state.legend[option.value] ? '● ' : '') + board.name;
+  }
+  const isCustom = Boolean(state.boards[skin]?.custom);
+  elements.deleteNew.hidden = !isCustom;
+  elements.newNote.hidden = !Object.keys(state.custom).length;
+  elements.codeOut.value = exportCode();
+}
+
+// 바뀐 키만: { 스킨: { 키: [x, y, w, h] } }
+function exportCode() {
+  const changed = {};
+  for (const [skin, keys] of Object.entries(state.edits)) {
+    const entries = Object.entries(keys).filter(([key]) => isChanged(skin, key));
+    if (entries.length) changed[skin] = Object.fromEntries(entries);
+  }
+  for (const [skin, colors] of Object.entries(state.legend)) {
+    if (!state.boards[skin] || state.boards[skin].custom || !Object.keys(colors).length) continue;
+    changed[skin] = { ...(changed[skin] ?? {}), _legend: colors };
+  }
+  for (const skin of Object.keys(state.custom)) delete changed[skin];
+  const created = {};
+  for (const [id, entry] of Object.entries(state.custom)) {
+    const keys = Object.fromEntries(Object.keys(entry.keys).map(key => [key, currentBox(id, key)]));
+    const legendColors = Object.fromEntries(Object.entries(state.legend[id] ?? {}).filter(([, color]) => color));
+    created[id] = { name: entry.name, rarity: entry.rarity, image: entry.fileName, led: entry.led, keys, ...(Object.keys(legendColors).length ? { legendColors } : {}) };
+  }
+  const payload = Object.keys(created).length ? { ...changed, new: created } : changed;
+  return Object.keys(payload).length ? 'TYPECODE-KEYFIT ' + JSON.stringify(payload) : '';
+}
+
+// ---------- 끌기(옮기기·크기) ----------
+let drag = null;
+// 끌기는 화면 좌표 '차이'를 그림 픽셀로 바꿔 쓴다(끄는 중에 위쪽 글자가 늘어 그림이 밀려도 어긋나지 않게)
+function imageScale() {
+  const rect = elements.boardImage.getBoundingClientRect();
+  return { x: state.size.width / Math.max(1, rect.width), y: state.size.height / Math.max(1, rect.height) };
+}
+elements.overlay.addEventListener('pointerdown', event => {
+  const handleKey = event.target.dataset?.handle;
+  const group = event.target.closest('g.key');
+  if (!group) return;
+  const key = group.dataset.key;
+  if (state.picked !== key && !handleKey) {
+    state.picked = key;
+    render();
+  }
+  event.preventDefault();
+  elements.overlay.setPointerCapture(event.pointerId);
+  drag = { mode: handleKey ? 'resize' : 'move', startX: event.clientX, startY: event.clientY, lastX: event.clientX, lastY: event.clientY, pushed: false };
+});
+elements.overlay.addEventListener('pointermove', event => {
+  if (!drag) return;
+  if (!drag.pushed && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 3) return;
+  if (!drag.pushed) { pushUndo(); drag.pushed = true; }
+  const scale = imageScale();
+  const dx = (event.clientX - drag.lastX) * scale.x, dy = (event.clientY - drag.lastY) * scale.y;
+  drag.lastX = event.clientX; drag.lastY = event.clientY;
+  if (drag.mode === 'move') editKeys(scopeKeys(), box => [box[0] + pxX(dx), box[1] + pxY(dy), box[2], box[3]]);
+  else editKeys(scopeKeys(), box => [box[0], box[1], Math.max(pxX(4), box[2] + pxX(dx)), Math.max(pxY(4), box[3] + pxY(dy))]);
+});
+const endDrag = () => { drag = null; };
+elements.overlay.addEventListener('pointerup', endDrag);
+elements.overlay.addEventListener('pointercancel', endDrag);
+
+// ---------- 버튼 ----------
+document.querySelectorAll('[data-move]').forEach(button => button.addEventListener('click', () => {
+  const [dx, dy] = button.dataset.move.split(',').map(Number);
+  moveScope(dx * state.step, dy * state.step);
+}));
+document.querySelectorAll('[data-size]').forEach(button => button.addEventListener('click', () => {
+  const [dw, dh] = button.dataset.size.split(',').map(Number);
+  resizeScope(dw * state.step, dh * state.step);
+}));
+document.querySelectorAll('[data-swatch]').forEach(button => button.addEventListener('click', () => {
+  elements.legendColor.value = button.dataset.swatch;
+  paintLegend(button.dataset.swatch);
+}));
+elements.applyLegend.addEventListener('click', () => {
+  if (!state.picked) { setStatus('먼저 키를 하나 누르세요.'); return; }
+  paintLegend(elements.legendColor.value.toLowerCase());
+});
+elements.clearLegend.addEventListener('click', () => {
+  if (!state.picked) { setStatus('먼저 키를 하나 누르세요.'); return; }
+  paintLegend(null);
+});
+document.querySelectorAll('[data-scale]').forEach(button => button.addEventListener('click', () => {
+  const [x, y] = button.dataset.scale.split(',').map(Number);
+  scaleScope(x, y);
+}));
+for (const [value, label] of Object.entries(PATTERNS)) elements.newPattern.add(new Option(label, value, value === 'wave', value === 'wave'));
+for (const [value, label] of Object.entries(REACTIVES)) elements.newReactive.add(new Option(label, value, value === 'simple', value === 'simple'));
+elements.openNew.addEventListener('click', () => {
+  elements.newStatus.textContent = '';
+  refreshPrompt();
+  if (typeof elements.newDialog.showModal === 'function') elements.newDialog.showModal();
+});
+elements.cancelNew.addEventListener('click', event => {
+  event.preventDefault();
+  elements.newDialog.close();
+});
+elements.newForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  elements.createNew.disabled = true;
+  const done = await createCustomBoard();
+  elements.createNew.disabled = false;
+  if (done) {
+    elements.newDialog.close();
+    elements.newForm.reset();
+  }
+});
+elements.deleteNew.addEventListener('click', () => {
+  const id = state.skin;
+  if (!state.boards[id]?.custom) return;
+  if (elements.deleteNew.dataset.armed !== id) {
+    elements.deleteNew.dataset.armed = id;
+    elements.deleteNew.textContent = '한 번 더 누르면 지워요';
+    return;
+  }
+  delete elements.deleteNew.dataset.armed;
+  elements.deleteNew.textContent = '이 새 키보드 지우기';
+  delete state.custom[id];
+  delete state.edits[id];
+  delete state.legend[id];
+  saveLegend();
+  delete state.boards[id];
+  state.order = state.order.filter(skin => skin !== id);
+  [...elements.skinSelect.options].find(option => option.value === id)?.remove();
+  saveCustom();
+  saveEdits();
+  selectSkin(state.order[0]);
+  setStatus('새 키보드를 지웠어요.');
+});
+document.querySelectorAll('[data-spread]').forEach(button => button.addEventListener('click', () => spreadRow(Number(button.dataset.spread))));
+document.querySelectorAll('[data-scope]').forEach(button => button.addEventListener('click', () => {
+  state.scope = button.dataset.scope;
+  document.querySelectorAll('[data-scope]').forEach(other => other.classList.toggle('on', other === button));
+  render();
+}));
+const STEPS = [1, 3, 0.5];
+elements.stepToggle.addEventListener('click', () => {
+  state.step = STEPS[(STEPS.indexOf(state.step) + 1) % STEPS.length];
+  elements.stepToggle.textContent = `${state.step}px`;
+});
+elements.undo.addEventListener('click', () => {
+  const previous = state.undo.pop();
+  if (previous == null) return;
+  const parsed = JSON.parse(previous);
+  if (Object.keys(parsed.edits).length) state.edits[state.skin] = parsed.edits; else delete state.edits[state.skin];
+  if (Object.keys(parsed.legend).length) state.legend[state.skin] = parsed.legend; else delete state.legend[state.skin];
+  saveEdits();
+  saveLegend();
+  elements.undo.disabled = !state.undo.length;
+  render();
+});
+elements.toggleBoxes.addEventListener('click', () => {
+  state.showBoxes = !state.showBoxes;
+  elements.board.classList.toggle('hide-boxes', !state.showBoxes);
+  elements.toggleBoxes.textContent = state.showBoxes ? '칸 숨기기' : '칸 보이기';
+  elements.toggleBoxes.classList.toggle('on', !state.showBoxes);
+});
+elements.zoom.addEventListener('input', () => {
+  elements.board.style.width = `${Number(elements.zoom.value) * 100}%`;
+});
+elements.resetSkin.addEventListener('click', () => {
+  if (!state.edits[state.skin] && !state.legend[state.skin]) return;
+  pushUndo();
+  delete state.edits[state.skin];
+  delete state.legend[state.skin];
+  saveEdits();
+  saveLegend();
+  setStatus('이 스킨을 처음 값으로 되돌렸어요. 되돌리기로 다시 살릴 수 있어요.');
+  render();
+});
+elements.copyCode.addEventListener('click', async () => {
+  const code = exportCode();
+  if (!code) { setStatus('아직 바뀐 키가 없어요.'); return; }
+  try {
+    await navigator.clipboard.writeText(code);
+    setStatus('복사했어요. 채팅에 붙여 넣어 주세요.');
+  } catch {
+    elements.codeOut.focus();
+    elements.codeOut.select();
+    setStatus('자동 복사가 막혔어요. 아래 칸 내용을 선택해 복사해 주세요.');
+  }
+});
+function setStatus(text) { elements.status.textContent = text; }
+
+// 키보드: 화살표 = 옮기기, Shift+화살표 = 크기, [ ] = 줄 간격
+document.addEventListener('keydown', event => {
+  if (event.target.tagName === 'SELECT' || event.target.tagName === 'TEXTAREA') return;
+  const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  if (arrows[event.key]) {
+    event.preventDefault();
+    const [x, y] = arrows[event.key];
+    if (event.shiftKey) resizeScope(x * state.step, y * state.step); else moveScope(x * state.step, y * state.step);
+  } else if (event.key === 'z' && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    elements.undo.click();
+  }
+});
+
+// ---------- 스킨 고르기 ----------
+function selectSkin(skin) {
+  state.skin = skin;
+  state.picked = null;
+  state.undo = [];
+  elements.undo.disabled = true;
+  elements.skinSelect.value = skin;
+  const image = elements.boardImage;
+  image.onload = () => {
+    state.size = { width: image.naturalWidth || 1, height: image.naturalHeight || 1 };
+    render();
+  };
+  image.onerror = () => setStatus('그림을 불러오지 못했어요.');
+  image.src = state.boards[skin].image;
+  try { localStorage.setItem('keyfit:skin', skin); } catch { /* 무시 */ }
+}
+elements.skinSelect.addEventListener('change', () => selectSkin(elements.skinSelect.value));
+const stepSkin = direction => {
+  const index = state.order.indexOf(state.skin);
+  selectSkin(state.order[(index + direction + state.order.length) % state.order.length]);
+};
+elements.prevSkin.addEventListener('click', () => stepSkin(-1));
+elements.nextSkin.addEventListener('click', () => stepSkin(1));
+
+// 게임 모듈의 키 좌표에 서버 덮어쓰기를 얹어 '지금 게임 값'을 기준(원본)으로 삼는다
+async function fetchOverrides() {
+  try {
+    const response = await fetch('/api/keyfit', { cache: 'no-store' });
+    if (!response.ok) return {};
+    return (await response.json()).overrides ?? {};
+  } catch {
+    return {};
+  }
+}
+function buildBoards(overrides) {
+  const names = Object.fromEntries(SKINS.map(skin => [skin.id, skin.name]));
+  const copy = JSON.parse(JSON.stringify(SKIN_BOARDS));
+  applySkinOverrides(overrides, copy);
+  return Object.fromEntries(Object.entries(copy).map(([id, art]) => [id, { name: names[id] ?? id, image: art.image, keys: art.keys, lightKeys: art.lightKeys ?? [], legendColors: art.legendColors ?? {} }]));
+}
+
+async function start() {
+  state.boards = buildBoards(await fetchOverrides());
+  state.order = Object.keys(state.boards);
+  state.edits = loadEdits();
+  try { elements.password.value = localStorage.getItem('keyfit:password') || ''; } catch { /* 무시 */ }
+  try { state.legend = JSON.parse(localStorage.getItem(LEGEND_KEY) || '{}') || {}; } catch { state.legend = {}; }
+  for (const skin of state.order) {
+    const option = document.createElement('option');
+    option.value = skin;
+    option.textContent = state.boards[skin].name;
+    elements.skinSelect.append(option);
+  }
+  try { state.custom = JSON.parse(localStorage.getItem(CUSTOM_KEY) || '{}') || {}; } catch { state.custom = {}; }
+  for (const [id, entry] of Object.entries(state.custom)) addCustomBoard(id, entry);
+  let first = state.order.includes('typecode-overclock') ? 'typecode-overclock' : state.order[0];
+  try { const saved = localStorage.getItem('keyfit:skin'); if (saved && state.boards[saved]) first = saved; } catch { /* 무시 */ }
+  selectSkin(first);
+}
+start();
+</script>
+</body>
+</html>
