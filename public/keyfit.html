@@ -117,7 +117,7 @@
       </fieldset>
       </details>
       <label class="inline"><input type="checkbox" id="promptGlow" checked> 키 사이 LED 빛 번짐 넣기</label>
-      <p class="note">Gemini에 하나씩 붙여 넣어 그림을 만든 뒤, 받은 그림들을 순서대로 아래 "그림"에서 한 번에 고르세요. 이름 칸을 비워 두면 프롬프트 순서대로 추천 이름·LED 색이 들어가요. 키 줄 수가 14·14·13·12개인지, 키캡에 글자가 없는지 확인하면 칸 맞추기가 쉬워요.</p>
+      <p class="note">Gemini 새 대화에 "등급 규칙 복사"를 먼저 한 번 보내고, 프롬프트를 하나씩 붙여 넣어 그림을 만든 뒤, 받은 그림들을 순서대로 아래 "그림"에서 한 번에 고르세요. 이름 칸을 비워 두면 프롬프트 순서대로 추천 이름·LED 색이 들어가요. 키 줄 수가 14·14·13·12개인지, 키캡에 글자가 없는지 확인하면 칸 맞추기가 쉬워요.</p>
     </details>
     <label>그림(여러 장 고르면 한 번에 여러 개 추가) <input type="file" id="newImage" accept="image/*" multiple required></label>
     <label>이름 <input type="text" id="newName" maxlength="24" placeholder="비워 두면 자동 추천 이름"></label>
@@ -509,7 +509,7 @@ function rotateHue(hex, degrees) {
 
 // 자동 테마 모음: [이름, 테마(영어), 소재(번호=promptMaterial 순서 또는 영어 문장), 글자키, 기능키, 케이스, LED 색들, 등급(없으면 돌려 가며 자동)]. 기존 스킨과 안 겹치게 고름
 const AUTO_THEMES = [
-  ['골드 에디션', 'gold-on-black 20th anniversary collector edition: black anodized aluminum case with polished 24K-gold trim along the edges, a small engraved gold commemorative nameplate reading "20" on the front edge of the case, a tiny round color screen and a gold control knob sitting on the case above the top-right corner (outside the key area, not replacing any key), a strip of carbon fiber texture on the case side', 'black anodized aluminum case with polished gold trim, translucent smoky black PBT keycaps over clear transparent switches', '#1a1a1a', '#d4af37', '#0a0a0a', ['#ffc94d'], 'legendary'],
+  ['골드 에디션', 'gold-on-black collector edition with polished 24K-gold trim along the case edges, a small engraved gold nameplate reading "TYPE//CODE" on the front edge of the case, a tiny round color screen and a gold control knob sitting on the case above the top-right corner (outside the key area, not replacing any key), a strip of carbon fiber texture on the case side', 'black anodized aluminum case with polished gold trim, translucent smoky black PBT keycaps over clear transparent switches', '#1a1a1a', '#d4af37', '#0a0a0a', ['#ffc94d'], 'legendary'],
   ['벚꽃 야경', 'cherry blossom night, falling pink petals, paper lanterns', 0, '#f6d7e3', '#ff6fa8', '#2a1b2e', ['#ff7eb6', '#ffd1e8']],
   ['등대 밤바다', 'lighthouse over a night sea, wave patterns, moonlight', 3, '#1d2a44', '#ffd56b', '#0c1424', ['#ffd56b', '#3fa9ff']],
   ['네온 한옥', 'neon-lit hanok rooftops, dancheong patterns glowing in neon', 0, '#2b2230', '#ff4d6d', '#15101a', ['#ff4d6d', '#2ef2c8']],
@@ -609,7 +609,10 @@ const RARITY_PROMPT = {
 const RARITY_RULES = [
   'I am making keyboard skin art for a typing game with a 5-tier gacha rarity system. Every image must make its tier obvious at a glance, and a higher tier must always look clearly more luxurious than a lower one:',
   ...Object.values(RARITY_PROMPT).map(([, rule]) => rule),
-  'Same layout and camera for every tier: straight top-down 60% keyboard, blank keycaps, near-black background. I will send one keyboard per message. Reply with only the image.'
+  'Same layout and camera for every tier: wide 2:1 image, perfectly straight-on top-down orthographic view of a single 60% ANSI keyboard filling about 88% of the width, near-black background, no perspective, no tilt.',
+  'Exact rows every time: 14 keys (13 square + 2-unit Backspace), 14 keys (1.5-unit Tab, 12 square, 1.5-unit backslash), 13 keys (1.75-unit Caps Lock, 11 square, 2.25-unit Enter), 12 keys (2.25-unit Shift, 10 square, 2.75-unit Shift), bottom row 3 small keys, 6.25-unit spacebar, 4 small keys. Every keycap separated by a thin gap.',
+  'Keycaps are completely blank: no letters, no symbols, no smudges that look like text. No brand logos or text anywhere unless the keyboard description asks for it. Theme decoration stays on the case and around the keyboard, never on the keycaps.',
+  'I will send one keyboard per message, starting with its tier. Reply with only the image.'
 ].join('\n');
 // 프롬프트 첫 줄 등급 표시. 예: "TIER 5 of 5 (LEGENDARY) keyboard skin."
 function tierLine(rarity) {
@@ -622,20 +625,15 @@ const rarityLabel = rarity => RARITY_PROMPT[rarity]?.[0] ?? '';
 function promptText({ theme, material, alpha, mod, caseColor, leds, ledColors, rarity = elements.newRarity.value }) {
   const materialText = typeof material === 'number' ? elements.promptMaterial.options[material]?.value ?? elements.promptMaterial.value : material;
   const ledWords = ledColors ?? (leds ?? []).map(colorWords);
-  const glow = elements.promptGlow.checked && ledWords.length
-    ? `Soft RGB underglow leaking between the keys in ${ledWords.join(', ')}.`
-    : 'No RGB lighting, natural soft studio light.';
-  return [
-    tierLine(rarity),
-    'Wide 2:1 image. A perfectly straight-on top-down orthographic view of a single 60% ANSI mechanical keyboard, centered, filling about 88% of the width, with a plain dark background around it.',
-    'The keyboard must have exactly 5 rows: row 1 has 14 keys (13 square keys + a 2-unit Backspace), row 2 has 14 keys (1.5-unit Tab, 12 square keys, 1.5-unit backslash), row 3 has 13 keys (1.75-unit Caps Lock, 11 square keys, 2.25-unit Enter), row 4 has 12 keys (2.25-unit left Shift, 10 square keys, 2.75-unit right Shift), row 5 has 3 small keys, a 6.25-unit spacebar and 4 small keys.',
-    'All keys evenly spaced in a straight grid, every keycap clearly separated by a thin gap, no perspective, no tilt, no shadows covering keys.',
-    'Keycaps are completely blank: no letters, no symbols, no legends. No brand logos, and no text anywhere except what the theme below explicitly asks for.',
-    `Style: ${materialText}. Letter keys ${colorWords(alpha)}, modifier keys and spacebar accent ${colorWords(mod)}, case ${colorWords(caseColor)}.`,
-    glow,
-    theme ? `Theme and decoration on the case and background: ${theme}. Keep the theme decoration around the keyboard and on the case, never on top of the keycaps.` : '',
-    'Cute cyberpunk game-asset illustration, clean lines, high detail, sharp edges.'
-  ].filter(Boolean).join('\n');
+  const glowText = elements.promptGlow.checked && ledWords.length ? `RGB underglow between the keys in ${ledWords.join(', ')}` : 'no RGB lighting';
+  const description = [
+    theme ? `Theme: ${theme}` : '',
+    materialText,
+    `letter keys ${colorWords(alpha)}, modifier keys and spacebar ${colorWords(mod)}, case ${colorWords(caseColor)}`,
+    glowText
+  ].filter(Boolean).join('; ');
+  // 키보드 스킨 Gemini 프롬프트 모음 형식: 등급 한 줄 + 이 키보드 묘사 한 단락(배열·촬영 조건은 등급 규칙 메시지에 있다)
+  return `${tierLine(rarity)}\n${description}. Exact 60% rows (14·14·13·12), blank keycaps.`;
 }
 // 개수만큼 번호를 붙여 이어 쓴 전체 프롬프트
 function allPrompts() {
