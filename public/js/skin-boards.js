@@ -2514,8 +2514,8 @@ export const SKIN_BOARDS = Object.freeze({
       "`"
     ],
     "keys": {
-      "`": [
-        0.08347,
+      "0": [
+        0.65,
         0.19128,
         0.04521,
         0.10282
@@ -2574,8 +2574,8 @@ export const SKIN_BOARDS = Object.freeze({
         0.04521,
         0.10282
       ],
-      "0": [
-        0.65,
+      "`": [
+        0.08347,
         0.19128,
         0.04521,
         0.10282
@@ -6618,7 +6618,7 @@ export const SKIN_BOARDS = Object.freeze({
       "Backspace": [
         0.83051,
         0.12741,
-        0.11745,
+        0.10929,
         0.12371
       ],
       "Tab": [
@@ -6702,7 +6702,7 @@ export const SKIN_BOARDS = Object.freeze({
       "\\": [
         0.86026,
         0.2857,
-        0.08771,
+        0.07853,
         0.1298
       ],
       "Caps": [
@@ -6780,7 +6780,7 @@ export const SKIN_BOARDS = Object.freeze({
       "Enter": [
         0.8142,
         0.44399,
-        0.13376,
+        0.12356,
         0.12371
       ],
       "ShiftLeft": [
@@ -6852,7 +6852,7 @@ export const SKIN_BOARDS = Object.freeze({
       "ShiftRight": [
         0.78344,
         0.59984,
-        0.16453,
+        0.15433,
         0.12493
       ],
       "Space": [
