@@ -507,7 +507,7 @@ function rotateHue(hex, degrees) {
   return '#' + [r, g, b].map(value => Math.round((value + m) * 255).toString(16).padStart(2, '0')).join('');
 }
 
-// 자동 테마 모음: [이름, 테마(영어), 소재(번호=promptMaterial 순서 또는 영어 문장), 글자키, 기능키, 케이스, LED 색들, 등급(없으면 창에서 고른 등급)]. 기존 스킨과 안 겹치게 고름
+// 자동 테마 모음: [이름, 테마(영어), 소재(번호=promptMaterial 순서 또는 영어 문장), 글자키, 기능키, 케이스, LED 색들, 등급(없으면 돌려 가며 자동)]. 기존 스킨과 안 겹치게 고름
 const AUTO_THEMES = [
   ['골드 에디션 20', 'gold-on-black 20th anniversary collector edition: black anodized aluminum case with polished 24K-gold trim along the edges, a small engraved gold commemorative nameplate reading "20" on the front edge of the case, a tiny round color screen and a gold control knob sitting on the case above the top-right corner (outside the key area, not replacing any key), a strip of carbon fiber texture on the case side', 'black anodized aluminum case with polished gold trim, translucent smoky black PBT keycaps over clear transparent switches', '#1a1a1a', '#d4af37', '#0a0a0a', ['#ffc94d'], 'legendary'],
   ['벚꽃 야경', 'cherry blossom night, falling pink petals, paper lanterns', 0, '#f6d7e3', '#ff6fa8', '#2a1b2e', ['#ff7eb6', '#ffd1e8']],
@@ -561,6 +561,8 @@ function autoOrder(seed) {
   }
   return order;
 }
+// 자동 테마에 고정 등급이 없으면 이 순서로 돌려 가며 붙인다(다시 뽑기마다 시작점이 바뀜)
+const AUTO_RARITY_CYCLE = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
 // index번째 자동 테마. 모음보다 많이 만들면 한 바퀴마다 색상을 돌리고 이름에 번호를 붙인다
 function autoPreset(index) {
   const order = autoOrder(autoSeed);
@@ -568,7 +570,7 @@ function autoPreset(index) {
   const [name, theme, material, alpha, mod, caseColor, leds, rarity] = AUTO_THEMES[order[index % order.length]];
   const shift = lap * 137;
   return {
-    name: lap ? `${name} ${lap + 1}` : name, theme, material, rarity: rarity ?? elements.newRarity.value,
+    name: lap ? `${name} ${lap + 1}` : name, theme, material, rarity: rarity ?? AUTO_RARITY_CYCLE[(index + autoSeed) % AUTO_RARITY_CYCLE.length],
     alpha: rotateHue(alpha, shift), mod: rotateHue(mod, shift), caseColor: rotateHue(caseColor, shift),
     leds: leds.map(hex => rotateHue(hex, shift))
   };
@@ -595,14 +597,23 @@ function buildPrompt(index = 0, total = 1) {
     alpha: rotateHue(elements.promptAlpha.value, shift), mod: rotateHue(elements.promptMod.value, shift), caseColor: rotateHue(elements.promptCase.value, shift)
   });
 }
-// 등급별 꾸밈 정도(게임 등급: 일반→전설). 높을수록 장식·광택·빛 효과를 늘린다
+// 등급 규칙(예전에 Gemini에 먼저 보내던 5단계 규칙을 프롬프트마다 통째로 넣는다). 등급이 높을수록 확실히 더 화려하게
 const RARITY_PROMPT = {
-  common: ['일반', 'Rarity tier: common. Simple, clean everyday design with minimal decoration.'],
-  uncommon: ['고급', 'Rarity tier: uncommon. Tasteful design with a few accent details.'],
-  rare: ['희귀', 'Rarity tier: rare. Polished premium design with refined accent trim and a subtle glow.'],
-  epic: ['영웅', 'Rarity tier: epic. Highly detailed premium design with intricate trim, layered materials and strong glow effects.'],
-  legendary: ['전설', 'Rarity tier: legendary. Ultra-premium limited collector edition: ornate polished metal trim, engraved details, a commemorative nameplate on the case, dramatic glow and fine sparkles, museum-display quality.']
+  common: ['일반', 'Tier 1 COMMON: plain cheap everyday keyboard, flat plastic, flat light, no glow, no effects at all.'],
+  uncommon: ['고급', 'Tier 2 UNCOMMON: nicer finish, clear colorway with accent keys, beveled case, faint edge glow only, no effects outside the case.'],
+  rare: ['희귀', 'Tier 3 RARE: premium special material in rich detail, glossy keycaps, light between keys, thin glowing rim, only a soft halo outside.'],
+  epic: ['영웅', 'Tier 4 EPIC: spectacular showpiece, vivid underglow, dramatic rim light, themed light effects spilling out around the edges.'],
+  legendary: ['전설', 'Tier 5 LEGENDARY: mythic relic, precious ornate case, luminous keycaps, intense aura and particles swirling all around.']
 };
+// 규칙 전체 + 이 키보드의 등급 지정 문장
+function rarityRules(rarity) {
+  const tier = RARITY_PROMPT[rarity] ?? RARITY_PROMPT.rare;
+  return [
+    'Rarity rules: this is keyboard skin art for a typing game with a 5-tier gacha rarity system. The tier must be obvious at a glance, and a higher tier must always look clearly more luxurious than a lower one:',
+    ...Object.values(RARITY_PROMPT).map(([, rule]) => rule),
+    `THIS KEYBOARD IS ${tier[1].split(':')[0]} (${tier[0]}). Draw it at exactly that tier's level of luxury and effects, following the rule above, while keeping the layout, camera and blank keycaps described here.`
+  ].join('\n');
+}
 const rarityLabel = rarity => RARITY_PROMPT[rarity]?.[0] ?? '';
 // 정해진 테마·소재·색·등급으로 프롬프트 본문 만들기(소재는 번호나 영어 문장 둘 다 받음)
 function promptText({ theme, material, alpha, mod, caseColor, leds, ledColors, rarity = elements.newRarity.value }) {
@@ -618,7 +629,7 @@ function promptText({ theme, material, alpha, mod, caseColor, leds, ledColors, r
     'Keycaps are completely blank: no letters, no symbols, no legends. No brand logos, and no text anywhere except what the theme below explicitly asks for.',
     `Style: ${materialText}. Letter keys ${colorWords(alpha)}, modifier keys and spacebar accent ${colorWords(mod)}, case ${colorWords(caseColor)}.`,
     glow,
-    RARITY_PROMPT[rarity]?.[1] ?? '',
+    rarityRules(rarity),
     theme ? `Theme and decoration on the case and background: ${theme}. Keep the theme decoration around the keyboard and on the case, never on top of the keycaps.` : '',
     'Cute cyberpunk game-asset illustration, clean lines, high detail, sharp edges.'
   ].filter(Boolean).join('\n');
