@@ -91,7 +91,7 @@
       <summary>그림이 없나요? Gemini 프롬프트 자동으로 만들기</summary>
       <label>만들 키보드 개수 <input type="number" id="promptCount" min="1" max="20" value="3" inputmode="numeric"></label>
       <p class="note">개수만 쓰면 테마·소재·색·LED·이름을 키보드마다 다르게 알아서 골라요(지금 있는 스킨과 안 겹치게).</p>
-      <div class="row-btns"><button id="rerollPrompt" type="button">다른 테마로 다시 뽑기</button></div>
+      <div class="row-btns"><button id="copyRules" type="button">등급 규칙 복사(새 대화에 먼저 1번)</button><button id="rerollPrompt" type="button">다른 테마로 다시 뽑기</button></div>
       <textarea id="promptOut" readonly aria-label="만든 프롬프트"></textarea>
       <div class="row-btns"><button id="copyPrompt" type="button">프롬프트 전부 복사</button><button id="copyOne" type="button">다음 1개만 복사</button></div>
       <details class="prompt-box">
@@ -257,7 +257,7 @@ const REACTIVES = { none: '없음', simple: '누른 키', afterglow: '잔광', w
 
 const LEGEND_KEY = 'keyfit:site-legend';
 const state = { legend: {}, boards: {}, order: [], skin: null, edits: {}, custom: {}, picked: null, scope: 'key', step: 1, undo: [], showBoxes: true, size: { width: 1, height: 1 } };
-const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'applyLegendAll', 'clearLegendAll', 'promptCount', 'rerollPrompt', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'applyLegendAll', 'clearLegendAll', 'promptCount', 'rerollPrompt', 'copyRules', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
 
 // 저장된 수정값 읽기·쓰기(브라우저가 막으면 조용히 넘어감)
 function loadEdits() {
@@ -605,14 +605,17 @@ const RARITY_PROMPT = {
   epic: ['영웅', 'Tier 4 EPIC: spectacular showpiece, vivid underglow, dramatic rim light, themed light effects spilling out around the edges.'],
   legendary: ['전설', 'Tier 5 LEGENDARY: mythic relic, precious ornate case, luminous keycaps, intense aura and particles swirling all around.']
 };
-// 규칙 전체 + 이 키보드의 등급 지정 문장
-function rarityRules(rarity) {
-  const tier = RARITY_PROMPT[rarity] ?? RARITY_PROMPT.rare;
-  return [
-    'Rarity rules: this is keyboard skin art for a typing game with a 5-tier gacha rarity system. The tier must be obvious at a glance, and a higher tier must always look clearly more luxurious than a lower one:',
-    ...Object.values(RARITY_PROMPT).map(([, rule]) => rule),
-    `THIS KEYBOARD IS ${tier[1].split(':')[0]} (${tier[0]}). Draw it at exactly that tier's level of luxury and effects, following the rule above, while keeping the layout, camera and blank keycaps described here.`
-  ].join('\n');
+// Gemini 새 대화에 먼저 한 번 보내는 5단계 등급 규칙(키보드 스킨 Gemini 프롬프트 모음과 같은 문장)
+const RARITY_RULES = [
+  'I am making keyboard skin art for a typing game with a 5-tier gacha rarity system. Every image must make its tier obvious at a glance, and a higher tier must always look clearly more luxurious than a lower one:',
+  ...Object.values(RARITY_PROMPT).map(([, rule]) => rule),
+  'Same layout and camera for every tier: straight top-down 60% keyboard, blank keycaps, near-black background. I will send one keyboard per message. Reply with only the image.'
+].join('\n');
+// 프롬프트 첫 줄 등급 표시. 예: "TIER 5 of 5 (LEGENDARY) keyboard skin."
+function tierLine(rarity) {
+  const order = Object.keys(RARITY_PROMPT);
+  const level = Math.max(0, order.indexOf(rarity)) + 1;
+  return `TIER ${level} of ${order.length} (${order[level - 1].toUpperCase()}) keyboard skin.`;
 }
 const rarityLabel = rarity => RARITY_PROMPT[rarity]?.[0] ?? '';
 // 정해진 테마·소재·색·등급으로 프롬프트 본문 만들기(소재는 번호나 영어 문장 둘 다 받음)
@@ -623,13 +626,13 @@ function promptText({ theme, material, alpha, mod, caseColor, leds, ledColors, r
     ? `Soft RGB underglow leaking between the keys in ${ledWords.join(', ')}.`
     : 'No RGB lighting, natural soft studio light.';
   return [
+    tierLine(rarity),
     'Wide 2:1 image. A perfectly straight-on top-down orthographic view of a single 60% ANSI mechanical keyboard, centered, filling about 88% of the width, with a plain dark background around it.',
     'The keyboard must have exactly 5 rows: row 1 has 14 keys (13 square keys + a 2-unit Backspace), row 2 has 14 keys (1.5-unit Tab, 12 square keys, 1.5-unit backslash), row 3 has 13 keys (1.75-unit Caps Lock, 11 square keys, 2.25-unit Enter), row 4 has 12 keys (2.25-unit left Shift, 10 square keys, 2.75-unit right Shift), row 5 has 3 small keys, a 6.25-unit spacebar and 4 small keys.',
     'All keys evenly spaced in a straight grid, every keycap clearly separated by a thin gap, no perspective, no tilt, no shadows covering keys.',
     'Keycaps are completely blank: no letters, no symbols, no legends. No brand logos, and no text anywhere except what the theme below explicitly asks for.',
     `Style: ${materialText}. Letter keys ${colorWords(alpha)}, modifier keys and spacebar accent ${colorWords(mod)}, case ${colorWords(caseColor)}.`,
     glow,
-    rarityRules(rarity),
     theme ? `Theme and decoration on the case and background: ${theme}. Keep the theme decoration around the keyboard and on the case, never on top of the keycaps.` : '',
     'Cute cyberpunk game-asset illustration, clean lines, high detail, sharp edges.'
   ].filter(Boolean).join('\n');
@@ -677,6 +680,7 @@ elements.copyOne.addEventListener('click', async () => {
 });
 // 개수 칸을 1~20으로 고쳐 둔다(범위 밖 값이 남으면 폼 제출이 막힘)
 elements.promptCount.addEventListener('change', () => { elements.promptCount.value = String(promptCount()); refreshPrompt(); });
+elements.copyRules.addEventListener('click', () => copyText(RARITY_RULES, '등급 규칙을 복사했어요. Gemini 새 대화에 먼저 보내고, 그다음 프롬프트를 하나씩 보내세요.'));
 elements.rerollPrompt.addEventListener('click', () => {
   autoSeed = Math.floor(Math.random() * 1e9);
   nextPromptIndex = 0;
