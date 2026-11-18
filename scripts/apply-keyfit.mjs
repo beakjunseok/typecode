@@ -32,6 +32,16 @@ for (const [skin, keys] of Object.entries(payload)) {
     continue;
   }
   if (!boards[skin]) { console.warn(`없는 스킨 건너뜀: ${skin}`); continue; }
+  // '_legend': { 키: '#rrggbb' 또는 null(원래대로) } → legendColors
+  const legend = keys._legend ?? {};
+  delete keys._legend;
+  for (const [key, color] of Object.entries(legend)) {
+    if (!(key in boards[skin].keys)) continue;
+    boards[skin].legendColors ??= {};
+    if (color == null) delete boards[skin].legendColors[key];
+    else if (/^#[0-9a-f]{6}$/i.test(color)) { boards[skin].legendColors[key] = color.toLowerCase(); changed++; }
+  }
+  if (boards[skin].legendColors && !Object.keys(boards[skin].legendColors).length) delete boards[skin].legendColors;
   for (const [key, box] of Object.entries(keys)) {
     if (!(key in boards[skin].keys)) { console.warn(`${skin}: 없는 키 건너뜀 ${key}`); continue; }
     if (!validBox(box)) { console.warn(`${skin}: 잘못된 좌표 건너뜀 ${key}`); continue; }

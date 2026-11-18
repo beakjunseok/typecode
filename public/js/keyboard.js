@@ -235,8 +235,17 @@ export function createKeyboard(container, { compact = false, interactive = false
       element.classList.remove('art-light');
       const role = element.classList.contains('accent') ? 'accent' : element.classList.contains('mod') ? 'mod' : 'alpha';
       element.classList.toggle('led-light', lightRoles[role]);
-      for (const name of ['--kx', '--ky', '--kw', '--kh']) element.style.removeProperty(name);
+      for (const name of ['--kx', '--ky', '--kw', '--kh', '--art-legend', '--art-legend-dim', '--art-legend-shadow']) element.style.removeProperty(name);
     }
+  }
+
+  // 그림 스킨의 키별 글씨 색(legendColors: { 키: '#rrggbb' }). 밝은 글씨는 어두운 그림자, 어두운 글씨는 밝은 그림자
+  function paintLegendColor(element, color) {
+    if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) return;
+    const light = isLightColor(color);
+    element.style.setProperty('--art-legend', color);
+    element.style.setProperty('--art-legend-dim', `color-mix(in srgb, ${color} 68%, transparent)`);
+    element.style.setProperty('--art-legend-shadow', light ? '0 1px 2px rgba(0, 0, 0, 0.85), 0 0 6px rgba(0, 0, 0, 0.5)' : '0 1px 0 rgba(255, 255, 255, 0.55)');
   }
 
   function paintBoardArt(art) {
@@ -247,6 +256,7 @@ export function createKeyboard(container, { compact = false, interactive = false
     for (const [keyId, element] of keyElements) {
       element.classList.toggle('art-light', lightKeys.has(keyId));
       element.classList.toggle('led-light', lightKeys.has(keyId));
+      paintLegendColor(element, art.legendColors?.[keyId]);
       const box = art.keys[keyId];
       if (!Array.isArray(box) || box.length !== 4) continue;
       const [x, y, w, h] = box;
