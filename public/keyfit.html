@@ -88,7 +88,7 @@
     <h2 id="newTitle">새 키보드 추가</h2>
     <p class="note">정면에서 본 키보드 그림을 고르면 표준 배열 칸이 그림 위에 깔려요. 그다음 "전부"·"그 줄 전체"로 크기와 위치를 맞추세요.</p>
     <details class="prompt-box" id="promptBox">
-      <summary>그림이 없나요? Gemini 프롬프트 자동으로 만들기 <small>(v3 · 등급 표시)</small></summary>
+      <summary>그림이 없나요? Gemini 프롬프트 자동으로 만들기 <small>(v4 · 등급 표시)</small></summary>
       <label>만들 키보드 개수 <input type="number" id="promptCount" min="1" max="2000" value="3" inputmode="numeric"></label>
       <p class="note">개수만 쓰면 테마·소재·색·LED·이름·등급을 알아서 골라요. 테마 1239종(직접 쓴 239종 먼저, 그다음 두 테마를 섞은 조합 1000종)이 하나도 겹치지 않고, 지금 게임 스킨과도 안 겹쳐요. 등급은 낮을수록 많게 나눠요(일반 40%·고급 27%·희귀 18%·영웅 10%·전설 5%).</p>
       <p class="note" id="raritySummary"></p>
@@ -118,6 +118,7 @@
       </fieldset>
       </details>
       <label class="inline"><input type="checkbox" id="promptGlow" checked> 키 사이 LED 빛 번짐 넣기</label>
+      <label class="inline"><input type="checkbox" id="promptRulesInline"> 등급 규칙을 프롬프트마다 넣기(규칙을 먼저 안 보낼 때)</label>
       <p class="note">Gemini 새 대화에 "등급 규칙 복사"를 먼저 한 번 보내고, 프롬프트를 하나씩 붙여 넣어 그림을 만든 뒤, 받은 그림들을 순서대로 아래 "그림"에서 한 번에 고르세요. 이름 칸을 비워 두면 프롬프트 순서대로 추천 이름·LED 색이 들어가요. 키 줄 수가 14·14·13·12개인지, 키캡에 글자가 없는지 확인하면 칸 맞추기가 쉬워요.</p>
     </details>
     <label>그림(여러 장 고르면 한 번에 여러 개 추가) <input type="file" id="newImage" accept="image/*" multiple required></label>
@@ -258,7 +259,7 @@ const REACTIVES = { none: '없음', simple: '누른 키', afterglow: '잔광', w
 
 const LEGEND_KEY = 'keyfit:site-legend';
 const state = { legend: {}, boards: {}, order: [], skin: null, edits: {}, custom: {}, picked: null, scope: 'key', step: 1, undo: [], showBoxes: true, size: { width: 1, height: 1 } };
-const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'applyLegendAll', 'clearLegendAll', 'promptCount', 'rerollPrompt', 'copyRules', 'raritySummary', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'applyLegendAll', 'clearLegendAll', 'promptCount', 'rerollPrompt', 'copyRules', 'promptRulesInline', 'raritySummary', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
 
 // 저장된 수정값 읽기·쓰기(브라우저가 막으면 조용히 넘어감)
 function loadEdits() {
@@ -874,13 +875,20 @@ const RARITY_PROMPT = {
   legendary: ['전설', 'Tier 5 LEGENDARY: mythic relic, precious ornate case, luminous keycaps, intense aura and particles swirling all around.']
 };
 // Gemini 새 대화에 먼저 한 번 보내는 5단계 등급 규칙(키보드 스킨 Gemini 프롬프트 모음과 같은 문장)
-const RARITY_RULES = [
+// 규칙 본문(그리기 요청이 아닌 설명). 규칙 메시지와 '프롬프트마다 넣기' 둘 다 이걸 쓴다
+const RULE_LINES = [
   'I am making keyboard skin art for a typing game with a 5-tier gacha rarity system. Every image must make its tier obvious at a glance, and a higher tier must always look clearly more luxurious than a lower one:',
   ...Object.values(RARITY_PROMPT).map(([, rule]) => rule),
   'Same layout and camera for every tier: wide 2:1 image, perfectly straight-on top-down orthographic view of a single 60% ANSI keyboard filling about 88% of the width, near-black background, no perspective, no tilt.',
   'Exact rows every time: 14 keys (13 square + 2-unit Backspace), 14 keys (1.5-unit Tab, 12 square, 1.5-unit backslash), 13 keys (1.75-unit Caps Lock, 11 square, 2.25-unit Enter), 12 keys (2.25-unit Shift, 10 square, 2.75-unit Shift), bottom row 3 small keys, 6.25-unit spacebar, 4 small keys. Every keycap separated by a thin gap.',
   'Keycaps are completely blank: no letters, no symbols, no smudges that look like text. No brand logos or text anywhere unless the keyboard description asks for it. Theme decoration stays on the case and around the keyboard, never on the keycaps.',
-  'I will send one keyboard per message, starting with its tier. Reply with only the image.'
+];
+// Gemini 새 대화에 먼저 보내는 규칙 메시지. 이 메시지만으로 그림을 그리지 않도록 앞뒤에 못 박는다
+const RARITY_RULES = [
+  'IMPORTANT: Do NOT generate any image for this message. These are only the rules for my next messages. Reply with just the word "Ready" in text.',
+  ...RULE_LINES,
+  'From my next message on, I will send one keyboard per message, starting with its tier line. Only then draw that one keyboard and reply with only the image.',
+  'Again: do not draw anything now. Just reply "Ready".'
 ].join('\n');
 // 프롬프트 첫 줄 등급 표시. 예: "TIER 5 of 5 (LEGENDARY) keyboard skin."
 function tierLine(rarity) {
@@ -901,7 +909,8 @@ function promptText({ theme, material, alpha, mod, caseColor, leds, ledColors, r
     glowText
   ].filter(Boolean).join('; ');
   // 키보드 스킨 Gemini 프롬프트 모음 형식: 등급 한 줄 + 이 키보드 묘사 한 단락(배열·촬영 조건은 등급 규칙 메시지에 있다)
-  return `${tierLine(rarity)}\n${description}. Exact 60% rows (14·14·13·12), blank keycaps.`;
+  const body = `${tierLine(rarity)}\n${description}. Exact 60% rows (14·14·13·12), blank keycaps.`;
+  return elements.promptRulesInline.checked ? `${body}\n\nRules:\n${RULE_LINES.join('\n')}` : body;
 }
 // 개수만큼 번호를 붙여 이어 쓴 전체 프롬프트
 function allPrompts() {
@@ -947,7 +956,7 @@ elements.copyOne.addEventListener('click', async () => {
   nextPromptIndex = (index + 1) % prompts.length;
   elements.copyOne.textContent = `${nextPromptIndex + 1}번 복사`;
 });
-['promptCount', 'promptVary', 'promptTheme', 'promptMaterial', 'newRarity', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newPattern'].forEach(id => {
+['promptCount', 'promptVary', 'promptTheme', 'promptMaterial', 'newRarity', 'promptRulesInline', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newPattern'].forEach(id => {
   elements[id].addEventListener('input', refreshPrompt);
   elements[id].addEventListener('change', refreshPrompt);
 });
