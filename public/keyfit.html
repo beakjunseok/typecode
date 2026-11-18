@@ -89,8 +89,8 @@
     <p class="note">정면에서 본 키보드 그림을 고르면 표준 배열 칸이 그림 위에 깔려요. 그다음 "전부"·"그 줄 전체"로 크기와 위치를 맞추세요.</p>
     <details class="prompt-box" id="promptBox">
       <summary>그림이 없나요? Gemini 프롬프트 자동으로 만들기</summary>
-      <label>만들 키보드 개수 <input type="number" id="promptCount" min="1" max="100" value="3" inputmode="numeric"></label>
-      <p class="note">개수만 쓰면 테마·소재·색·LED·이름·등급을 알아서 골라요(지금 있는 스킨과 안 겹치게). 등급은 낮을수록 많게 나눠요(일반 40%·고급 27%·희귀 18%·영웅 10%·전설 5%).</p>
+      <label>만들 키보드 개수 <input type="number" id="promptCount" min="1" max="2000" value="3" inputmode="numeric"></label>
+      <p class="note">개수만 쓰면 테마·소재·색·LED·이름·등급을 알아서 골라요. 테마 1239종(직접 쓴 239종 먼저, 그다음 두 테마를 섞은 조합 1000종)이 하나도 겹치지 않고, 지금 게임 스킨과도 안 겹쳐요. 등급은 낮을수록 많게 나눠요(일반 40%·고급 27%·희귀 18%·영웅 10%·전설 5%).</p>
       <p class="note" id="raritySummary"></p>
       <div class="row-btns"><button id="copyRules" type="button">등급 규칙 복사(새 대화에 먼저 1번)</button><button id="rerollPrompt" type="button">다른 테마로 다시 뽑기</button></div>
       <textarea id="promptOut" readonly aria-label="만든 프롬프트"></textarea>
@@ -509,7 +509,7 @@ function rotateHue(hex, degrees) {
 }
 
 // 자동 테마 모음: [이름, 테마(영어), 소재(번호=promptMaterial 순서 또는 영어 문장), 글자키, 기능키, 케이스, LED 색들, 등급(없으면 비율대로 자동)]. 게임에 이미 들어간 스킨(골드 에디션 등)은 빼 둔다. 기존 스킨과 안 겹치게 고름
-const AUTO_THEMES = [
+const HANDWRITTEN_THEMES = [
   ['벚꽃 야경', 'cherry blossom night, falling pink petals, paper lanterns', 0, '#f6d7e3', '#ff6fa8', '#2a1b2e', ['#ff7eb6', '#ffd1e8']],
   ['등대 밤바다', 'lighthouse over a night sea, wave patterns, moonlight', 3, '#1d2a44', '#ffd56b', '#0c1424', ['#ffd56b', '#3fa9ff']],
   ['네온 한옥', 'neon-lit hanok rooftops, dancheong patterns glowing in neon', 0, '#2b2230', '#ff4d6d', '#15101a', ['#ff4d6d', '#2ef2c8']],
@@ -609,12 +609,168 @@ const AUTO_THEMES = [
   ['선인장 화원', 'cactus greenhouse, succulents, terracotta pots', 0, '#eef2e2', '#4f772d', '#b56b45', ['#90be6d']],
   ['보라 수국', 'hydrangea garden in rain, purple and blue blossoms', 0, '#ece4ff', '#7b6cf6', '#3c3a5c', ['#a594f9', '#8ecae6']],
   ['체스 대국', 'giant chessboard checker pattern, marble chess pieces', 4, '#f0f0f0', '#202020', '#3a3a3a', ['#ffffff']],
-  ['꿀벌 벌집', 'honeycomb hive, busy bees, dripping honey', 0, '#fff3c4', '#f4a300', '#3b2a10', ['#ffc300']]
+  ['꿀벌 벌집', 'honeycomb hive, busy bees, dripping honey', 0, '#fff3c4', '#f4a300', '#3b2a10', ['#ffc300']],
+  ['새벽 빵집', 'early morning bakery, fresh bread loaves, flour dust, warm ovens', 0, '#f6ead7', '#c6893f', '#5a3b22', ['#ffcf8a']],
+  ['문구점 진열대', 'stationery shop shelves, colored pencils, washi tape rolls, notebooks', 0, '#fdfaf3', '#4ea8de', '#e9e1d1', ['#4ea8de', '#ff99c8']],
+  ['모스 부호 무전실', 'radio telegraph room, morse key, dials, headphones', 4, '#d8d2c2', '#c0392b', '#2d2a26', ['#ffb347']],
+  ['카세트 테이프', 'cassette tapes, tape reels, mixtape stickers without text', 0, '#e8e2d0', '#ff7a00', '#2b2b2b', ['#ff7a00']],
+  ['LP 레코드 가게', 'vinyl record shop, spinning records, album crates', 5, '#efe5d2', '#c1121f', '#1f1a17', ['#ff595e']],
+  ['필름 카메라', 'vintage film camera, light leaks, film strips', 4, '#d9d4c7', '#3a3a3a', '#1f1f1f', ['#ffb703']],
+  ['타자기 책상', 'writer\'s desk with typewriter-free paper stacks, ink bottles, quill', 5, '#f1e6cc', '#2f2a24', '#4a3526', ['#ffd29d']],
+  ['천문대 돔', 'observatory dome open to the night sky, big telescope', 4, '#1d2240', '#e0c068', '#0f1226', ['#9bb1ff', '#ffe8a3']],
+  ['등산로 정상', 'mountain summit at sunrise, trail markers, clouds below', 0, '#eef1f4', '#ff7b00', '#3d4a5c', ['#ffb347', '#8ecae6']],
+  ['천막 서커스', 'circus big top tent, striped canvas, spotlights', 1, '#fff3e6', '#e63946', '#1d3557', ['#e63946', '#ffd166']],
+  ['낚시 오두막', 'lakeside fishing cabin, wooden dock, misty water', 5, '#e9e2d6', '#2f6f73', '#4a3b2c', ['#9ad1d4']],
+  ['스키 리조트', 'ski resort, snowy slopes, gondola cars, pine trees', 6, '#f7fbff', '#e63946', '#264653', ['#ffffff', '#a8dadc']],
+  ['서핑 해변', 'surf beach, big waves, surfboards, sunny sky', 1, '#fff6e5', '#00b4d8', '#0077b6', ['#00b4d8', '#ffd166']],
+  ['열기구 축제', 'hot air balloon festival over hills at dawn', 1, '#fff3e6', '#ff6b6b', '#4d5d73', ['#ff6b6b', '#ffd93d', '#6bcbef']],
+  ['기차 여행', 'steam train crossing a viaduct, countryside, smoke puffs', 5, '#efe6d5', '#7a1f1f', '#2c2c2c', ['#ffb26b']],
+  ['공항 라운지', 'airport lounge, departure board shapes without text, planes outside', 4, '#e8ecf1', '#1d4ed8', '#1f2937', ['#60a5fa']],
+  ['등대 폭풍', 'lighthouse in a storm, crashing waves, rotating beam', 4, '#2b3442', '#ffe066', '#121821', ['#ffe066', '#89c2d9']],
+  ['남극 펭귄', 'antarctic penguins on ice floes, cold blue sea', 6, '#f4f9ff', '#1b263b', '#9ec9e8', ['#bde0fe']],
+  ['사바나 일몰', 'savanna sunset, acacia trees, giraffe silhouettes', 0, '#f7e1b5', '#d1495b', '#3d2b1f', ['#ff9f1c', '#d1495b']],
+  ['아마존 강', 'amazon river jungle, giant leaves, toucans, mist', 0, '#e3f0d8', '#2d6a4f', '#1b3a2b', ['#74c69d']],
+  ['대나무 숲', 'bamboo forest, tall green stalks, soft light shafts', 3, '#e9f3dc', '#40916c', '#2d3a24', ['#95d5b2']],
+  ['은행나무 길', 'ginkgo tree avenue in autumn, golden fan leaves', 0, '#fff4cc', '#e0a800', '#4a3a1a', ['#ffd23f']],
+  ['설산 사찰', 'snowy mountain temple, prayer flags, clouds', 3, '#f6f2ea', '#c1121f', '#3a3a46', ['#ffd166', '#8ecae6']],
+  ['석양 사막 캐러밴', 'desert camel caravan at sunset, long shadows', 5, '#f2d5a5', '#b5502b', '#4a2e17', ['#ff9f68']],
+  ['소금 사막 거울', 'salt flats mirror reflection of sky, pastel horizon', 6, '#f5f7fa', '#a0c4ff', '#d7dde5', ['#ffc6ff', '#a0c4ff']],
+  ['반딧불 숲', 'firefly forest at night, glowing dots, mossy trees', 1, '#1f2a1f', '#d9ff66', '#0d140d', ['#d9ff66']],
+  ['버섯 마을', 'tiny mushroom village, red caps with dots, fairy lights', 0, '#f8efe4', '#d62828', '#5c4033', ['#ffb703', '#ff6b6b']],
+  ['요정의 숲', 'fairy forest, glowing flowers, tiny wings, sparkles', 6, '#f3ecff', '#c77dff', '#2d2a4a', ['#c77dff', '#7cf3c6']],
+  ['마녀의 오두막', 'witch cottage, bubbling cauldron, potion bottles, crescent moon', 3, '#2b2238', '#8ac926', '#140f1d', ['#8ac926', '#b5179e']],
+  ['용의 보물 동굴', 'dragon treasure cave, gold coin piles, gems', 4, '#3a2a1a', '#ffbe0b', '#1a120b', ['#ffbe0b', '#ff006e']],
+  ['등나무 그네', 'wisteria covered swing, hanging purple blossoms', 0, '#f5f0ff', '#8e7dbe', '#4e5d3f', ['#c3b1e1']],
+  ['풍선 가게', 'balloon shop, bunches of shiny balloons, ribbons', 1, '#fff5f8', '#ff4d6d', '#3a86ff', ['#ff4d6d', '#3a86ff', '#ffd60a']],
+  ['인어의 노래', 'mermaid lagoon, scales shimmer, pearls, moonlight on water', 2, '#d8f3ff', '#7b2cbf', '#0e2a47', ['#72efdd', '#c77dff']],
+  ['거울 미궁', 'hall of mirrors maze, infinite reflections, silver frames', 2, '#eef1f6', '#9aa5b1', '#2b2f36', ['#e0e7ff', '#c0c8d6']],
+  ['시간 여행자', 'time traveler machine, swirling clock-free portals, brass dials', 4, '#d9c7a1', '#00b4d8', '#2b2118', ['#00b4d8', '#ffb703']],
+  ['종이 인형극', 'paper puppet theater, cut-paper silhouettes, stage curtain', 0, '#f7efe2', '#b23a48', '#3a2e2a', ['#ffcf77']],
+  ['연금술 공방', 'alchemy workshop, glass flasks, glowing reagents, scales', 5, '#e5d6b8', '#2ec4b6', '#3a2a1e', ['#2ec4b6', '#ff9f1c']],
+  ['수정 구슬 점술', 'fortune teller tent, crystal ball, tarot-free star cloths', 2, '#2a1b3d', '#c084fc', '#140c20', ['#c084fc', '#f0abfc']],
+  ['천공의 섬', 'floating sky islands, waterfalls into clouds, airships', 6, '#eaf4ff', '#3a86ff', '#c9d6ea', ['#8ecae6', '#ffd6a5']],
+  ['구름 양떼', 'fluffy sheep that look like clouds on a blue sky hill', 0, '#f8fbff', '#74b9ff', '#7fb069', ['#dff1ff']],
+  ['사이버 사무라이', 'cyber samurai armor plates, katana-shaped light strips, neon', 4, '#1c1c24', '#ff0055', '#0b0b10', ['#ff0055', '#00e1ff']],
+  ['해커 은신처', 'hacker hideout, many monitors glow, cables, dark room', 0, '#141a14', '#39ff14', '#0a0e0a', ['#39ff14']],
+  ['홀로그램 아이돌 무대', 'virtual idol concert stage, light sticks, hologram rays', 1, '#f7ecff', '#ff4fd8', '#2a1240', ['#ff4fd8', '#4fd8ff']],
+  ['드론 레이스', 'drone racing course, glowing gates, speed trails', 4, '#202733', '#00f5a0', '#11161e', ['#00f5a0', '#ff3d71']],
+  ['전기 자동차 충전소', 'ev charging station, cable glow, clean tech lines', 6, '#eef3f6', '#00c2a8', '#2b3a42', ['#00c2a8']],
+  ['화성 기지', 'mars colony domes, red dust, rovers', 4, '#e8c9b5', '#d9480f', '#4a2c22', ['#ff8c42', '#ffd8a8']],
+  ['목성 폭풍', 'jupiter storm bands, great red spot swirl, moons', 1, '#f0d9b5', '#c75b39', '#2b1e1a', ['#f4a261', '#e76f51']],
+  ['토성 고리', 'saturn rings close-up, ice particles, starfield', 2, '#ede0c8', '#c9a66b', '#1a1a24', ['#e9c46a', '#a8dadc']],
+  ['중성자 별', 'pulsar neutron star beams sweeping, magnetic field lines', 4, '#1a1d2e', '#7df9ff', '#090b14', ['#7df9ff', '#ff4ff8']],
+  ['외계 정원', 'alien garden, bioluminescent bulb plants, two moons', 2, '#1c2b2a', '#7bff00', '#0b1312', ['#7bff00', '#ff00e6']],
+  ['우주 엘리베이터', 'space elevator cable rising into orbit, clouds, earth curve', 4, '#dde3ea', '#00a8e8', '#1c2733', ['#00a8e8']],
+  ['위성 관제실', 'satellite control room, orbit lines, radar dish', 4, '#cfd6de', '#ff9f1c', '#1d2430', ['#4cc9f0', '#ff9f1c']],
+  ['심야 라디오', 'late night radio studio, on-air light without text, mic, vinyl', 5, '#2a2420', '#e63946', '#141110', ['#e63946', '#ffb703']],
+  ['골목 벽화', 'alley street mural, spray paint drips, bright shapes', 0, '#f1f1f1', '#ff006e', '#3a3a3a', ['#ff006e', '#3a86ff', '#ffbe0b']],
+  ['스케이트보드 파크', 'skate park ramps, graffiti-free bold shapes, sunny day', 0, '#e8e8e8', '#ff5400', '#2b2d42', ['#ff5400', '#00bbf9']],
+  ['농구 코트 야경', 'night basketball court, chain-link fence, floodlights', 0, '#2b2b2b', '#ff7f11', '#151515', ['#ff7f11']],
+  ['축구 경기장', 'soccer stadium pitch stripes, floodlights, confetti', 0, '#e8f5e9', '#2e7d32', '#1b1b1b', ['#ffffff', '#66bb6a']],
+  ['테니스 클레이 코트', 'clay tennis court, white lines, net, sunny', 0, '#f7efe2', '#c65d3b', '#2f4f3f', ['#ffd166']],
+  ['수영장 레인', 'swimming pool lanes, ripples, starting blocks', 2, '#d6f2ff', '#0096c7', '#023e8a', ['#48cae4']],
+  ['볼링장', 'retro bowling alley, glossy lanes, pins, neon arrows', 1, '#2b1d2f', '#ff3864', '#140c16', ['#ff3864', '#2de2e6']],
+  ['아케이드 인형뽑기', 'claw machine full of plushies, glass box, neon', 1, '#fff0f6', '#ff6fb5', '#2a1e3d', ['#ff6fb5', '#7ae7ff']],
+  ['보드게임 카페', 'board game cafe, dice, meeples, cards spread', 0, '#f4ead8', '#2a9d8f', '#5c4033', ['#e9c46a', '#e76f51']],
+  ['퍼즐 조각', 'jigsaw puzzle pieces interlocking, pastel colors', 0, '#fdf6ec', '#8ecae6', '#d4c4a8', ['#8ecae6', '#ffafcc']],
+  ['루빅 큐브', 'twisty puzzle cube color grid, primary colors', 0, '#f0f0f0', '#e63946', '#1d1d1d', ['#e63946', '#ffb703', '#457b9d']],
+  ['종이 비행기', 'paper airplanes flying across blue sky, notebook paper', 0, '#fbfbfb', '#4361ee', '#cbd5e1', ['#a5d8ff']],
+  ['크레파스 낙서', 'crayon doodles, childlike drawings of sun and houses', 0, '#fffdf5', '#f94144', '#e9e4d4', ['#f94144', '#43aa8b', '#f9c74f']],
+  ['수채 물감 팔레트', 'watercolor paint palette, brush strokes, paint drops', 3, '#fbfaf6', '#4895ef', '#e4dccf', ['#f72585', '#4895ef', '#4cc9f0']],
+  ['유화 화실', 'oil painting studio, canvas, easel, thick brush textures', 5, '#efe6d4', '#c44536', '#3d2e22', ['#ffb703', '#c44536']],
+  ['도자기 공방', 'pottery studio, clay wheel, glazed bowls', 3, '#ead7c3', '#5c8d89', '#7a5a43', ['#a3cbb8']],
+  ['유리 공예', 'glassblowing studio, molten glass glow, colorful vases', 2, '#e8f7ff', '#ff7b00', '#24323f', ['#ff7b00', '#3ddcff']],
+  ['금속 대장간', 'blacksmith forge, glowing anvil sparks, iron tools', 4, '#3a3a3a', '#ff5e00', '#1a1a1a', ['#ff5e00', '#ffb703']],
+  ['뜨개질 바구니', 'knitting basket, yarn balls, cozy sweater patterns', 0, '#f6efe7', '#e07a5f', '#81b29a', ['#f2cc8f']],
+  ['퀼트 이불', 'patchwork quilt squares, stitched seams, floral fabric', 0, '#fbf3e9', '#bc4749', '#6a994e', ['#f2e8cf']],
+  ['가죽 공방', 'leather workshop, stitched leather, brass buckles', 5, '#c89f73', '#5a3825', '#3b2414', ['#ffb26b']],
+  ['향수 공방', 'perfume atelier, crystal bottles, flower petals, soft mist', 2, '#fff0f5', '#d291bc', '#efe3ea', ['#ffc8dd', '#cdb4db']],
+  ['꽃집 아침', 'flower shop morning, buckets of tulips and roses', 0, '#fff7f3', '#ff4d6d', '#4f6f52', ['#ff8fab', '#a7c957']],
+  ['허브 정원', 'herb garden, rosemary, basil, terracotta labels without text', 0, '#eef3e4', '#588157', '#a3713f', ['#a3b18a']],
+  ['분재 정원', 'bonsai garden, miniature pine, raked gravel', 3, '#f1ede4', '#386641', '#5e503f', ['#a7c957']],
+  ['연꽃 연못', 'lotus pond, pink lotus flowers, lily pads, dragonflies', 3, '#f9ecf2', '#e5989b', '#2d6a4f', ['#ffb4c2', '#95d5b2']],
+  ['장미 정원', 'rose garden maze, red and white roses, trellis', 0, '#fff1f1', '#c9184a', '#2d4a33', ['#ff4d6d']],
+  ['튤립 들판', 'tulip fields in stripes, windmill, blue sky', 0, '#fff5f7', '#ff5c8a', '#2f5d50', ['#ff5c8a', '#ffd166']],
+  ['해바라기 미로', 'corn and sunflower maze from above, summer sky', 0, '#fff8d6', '#d4a017', '#4a6b2f', ['#ffd23f']],
+  ['단풍 계곡', 'maple valley with stream, red and orange leaves', 0, '#fbe9d7', '#c1440e', '#3c2a21', ['#ff7b39']],
+  ['얼음 낚시', 'ice fishing huts on a frozen lake, drilled holes, snow', 6, '#f2f7fb', '#d35400', '#2c3e50', ['#ffe0b2']],
+  ['크리스마스 마켓', 'christmas market stalls, garlands, warm string lights', 5, '#f6efe6', '#c1121f', '#1b4332', ['#ffd166', '#ff595e']],
+  ['할로윈 호박밭', 'pumpkin patch at dusk, jack-o-lanterns, bats', 0, '#2a1f2d', '#ff7518', '#140e16', ['#ff7518', '#9d4edd']],
+  ['설날 한복', 'lunar new year hanbok colors, saekdong stripes, lucky pouches', 3, '#fff8ef', '#e63946', '#2b2d42', ['#ffbe0b', '#e63946', '#2a9d8f']],
+  ['추석 보름달', 'harvest full moon, songpyeon, autumn fields', 3, '#f7f1e3', '#e9c46a', '#264653', ['#ffe8a3']],
+  ['단오 그네', 'dano festival swing, iris flowers, green fields', 0, '#f0f7ee', '#7b2cbf', '#386641', ['#c77dff']],
+  ['연등 축제', 'lotus lantern festival, colorful paper lanterns in a street', 1, '#2b1f2f', '#ff8fab', '#140e16', ['#ff8fab', '#ffd166', '#80ed99']],
+  ['불꽃 해변', 'beach bonfire night, sparks rising, waves', 1, '#2a2421', '#ff6d00', '#120f0d', ['#ff6d00', '#ffd000']],
+  ['봄 소풍', 'spring picnic blanket, lunch basket, kites in the sky', 0, '#fff8f0', '#6ac47a', '#e9d8c4', ['#a7e3a0', '#ffd6a5']],
+  ['여름 축제 금붕어', 'summer festival goldfish scooping, paper fans, yukata patterns', 1, '#eaf7ff', '#ff5733', '#1d3557', ['#ff5733', '#48cae4']],
+  ['비 오는 카페 창가', 'rainy cafe window, raindrops on glass, latte art', 0, '#efe7dc', '#8d6e63', '#3e2f27', ['#ffcc80']],
+  ['햄스터 미로', 'hamster maze tubes, sunflower seeds, tiny wheel', 0, '#fff6e9', '#f4a261', '#a8dadc', ['#f4a261']],
+  ['강아지 공원', 'dog park, frisbees, happy puppies, green grass', 0, '#f4f9ec', '#f4a261', '#2a9d8f', ['#f4a261']],
+  ['부엉이 숲', 'owl in a moonlit forest, big eyes glow, branches', 5, '#2b2a26', '#f2c14e', '#14130f', ['#f2c14e']],
+  ['여우 불꽃', 'fox spirit with flame tails, autumn leaves', 0, '#fff1e6', '#ff6b35', '#3d2817', ['#ff6b35', '#ffd166']],
+  ['고래 노래', 'humpback whale in deep blue ocean, light rays', 2, '#cfe8ff', '#1d3557', '#0b1d33', ['#5fa8ff']],
+  ['얼음 궁전 연회', 'ice palace ballroom, frozen chandeliers, frost patterns', 2, '#e8f6ff', '#7fb7ff', '#1c2f4a', ['#bde0fe', '#ffffff']],
+  ['문어 연구소', 'octopus lab tank, curling tentacles, bubbles', 2, '#ffe3e3', '#ff6b6b', '#1a2a3a', ['#ff6b6b', '#4ecdc4']],
+  ['나비 온실', 'butterfly conservatory, glass roof, tropical flowers', 6, '#f2fbf4', '#ff9f1c', '#2d6a4f', ['#ff9f1c', '#9b5de5']],
+  ['해마 정원', 'seahorse garden, swaying sea grass, tiny bubbles', 2, '#e0f7f4', '#ff8c61', '#12395a', ['#7fe7dc', '#ff8c61']],
+  ['공룡 화석', 'dinosaur fossil dig site, bones, brushes, sand layers', 0, '#efe1c6', '#8d6e63', '#5b4636', ['#ffcc80']],
+  ['쥬라기 정글', 'prehistoric jungle, giant ferns, volcano in distance', 0, '#e3efd8', '#386641', '#3a2e1f', ['#a7c957', '#ff7b00']],
+  ['매머드 빙원', 'ice age tundra, woolly mammoth silhouettes, snowstorm', 6, '#eef3f7', '#8d6e63', '#4a5560', ['#cfe8ff']],
+  ['고대 그리스 신전', 'greek temple columns, marble, olive branches', 3, '#f5f2ea', '#d4a017', '#8a8577', ['#fff3b0']],
+  ['로마 콜로세움', 'roman colosseum arches at sunset', 3, '#efdcbc', '#a0522d', '#5a4630', ['#ffb26b']],
+  ['마야 피라미드', 'mayan step pyramid in jungle, jade masks', 3, '#d9d2b6', '#2a9d8f', '#4b4a3a', ['#2a9d8f', '#e9c46a']],
+  ['바이킹 롱쉽', 'viking longship on fjord, round shields, northern sea', 5, '#d8cbb3', '#9d0208', '#2f3e46', ['#8ecae6']],
+  ['사무라이 성', 'japanese castle with cherry trees, stone walls', 3, '#f7f1ea', '#bc4749', '#2f2f35', ['#ffb3c1']],
+  ['실크로드 시장', 'silk road bazaar, carpets, brass lamps, camels', 5, '#f3dfbf', '#9e2a2b', '#4a2c1a', ['#ffb703', '#e09f3e']],
+  ['중세 필사본', 'medieval illuminated manuscript borders, gold leaf vines', 5, '#f3e7c8', '#1d3557', '#6b4f2a', ['#ffd166']],
+  ['조선 궁궐', 'joseon palace roofs, dancheong-free red pillars, courtyard', 3, '#f5efe5', '#b23a48', '#3a3a3a', ['#ffcb77']],
+  ['목판 인쇄 공방', 'woodblock printing workshop, carved wood blocks, ink rollers', 5, '#efe4cf', '#3d2c1e', '#5a4330', ['#ffcf8a']],
+  ['백자 달항아리', 'white porcelain moon jar, soft shadows, minimal', 3, '#fbf9f4', '#c9c3b6', '#e6e1d6', ['#fff8e7']],
+  ['이끼 석탑', 'moss covered stone pagoda in a quiet forest', 3, '#e8eee0', '#5a7d4f', '#4a4a42', ['#b5d99c']],
+  ['가야금 연주', 'gayageum strings, silk tassels, traditional music room', 5, '#efe2c9', '#a4161a', '#4a3324', ['#ffcf77']],
+  ['태권 도장', 'taekwondo dojang, belts colors, wooden floor', 0, '#f8f8f6', '#1d3557', '#8b5e34', ['#e63946', '#1d3557']],
+  ['K팝 무대', 'k-pop concert stage, light sticks ocean, lasers', 1, '#f6f0ff', '#ff2e97', '#1a1033', ['#ff2e97', '#2ef2ff', '#fff200']],
+  ['웹툰 컷', 'webtoon panels layout, speed lines, bright flat colors without text', 0, '#ffffff', '#ff6b6b', '#e9ecef', ['#ff6b6b', '#4dabf7']],
+  ['PC방 밤샘', 'internet cafe all-nighter, rows of glowing monitors, instant noodles', 0, '#1c1f26', '#00e5ff', '#0d0f14', ['#00e5ff', '#ff2bd6']],
+  ['자판기 골목', 'vending machine alley at night, glowing machines, rain', 0, '#e9eef2', '#ff3d3d', '#1d2329', ['#ff3d3d', '#3de1ff']],
+  ['치킨 배달', 'fried chicken box, crispy golden pieces, delivery scooter', 0, '#fff4e0', '#d97706', '#5c3317', ['#ffb347']],
+  ['김밥 소풍', 'gimbap rolls in a picnic box, sliced colorful fillings', 0, '#f7f7ef', '#2b9348', '#2d2d2d', ['#80ed99', '#ffd166']],
+  ['떡 공방', 'rice cake shop, colorful tteok, wooden trays', 0, '#fbf6ee', '#e5989b', '#7f5539', ['#ffb4a2', '#b5e48c']],
+  ['팥빙수 가게', 'bingsu shaved ice dessert, red beans, condensed milk', 0, '#fffaf5', '#9d4edd', '#e9d8c8', ['#c77dff', '#ffd6e0']],
+  ['커피 로스터리', 'coffee roastery, roasting drum, burlap sacks, beans', 5, '#d9c3a5', '#6f4518', '#2f1e12', ['#ffb26b']],
+  ['초콜릿 공장', 'chocolate factory, melted chocolate river, cocoa pods', 5, '#5a3a29', '#d4a373', '#2a1a12', ['#ffcf99']],
+  ['마카롱 상자', 'pastel macarons box, ribbons, patisserie', 1, '#fff4f8', '#ff99c8', '#e4c1f9', ['#ff99c8', '#a9def9']],
+  ['피자 화덕', 'wood-fired pizza oven, flames, basil and tomatoes', 5, '#f4e3c3', '#d62828', '#3c2a1e', ['#ff6b35']],
+  ['스시 카운터', 'sushi counter, fish slices, bamboo mats, chopsticks', 3, '#fbf6ee', '#f77f00', '#2b2b2b', ['#ff9e6d']],
+  ['타코 트럭', 'taco food truck, colorful awning, peppers, limes', 0, '#fff7e6', '#2a9d8f', '#e76f51', ['#f4a261', '#2a9d8f']],
+  ['버블티 가게', 'bubble tea shop, tapioca pearls, pastel cups', 1, '#fff3e6', '#a47148', '#f3d5b5', ['#ffcfd2', '#b9fbc0']],
+  ['젤리 왕국', 'gummy jelly kingdom, translucent gummy bears, candy hills', 1, '#ffe8f0', '#ff4d6d', '#c8b6ff', ['#ff4d6d', '#4dffb8', '#ffd60a']],
+  ['솜사탕 구름', 'cotton candy clouds, pastel pink and blue fluff', 1, '#fff0fa', '#ffafcc', '#bde0fe', ['#ffafcc', '#a2d2ff']],
+  ['무지개 케이크', 'rainbow layer cake slice, sprinkles, frosting', 1, '#ffffff', '#ff595e', '#ffe5ec', ['#ff595e', '#ffca3a', '#8ac926', '#1982c4']],
+  ['아이스크림 트럭', 'ice cream truck, cones, pastel stripes, sunny day', 1, '#fffaf0', '#ff8fab', '#a0e7e5', ['#ff8fab', '#a0e7e5']],
+  ['네온 도넛', 'neon donut shop sign shapes, glazed donuts, sprinkles', 1, '#2b1d33', '#ff5fa2', '#140d1a', ['#ff5fa2', '#5ff5ff']]
 ];
+// 손으로 쓴 테마 둘을 섞은 조합 테마 1000종. r번째 바퀴는 i번과 (i+1+r)번을 짝지어 같은 짝이 두 번 나오지 않는다. 시간 O(개수)
+const MASHUP_COUNT = 1000;
+function buildMashups(base, limit) {
+  const total = base.length, list = [];
+  const maxPairs = total * Math.floor((total - 1) / 2);
+  for (let step = 0; list.length < limit && step < maxPairs; step++) {
+    const first = step % total, second = (first + 1 + Math.floor(step / total)) % total;
+    const [nameA, themeA, materialA, alphaA, , caseA, ledsA] = base[first];
+    const [nameB, themeB, , , modB, , ledsB] = base[second];
+    list.push([`${nameA} × ${nameB}`, `a fusion of two themes: ${themeA}, mixed with ${themeB}`, materialA, alphaA, modB, caseA, [ledsA[0], ledsB[0]]]);
+  }
+  return list;
+}
+const MASHUP_THEMES = buildMashups(HANDWRITTEN_THEMES, MASHUP_COUNT);
+// 자동 테마 전체: 손으로 쓴 것 먼저, 그다음 조합 테마
+const AUTO_THEMES = [...HANDWRITTEN_THEMES, ...MASHUP_THEMES];
+
 let autoSeed = Math.floor(Math.random() * 1e9);
 
-// 시드로 섞은 테마 순서(같은 시드면 같은 순서). mulberry32 + 피셔-예이츠, 시간 O(n)
-function autoOrder(seed) {
+// 시드로 섞기(같은 시드면 같은 결과). mulberry32 + 피셔-예이츠, 시간 O(n)
+function seededShuffle(list, seed) {
   let value = seed >>> 0;
   const random = () => {
     value = (value + 0x6d2b79f5) >>> 0;
@@ -622,12 +778,21 @@ function autoOrder(seed) {
     mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed);
     return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
   };
-  const order = AUTO_THEMES.map((_, index) => index);
-  for (let index = order.length - 1; index > 0; index--) {
+  const result = [...list];
+  for (let index = result.length - 1; index > 0; index--) {
     const swap = Math.floor(random() * (index + 1));
-    [order[index], order[swap]] = [order[swap], order[index]];
+    [result[index], result[swap]] = [result[swap], result[index]];
   }
-  return order;
+  return result;
+}
+// 테마 순서: 손으로 쓴 테마를 먼저 다 쓰고 조합 테마로 넘어가도록 두 묶음을 따로 섞어 잇는다. 시드별로 한 번만 계산
+let orderCache = { seed: null, order: [] };
+function autoOrder(seed) {
+  if (orderCache.seed === seed) return orderCache.order;
+  const handwritten = seededShuffle(HANDWRITTEN_THEMES.map((_, index) => index), seed);
+  const mashups = seededShuffle(MASHUP_THEMES.map((_, index) => HANDWRITTEN_THEMES.length + index), seed ^ 0x27d4eb2d);
+  orderCache = { seed, order: [...handwritten, ...mashups] };
+  return orderCache.order;
 }
 // 자동 등급 비율: 낮은 등급일수록 많게(피라미드). 게임 뽑기처럼 등급이 높을수록 귀하다
 const AUTO_RARITY_SHARE = { common: 0.4, uncommon: 0.27, rare: 0.18, epic: 0.1, legendary: 0.05 };
@@ -659,8 +824,7 @@ function autoRarities(total) {
     }
   }
   const pool = Object.entries(quota).flatMap(([rarity, count]) => Array(count).fill(rarity));
-  const shuffled = autoOrder(autoSeed ^ 0x5bd1e995).filter(index => index < pool.length).map(index => pool[index]);
-  while (shuffled.length < pool.length) shuffled.push(pool[shuffled.length]);
+  const shuffled = seededShuffle(pool, autoSeed ^ 0x5bd1e995);
   let next = 0;
   const list = fixed.map(rarity => rarity ?? shuffled[next++] ?? 'common');
   rarityCache = { key, list };
@@ -680,8 +844,8 @@ function autoPreset(index) {
 }
 const isAutoPrompt = () => !elements.promptTheme.value.trim();
 
-// 만들 개수(1~100). 자동 테마가 100개 넘게 있어서 100개까지는 테마가 겹치지 않는다
-const MAX_PROMPTS = 100;
+// 만들 개수(1~자동 테마 수). 그 안에서는 테마가 겹치지 않는다
+const MAX_PROMPTS = AUTO_THEMES.length;
 const promptCount = () => Math.max(1, Math.min(MAX_PROMPTS, Math.round(Number(elements.promptCount.value) || 1)));
 
 // 게임 칸 맞추기에 맞는 정면 키보드 그림 프롬프트(영어 + 한글 테마 그대로). index번째(0부터) 키보드:
@@ -787,7 +951,7 @@ elements.copyOne.addEventListener('click', async () => {
   elements[id].addEventListener('input', refreshPrompt);
   elements[id].addEventListener('change', refreshPrompt);
 });
-// 개수 칸을 1~100으로 고쳐 둔다(범위 밖 값이 남으면 폼 제출이 막힘)
+// 개수 칸을 1~자동 테마 수로 고쳐 둔다(범위 밖 값이 남으면 폼 제출이 막힘)
 elements.promptCount.addEventListener('change', () => { elements.promptCount.value = String(promptCount()); refreshPrompt(); });
 elements.copyRules.addEventListener('click', () => copyText(RARITY_RULES, '등급 규칙을 복사했어요. Gemini 새 대화에 먼저 보내고, 그다음 프롬프트를 하나씩 보내세요.'));
 elements.rerollPrompt.addEventListener('click', () => {
