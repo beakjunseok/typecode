@@ -67,6 +67,13 @@
   .prompt-box summary { cursor: pointer; color: var(--pick); font-weight: 600; font-size: 13px; }
   .prompt-box > label { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; font-size: 13px; color: var(--dim); }
   .prompt-box textarea { min-height: 150px; margin-top: 8px; }
+  .slot-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+  .slot-list li { display: grid; grid-template-columns: 40px 1fr auto; gap: 8px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .slot-list li:last-child { border-bottom: 0; }
+  .slot-list img, .slot-list .empty { width: 40px; height: 22px; object-fit: cover; border-radius: 4px; background: #070912; border: 1px dashed var(--line); }
+  .slot-list li.filled .label { color: var(--ok); }
+  .slot-list small { color: var(--dim); display: block; }
+  .file-btn { display: inline-flex; align-items: center; background: #1d5a6b; border: 1px solid #2c8aa3; border-radius: 8px; padding: 6px 10px; min-height: 36px; cursor: pointer; font-size: 13px; }
   .prompt-box #promptTheme { min-height: 64px; margin-top: 0; font: 13px/1.4 system-ui, sans-serif; }
   dialog input[type=number] { background: #0b0e1a; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; font: inherit; width: 90px; }
 </style>
@@ -88,13 +95,22 @@
     <h2 id="newTitle">새 키보드 추가</h2>
     <p class="note">정면에서 본 키보드 그림을 고르면 표준 배열 칸이 그림 위에 깔려요. 그다음 "전부"·"그 줄 전체"로 크기와 위치를 맞추세요.</p>
     <details class="prompt-box" id="promptBox">
-      <summary>그림이 없나요? Gemini 프롬프트 자동으로 만들기 <small>(v4 · 등급 표시)</small></summary>
+      <summary>그림이 없나요? Gemini 프롬프트 자동으로 만들기 <small>(v5 · 번호별 그림)</small></summary>
       <label>만들 키보드 개수 <input type="number" id="promptCount" min="1" max="2000" value="3" inputmode="numeric"></label>
       <p class="note">개수만 쓰면 테마·소재·색·LED·이름·등급을 알아서 골라요. 테마 1239종(직접 쓴 239종 먼저, 그다음 두 테마를 섞은 조합 1000종)이 하나도 겹치지 않고, 지금 게임 스킨과도 안 겹쳐요. 등급은 낮을수록 많게 나눠요(일반 40%·고급 27%·희귀 18%·영웅 10%·전설 5%).</p>
       <p class="note" id="raritySummary"></p>
       <div class="row-btns"><button id="copyRules" type="button">등급 규칙 복사(새 대화에 먼저 1번)</button><button id="rerollPrompt" type="button">다른 테마로 다시 뽑기</button></div>
       <textarea id="promptOut" readonly aria-label="만든 프롬프트"></textarea>
       <div class="row-btns"><button id="copyPrompt" type="button">프롬프트 전부 복사</button><button id="copyOne" type="button">다음 1개만 복사</button></div>
+      <div id="slotBox">
+        <p class="note">받은 그림을 1번부터 넣으면 이름·등급·LED가 그 번호 프롬프트와 자동으로 짝지어져요. 여러 장을 한 번에 고르면 만든(저장한) 시간 순서대로 빈 칸에 채워져요.</p>
+        <div class="row-btns">
+          <label class="file-btn">그림 여러 장 한 번에 넣기<input type="file" id="slotBulk" accept="image/*" multiple hidden></label>
+          <button id="slotClear" type="button">넣은 그림 비우기</button>
+        </div>
+        <input type="file" id="slotSingle" accept="image/*" hidden>
+        <ol class="slot-list" id="slotList" aria-label="번호별 그림"></ol>
+      </div>
       <details class="prompt-box">
       <summary>직접 정하기(선택) — 테마를 쓰면 자동 대신 이걸로</summary>
       <label>테마(한글로, 줄마다 하나씩 쓰면 키보드마다 다른 테마) <textarea id="promptTheme" rows="3" maxlength="600" placeholder="비워 두면 자동&#10;예: 밤바다 위 등대, 파도 무늬"></textarea></label>
@@ -121,7 +137,7 @@
       <label class="inline"><input type="checkbox" id="promptRulesInline"> 등급 규칙을 프롬프트마다 넣기(규칙을 먼저 안 보낼 때)</label>
       <p class="note">Gemini 새 대화에 "등급 규칙 복사"를 먼저 한 번 보내고, 프롬프트를 하나씩 붙여 넣어 그림을 만든 뒤, 받은 그림들을 순서대로 아래 "그림"에서 한 번에 고르세요. 이름 칸을 비워 두면 프롬프트 순서대로 추천 이름·LED 색이 들어가요. 키 줄 수가 14·14·13·12개인지, 키캡에 글자가 없는지 확인하면 칸 맞추기가 쉬워요.</p>
     </details>
-    <label>그림(여러 장 고르면 한 번에 여러 개 추가) <input type="file" id="newImage" accept="image/*" multiple required></label>
+    <label>그림(위에서 번호별로 넣었으면 비워 두세요. 여기서 여러 장 고르면 고른 순서대로) <input type="file" id="newImage" accept="image/*" multiple></label>
     <label>이름 <input type="text" id="newName" maxlength="24" placeholder="비워 두면 자동 추천 이름"></label>
     <label>등급
       <select id="newRarity">
@@ -259,7 +275,7 @@ const REACTIVES = { none: '없음', simple: '누른 키', afterglow: '잔광', w
 
 const LEGEND_KEY = 'keyfit:site-legend';
 const state = { legend: {}, boards: {}, order: [], skin: null, edits: {}, custom: {}, picked: null, scope: 'key', step: 1, undo: [], showBoxes: true, size: { width: 1, height: 1 } };
-const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'applyLegendAll', 'clearLegendAll', 'promptCount', 'rerollPrompt', 'copyRules', 'promptRulesInline', 'raritySummary', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'applyLegendAll', 'clearLegendAll', 'promptCount', 'rerollPrompt', 'copyRules', 'promptRulesInline', 'slotBox', 'slotBulk', 'slotClear', 'slotSingle', 'slotList', 'raritySummary', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
 
 // 저장된 수정값 읽기·쓰기(브라우저가 막으면 조용히 넘어감)
 function loadEdits() {
@@ -447,19 +463,24 @@ const slug = text => (text.normalize('NFKD').replace(/[^a-zA-Z0-9]+/g, '-').repl
 
 // 고른 그림마다 새 키보드 하나씩. 여러 장이면 이름 뒤에 번호, 색은 같은 설정
 async function createCustomBoard() {
-  const files = [...(elements.newImage.files ?? [])];
+  // 번호 칸에 그림이 있으면 그걸(번호 = 프롬프트 순서), 없으면 아래 '그림' 칸 파일을 고른 순서대로
+  const useSlots = isAutoPrompt() && slotFiles.size > 0;
+  const jobs = useSlots
+    ? [...slotFiles.entries()].sort(([a], [b]) => a - b).map(([index, file]) => ({ index, file }))
+    : [...(elements.newImage.files ?? [])].map((file, index) => ({ index, file }));
+  const files = jobs.map(job => job.file);
   const name = elements.newName.value.trim();
   if (!files.length) {
-    elements.newStatus.textContent = '그림을 골라 주세요.';
+    elements.newStatus.textContent = '그림을 넣어 주세요(번호 칸이나 아래 그림 칸).';
     return false;
   }
-  const useAutoNames = !name;
+  const useAutoNames = useSlots || !name;
   const palette = [elements.newColor1.value];
   if (elements.newUseColor2.checked) palette.push(elements.newColor2.value);
   if (elements.newUseColor3.checked) palette.push(elements.newColor3.value);
   let firstId = null, failed = 0, saved = true;
-  for (const [index, file] of files.entries()) {
-    elements.newStatus.textContent = `그림 읽는 중… (${index + 1}/${files.length})`;
+  for (const [order, { index, file }] of jobs.entries()) {
+    elements.newStatus.textContent = `그림 읽는 중… (${order + 1}/${files.length})`;
     let picture;
     try { picture = await shrinkImage(file); } catch { failed++; continue; }
     const preset = useAutoNames ? autoPreset(index) : null;
@@ -931,7 +952,81 @@ function raritySummary() {
   const list = autoRarities(promptCount());
   return '등급 구성: ' + Object.keys(AUTO_RARITY_SHARE).map(rarity => `${rarityLabel(rarity)} ${list.filter(value => value === rarity).length}`).join(' · ');
 }
+// ---------- 번호별 그림 칸 ----------
+// 번호(0부터) → 그림 파일. 자동 테마일 때만 쓰며, 번호가 곧 프롬프트 순서라 이름·등급·LED가 자동으로 짝지어진다
+const slotFiles = new Map();
+const slotPreviews = new Map();
+function setSlotFile(index, file) {
+  if (slotPreviews.has(index)) URL.revokeObjectURL(slotPreviews.get(index));
+  if (file) { slotFiles.set(index, file); slotPreviews.set(index, URL.createObjectURL(file)); }
+  else { slotFiles.delete(index); slotPreviews.delete(index); }
+}
+function clearSlots() {
+  for (const index of [...slotFiles.keys()]) setSlotFile(index, null);
+}
+// 번호 칸 목록 그리기(만들 개수만큼). 시간 O(개수)
+function renderSlots() {
+  const auto = isAutoPrompt();
+  elements.slotBox.hidden = !auto;
+  if (!auto) return;
+  const total = promptCount();
+  for (const index of [...slotFiles.keys()]) if (index >= total) setSlotFile(index, null);
+  const fragment = document.createDocumentFragment();
+  for (let index = 0; index < total; index++) {
+    const preset = autoPreset(index);
+    const file = slotFiles.get(index);
+    const item = document.createElement('li');
+    item.classList.toggle('filled', Boolean(file));
+    const thumb = document.createElement(file ? 'img' : 'span');
+    if (file) { thumb.src = slotPreviews.get(index); thumb.alt = ''; } else thumb.className = 'empty';
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = `${index + 1}. ${preset.name} · ${rarityLabel(preset.rarity)}`;
+    const detail = document.createElement('small');
+    detail.textContent = file ? file.name : '그림 없음';
+    label.append(detail);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.slot = String(index);
+    button.textContent = file ? '바꾸기' : '그림 넣기';
+    item.append(thumb, label, button);
+    fragment.append(item);
+  }
+  elements.slotList.replaceChildren(fragment);
+}
+let pendingSlot = 0;
+elements.slotList.addEventListener('click', event => {
+  const button = event.target.closest('button[data-slot]');
+  if (!button) return;
+  pendingSlot = Number(button.dataset.slot);
+  elements.slotSingle.value = '';
+  elements.slotSingle.click();
+});
+elements.slotSingle.addEventListener('change', () => {
+  const file = elements.slotSingle.files?.[0];
+  if (!file) return;
+  setSlotFile(pendingSlot, file);
+  renderSlots();
+});
+// 여러 장: 파일 시간(만든·저장한 순서) → 이름 순으로 정렬해 빈 칸을 1번부터 채운다
+elements.slotBulk.addEventListener('change', () => {
+  const files = [...(elements.slotBulk.files ?? [])].sort((a, b) => (a.lastModified - b.lastModified) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+  const total = promptCount();
+  let index = 0, placed = 0;
+  for (const file of files) {
+    while (index < total && slotFiles.has(index)) index++;
+    if (index >= total) break;
+    setSlotFile(index++, file);
+    placed++;
+  }
+  elements.slotBulk.value = '';
+  renderSlots();
+  elements.newStatus.textContent = `그림 ${placed}장을 번호 칸에 넣었어요` + (placed < files.length ? ` (칸이 모자라 ${files.length - placed}장은 못 넣었어요. 개수를 늘리세요)` : '') + '. 순서가 틀리면 칸마다 "바꾸기"로 고치세요.';
+});
+elements.slotClear.addEventListener('click', () => { clearSlots(); renderSlots(); });
+
 function refreshPrompt() {
+  renderSlots();
   elements.raritySummary.textContent = raritySummary();
   const prompts = allPrompts();
   elements.promptOut.value = prompts.join('\n\n');
@@ -964,6 +1059,8 @@ elements.copyOne.addEventListener('click', async () => {
 elements.promptCount.addEventListener('change', () => { elements.promptCount.value = String(promptCount()); refreshPrompt(); });
 elements.copyRules.addEventListener('click', () => copyText(RARITY_RULES, '등급 규칙을 복사했어요. Gemini 새 대화에 먼저 보내고, 그다음 프롬프트를 하나씩 보내세요.'));
 elements.rerollPrompt.addEventListener('click', () => {
+  if (slotFiles.size && !confirm('테마를 다시 뽑으면 번호별 이름이 바뀌어서, 넣어 둔 그림을 비워요. 계속할까요?')) return;
+  clearSlots();
   autoSeed = Math.floor(Math.random() * 1e9);
   nextPromptIndex = 0;
   refreshPrompt();
@@ -1248,6 +1345,7 @@ elements.newForm.addEventListener('submit', async event => {
   const done = await createCustomBoard();
   elements.createNew.disabled = false;
   if (done) {
+    clearSlots();
     elements.newDialog.close();
     elements.newForm.reset();
   }
