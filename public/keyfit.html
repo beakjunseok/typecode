@@ -90,7 +90,8 @@
     <details class="prompt-box" id="promptBox">
       <summary>그림이 없나요? Gemini 프롬프트 자동으로 만들기</summary>
       <label>만들 키보드 개수 <input type="number" id="promptCount" min="1" max="20" value="3" inputmode="numeric"></label>
-      <p class="note">개수만 쓰면 테마·소재·색·LED·이름을 키보드마다 다르게 알아서 골라요(지금 있는 스킨과 안 겹치게).</p>
+      <p class="note">개수만 쓰면 테마·소재·색·LED·이름·등급을 알아서 골라요(지금 있는 스킨과 안 겹치게). 등급은 낮을수록 많게 나눠요(일반 40%·고급 27%·희귀 18%·영웅 10%·전설 5%).</p>
+      <p class="note" id="raritySummary"></p>
       <div class="row-btns"><button id="copyRules" type="button">등급 규칙 복사(새 대화에 먼저 1번)</button><button id="rerollPrompt" type="button">다른 테마로 다시 뽑기</button></div>
       <textarea id="promptOut" readonly aria-label="만든 프롬프트"></textarea>
       <div class="row-btns"><button id="copyPrompt" type="button">프롬프트 전부 복사</button><button id="copyOne" type="button">다음 1개만 복사</button></div>
@@ -257,7 +258,7 @@ const REACTIVES = { none: '없음', simple: '누른 키', afterglow: '잔광', w
 
 const LEGEND_KEY = 'keyfit:site-legend';
 const state = { legend: {}, boards: {}, order: [], skin: null, edits: {}, custom: {}, picked: null, scope: 'key', step: 1, undo: [], showBoxes: true, size: { width: 1, height: 1 } };
-const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'applyLegendAll', 'clearLegendAll', 'promptCount', 'rerollPrompt', 'copyRules', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'applyLegendAll', 'clearLegendAll', 'promptCount', 'rerollPrompt', 'copyRules', 'raritySummary', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
 
 // 저장된 수정값 읽기·쓰기(브라우저가 막으면 조용히 넘어감)
 function loadEdits() {
@@ -561,8 +562,43 @@ function autoOrder(seed) {
   }
   return order;
 }
-// 자동 테마에 고정 등급이 없으면 이 순서로 돌려 가며 붙인다(다시 뽑기마다 시작점이 바뀜)
-const AUTO_RARITY_CYCLE = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+// 자동 등급 비율: 낮은 등급일수록 많게(피라미드). 게임 뽑기처럼 등급이 높을수록 귀하다
+const AUTO_RARITY_SHARE = { common: 0.4, uncommon: 0.27, rare: 0.18, epic: 0.1, legendary: 0.05 };
+
+// total개를 비율대로 나눈 등급별 개수(최대 나머지 방식, 합 = total). 시간 O(등급 수)
+function rarityQuota(total) {
+  const entries = Object.entries(AUTO_RARITY_SHARE).map(([rarity, share]) => ({ rarity, exact: share * total }));
+  const quota = Object.fromEntries(entries.map(({ rarity, exact }) => [rarity, Math.floor(exact)]));
+  let left = total - Object.values(quota).reduce((sum, count) => sum + count, 0);
+  for (const { rarity } of [...entries].sort((a, b) => (b.exact % 1) - (a.exact % 1))) {
+    if (left-- <= 0) break;
+    quota[rarity]++;
+  }
+  return quota;
+}
+// 이번 묶음(total개)의 키보드별 등급. 고정 등급 테마(골드 에디션=전설)는 그 몫을 먼저 쓰고, 나머지는 시드로 섞어 배정
+let rarityCache = { key: '', list: [] };
+function autoRarities(total) {
+  const key = `${autoSeed}:${total}`;
+  if (rarityCache.key === key) return rarityCache.list;
+  const order = autoOrder(autoSeed);
+  const fixed = Array.from({ length: total }, (_, index) => AUTO_THEMES[order[index % order.length]][7] ?? null);
+  const quota = rarityQuota(total);
+  for (const rarity of fixed.filter(Boolean)) {
+    if (quota[rarity] > 0) quota[rarity]--;
+    else {
+      const donor = Object.keys(AUTO_RARITY_SHARE).find(name => quota[name] > 0);
+      if (donor) quota[donor]--;
+    }
+  }
+  const pool = Object.entries(quota).flatMap(([rarity, count]) => Array(count).fill(rarity));
+  const shuffled = autoOrder(autoSeed ^ 0x5bd1e995).filter(index => index < pool.length).map(index => pool[index]);
+  while (shuffled.length < pool.length) shuffled.push(pool[shuffled.length]);
+  let next = 0;
+  const list = fixed.map(rarity => rarity ?? shuffled[next++] ?? 'common');
+  rarityCache = { key, list };
+  return list;
+}
 // index번째 자동 테마. 모음보다 많이 만들면 한 바퀴마다 색상을 돌리고 이름에 번호를 붙인다
 function autoPreset(index) {
   const order = autoOrder(autoSeed);
@@ -570,7 +606,7 @@ function autoPreset(index) {
   const [name, theme, material, alpha, mod, caseColor, leds, rarity] = AUTO_THEMES[order[index % order.length]];
   const shift = lap * 137;
   return {
-    name: lap ? `${name} ${lap + 1}` : name, theme, material, rarity: rarity ?? AUTO_RARITY_CYCLE[(index + autoSeed) % AUTO_RARITY_CYCLE.length],
+    name: lap ? `${name} ${lap + 1}` : name, theme, material, rarity: rarity ?? autoRarities(Math.max(promptCount(), index + 1))[index],
     alpha: rotateHue(alpha, shift), mod: rotateHue(mod, shift), caseColor: rotateHue(caseColor, shift),
     leds: leds.map(hex => rotateHue(hex, shift))
   };
@@ -648,7 +684,14 @@ function allPrompts() {
   return Array.from({ length: total }, (_, index) => `${header(index)}\n${buildPrompt(index, total)}`);
 }
 let nextPromptIndex = 0;
+// 이번 묶음의 등급 구성 한 줄(예: 일반 8 · 고급 5 · 희귀 4 · 영웅 2 · 전설 1)
+function raritySummary() {
+  if (!isAutoPrompt()) return `직접 정한 테마: 모두 ${rarityLabel(elements.newRarity.value)}`;
+  const list = autoRarities(promptCount());
+  return '등급 구성: ' + Object.keys(AUTO_RARITY_SHARE).map(rarity => `${rarityLabel(rarity)} ${list.filter(value => value === rarity).length}`).join(' · ');
+}
 function refreshPrompt() {
+  elements.raritySummary.textContent = raritySummary();
   const prompts = allPrompts();
   elements.promptOut.value = prompts.join('\n\n');
   nextPromptIndex = Math.min(nextPromptIndex, prompts.length - 1);
