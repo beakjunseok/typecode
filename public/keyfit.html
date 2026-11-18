@@ -89,8 +89,14 @@
     <p class="note">정면에서 본 키보드 그림을 고르면 표준 배열 칸이 그림 위에 깔려요. 그다음 "전부"·"그 줄 전체"로 크기와 위치를 맞추세요.</p>
     <details class="prompt-box" id="promptBox">
       <summary>그림이 없나요? Gemini 프롬프트 자동으로 만들기</summary>
-      <label>만들 키보드 개수 <input type="number" id="promptCount" min="1" max="20" value="1" inputmode="numeric"></label>
-      <label>테마(한글로, 줄마다 하나씩 쓰면 키보드마다 다른 테마) <textarea id="promptTheme" rows="3" maxlength="600" placeholder="예:&#10;밤바다 위 등대, 파도 무늬&#10;벚꽃 날리는 봄밤"></textarea></label>
+      <label>만들 키보드 개수 <input type="number" id="promptCount" min="1" max="20" value="3" inputmode="numeric"></label>
+      <p class="note">개수만 쓰면 테마·소재·색·LED·이름을 키보드마다 다르게 알아서 골라요(지금 있는 스킨과 안 겹치게).</p>
+      <div class="row-btns"><button id="rerollPrompt" type="button">다른 테마로 다시 뽑기</button></div>
+      <textarea id="promptOut" readonly aria-label="만든 프롬프트"></textarea>
+      <div class="row-btns"><button id="copyPrompt" type="button">프롬프트 전부 복사</button><button id="copyOne" type="button">다음 1개만 복사</button></div>
+      <details class="prompt-box">
+      <summary>직접 정하기(선택) — 테마를 쓰면 자동 대신 이걸로</summary>
+      <label>테마(한글로, 줄마다 하나씩 쓰면 키보드마다 다른 테마) <textarea id="promptTheme" rows="3" maxlength="600" placeholder="비워 두면 자동&#10;예: 밤바다 위 등대, 파도 무늬"></textarea></label>
       <label class="inline"><input type="checkbox" id="promptVary" checked> 여러 개면 색·소재를 바꿔 가며 만들기</label>
       <label>소재
         <select id="promptMaterial">
@@ -109,13 +115,12 @@
         <label class="inline">기능키 <input type="color" id="promptMod" value="#36e2ff"></label>
         <label class="inline">케이스 <input type="color" id="promptCase" value="#0e1120"></label>
       </fieldset>
-      <label class="inline"><input type="checkbox" id="promptGlow" checked> 아래 LED 색으로 키 사이 빛 번짐</label>
-      <textarea id="promptOut" readonly aria-label="만든 프롬프트"></textarea>
-      <div class="row-btns"><button id="copyPrompt" type="button">프롬프트 전부 복사</button><button id="copyOne" type="button">다음 1개만 복사</button></div>
-      <p class="note">Gemini에 붙여 넣어 그림을 만든 뒤, 받은 그림을 아래 "그림"에서 고르세요. 키 줄 수가 14·14·13·12개인지, 키캡에 글자가 없는지 확인하면 칸 맞추기가 쉬워요.</p>
+      </details>
+      <label class="inline"><input type="checkbox" id="promptGlow" checked> 키 사이 LED 빛 번짐 넣기</label>
+      <p class="note">Gemini에 하나씩 붙여 넣어 그림을 만든 뒤, 받은 그림들을 순서대로 아래 "그림"에서 한 번에 고르세요. 이름 칸을 비워 두면 프롬프트 순서대로 추천 이름·LED 색이 들어가요. 키 줄 수가 14·14·13·12개인지, 키캡에 글자가 없는지 확인하면 칸 맞추기가 쉬워요.</p>
     </details>
     <label>그림(여러 장 고르면 한 번에 여러 개 추가) <input type="file" id="newImage" accept="image/*" multiple required></label>
-    <label>이름 <input type="text" id="newName" maxlength="24" placeholder="예: 밤바다 키보드" required></label>
+    <label>이름 <input type="text" id="newName" maxlength="24" placeholder="비워 두면 자동 추천 이름"></label>
     <label>등급
       <select id="newRarity">
         <option value="common">일반</option><option value="uncommon">고급</option><option value="rare" selected>희귀</option>
@@ -252,7 +257,7 @@ const REACTIVES = { none: '없음', simple: '누른 키', afterglow: '잔광', w
 
 const LEGEND_KEY = 'keyfit:site-legend';
 const state = { legend: {}, boards: {}, order: [], skin: null, edits: {}, custom: {}, picked: null, scope: 'key', step: 1, undo: [], showBoxes: true, size: { width: 1, height: 1 } };
-const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'applyLegendAll', 'clearLegendAll', 'promptCount', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'applyLegendAll', 'clearLegendAll', 'promptCount', 'rerollPrompt', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
 
 // 저장된 수정값 읽기·쓰기(브라우저가 막으면 조용히 넘어감)
 function loadEdits() {
@@ -442,10 +447,11 @@ const slug = text => (text.normalize('NFKD').replace(/[^a-zA-Z0-9]+/g, '-').repl
 async function createCustomBoard() {
   const files = [...(elements.newImage.files ?? [])];
   const name = elements.newName.value.trim();
-  if (!files.length || !name) {
-    elements.newStatus.textContent = '그림과 이름을 넣어 주세요.';
+  if (!files.length) {
+    elements.newStatus.textContent = '그림을 골라 주세요.';
     return false;
   }
+  const useAutoNames = !name;
   const palette = [elements.newColor1.value];
   if (elements.newUseColor2.checked) palette.push(elements.newColor2.value);
   if (elements.newUseColor3.checked) palette.push(elements.newColor3.value);
@@ -454,11 +460,12 @@ async function createCustomBoard() {
     elements.newStatus.textContent = `그림 읽는 중… (${index + 1}/${files.length})`;
     let picture;
     try { picture = await shrinkImage(file); } catch { failed++; continue; }
-    const boardName = files.length > 1 ? `${name} ${index + 1}` : name;
-    const id = `custom-${slug(name)}-${Date.now().toString(36).slice(-4)}${index}`;
+    const preset = useAutoNames ? autoPreset(index) : null;
+    const boardName = preset ? preset.name : files.length > 1 ? `${name} ${index + 1}` : name;
+    const id = `custom-${slug(boardName)}-${Date.now().toString(36).slice(-4)}${index}`;
     const entry = {
       name: boardName, rarity: elements.newRarity.value, fileName: file.name,
-      led: { pattern: elements.newPattern.value, reactive: elements.newReactive.value, palette: palette.map(hexToHsl) },
+      led: { pattern: elements.newPattern.value, reactive: elements.newReactive.value, palette: (preset ? preset.leds : palette).map(hexToHsl) },
       keys: templateKeys(picture.width, picture.height), dataUrl: picture.dataUrl
     };
     state.custom[id] = entry;
@@ -499,12 +506,80 @@ function rotateHue(hex, degrees) {
   return '#' + [r, g, b].map(value => Math.round((value + m) * 255).toString(16).padStart(2, '0')).join('');
 }
 
+// 자동 테마 모음: [이름, 테마(영어), 소재 번호(promptMaterial 순서), 글자키, 기능키, 케이스, LED 색들]. 기존 스킨과 안 겹치게 고름
+const AUTO_THEMES = [
+  ['벚꽃 야경', 'cherry blossom night, falling pink petals, paper lanterns', 0, '#f6d7e3', '#ff6fa8', '#2a1b2e', ['#ff7eb6', '#ffd1e8']],
+  ['등대 밤바다', 'lighthouse over a night sea, wave patterns, moonlight', 3, '#1d2a44', '#ffd56b', '#0c1424', ['#ffd56b', '#3fa9ff']],
+  ['네온 한옥', 'neon-lit hanok rooftops, dancheong patterns glowing in neon', 0, '#2b2230', '#ff4d6d', '#15101a', ['#ff4d6d', '#2ef2c8']],
+  ['용암 단층', 'cracked volcanic rock with glowing lava seams', 4, '#2a1a16', '#ff6a1f', '#120a08', ['#ff6a1f', '#ffb703']],
+  ['빙하 동굴', 'ice cave, frozen crystals, cold blue mist', 2, '#d8f3ff', '#6fd3ff', '#0d2233', ['#6fd3ff', '#ffffff']],
+  ['레트로 아케이드', '80s arcade cabinet, pixel sprites, checkerboard floor', 0, '#20163a', '#ffe14d', '#0e0a1f', ['#ff3cac', '#2b86ff', '#ffe14d']],
+  ['정글 유적', 'overgrown jungle temple, vines, carved stone glyphs', 3, '#c9d6b3', '#3e8e41', '#1d2a1a', ['#7cff6b']],
+  ['스팀펑크 공방', 'steampunk workshop, brass gears, copper pipes, steam', 5, '#e8d6b5', '#b8732f', '#2d1e12', ['#ffb15e']],
+  ['궤도 정거장', 'orbital space station, planet below, panel lines', 4, '#dfe5ee', '#ff8c1a', '#1a1f2b', ['#4dd2ff', '#ff8c1a']],
+  ['은하수 캠핑', 'milky way over a camping tent, pine tree silhouettes', 1, '#172040', '#9a7dff', '#0a0f22', ['#9a7dff', '#5bc0ff']],
+  ['딸기 우유', 'strawberry milk carton, cute strawberries, cream drips', 1, '#fff0f4', '#ff5c7a', '#ffd3dc', ['#ff5c7a', '#ffd3dc']],
+  ['독성 실험실', 'toxic lab, bubbling green flasks, hazard stripes', 6, '#1c2a1c', '#a6ff00', '#0d140d', ['#a6ff00', '#00ffb3']],
+  ['황금 사원', 'golden temple, ornate filigree, red silk ribbons', 4, '#3a0d12', '#ffcc4d', '#1f0a0c', ['#ffcc4d', '#ff4d4d']],
+  ['비 오는 골목', 'rainy alley at night, neon signs reflected in puddles', 0, '#1b1f2e', '#ff2e88', '#0b0d16', ['#ff2e88', '#22d3ee']],
+  ['해적선', 'pirate ship deck, ropes, treasure map, compass rose', 5, '#e9dcc0', '#8a5a2b', '#2b1a0e', ['#ffb347']],
+  ['마법 서재', 'wizard library, floating books, glowing runes', 3, '#2b2140', '#b48cff', '#140f22', ['#b48cff', '#ffd36e']],
+  ['열대 해변', 'tropical beach, palm leaves, sunset gradient sky', 1, '#fff4e0', '#ff8f5a', '#0f4c5c', ['#ff8f5a', '#ffd166', '#2ec4b6']],
+  ['눈 내리는 마을', 'snowy village, snowflakes, warm glowing windows', 6, '#f4f8ff', '#e63946', '#1d3557', ['#ffffff', '#ffb4a2']],
+  ['메카 격납고', 'giant robot hangar, hazard stripes, rivets', 4, '#3b4252', '#ffb000', '#1c2028', ['#ffb000', '#ff3b3b']],
+  ['수채 꽃밭', 'watercolor wildflower field, butterflies', 3, '#fbf7ef', '#7aa95c', '#e9dfc9', ['#b5e48c', '#ffc6ff']],
+  ['가을 단풍', 'autumn maple leaves, warm afternoon sunlight', 0, '#f3e3c3', '#d9480f', '#3b2416', ['#ff8c42', '#ffd166']],
+  ['파라오의 금고', 'ancient egyptian hieroglyphs, lapis lazuli and gold', 4, '#1f3a93', '#f2c14e', '#10204f', ['#f2c14e', '#4cc9f0']],
+  ['사탕 공장', 'candy factory, lollipops, rainbow sprinkles', 1, '#ffffff', '#ff7ad9', '#ffd6f5', ['#ff7ad9', '#7ae7ff', '#fff07a']],
+  ['뇌우', 'thunderstorm clouds, crackling lightning bolts', 6, '#2c2f45', '#ffe74c', '#12131f', ['#b8c0ff', '#ffe74c']],
+  ['고양이 카페', 'cozy cat cafe, paw prints, coffee cups', 0, '#f7efe5', '#c08552', '#4b3832', ['#ffcf99']],
+  ['사이버 드래곤', 'cyber dragon scales, glowing circuit lines', 4, '#12261f', '#00ffa3', '#07130f', ['#00ffa3', '#ff2e63']],
+  ['해바라기 들판', 'sunflower field under a bright blue sky', 0, '#fff3b0', '#e09f3e', '#335c67', ['#ffd23f']],
+  ['유령 저택', 'haunted mansion, cute ghosts, flickering candles', 3, '#2d2238', '#9bf6ff', '#150f1d', ['#9bf6ff', '#c77dff']],
+  ['은빛 기사', 'silver knight armor, engraved crest, blue cape', 4, '#d9dde3', '#3a6ea5', '#2b2f36', ['#7fb7ff']],
+  ['녹차 다도', 'matcha tea ceremony, bamboo, tatami', 3, '#e6efd8', '#4f772d', '#31572c', ['#a7c957']],
+  ['별자리 지도', 'constellation star chart, brass astrolabe', 5, '#1b2a4a', '#d4a373', '#0d1526', ['#ffd6a5', '#a0c4ff']],
+  ['체리 소다', 'cherry soda fizz, bubbles, retro diner', 1, '#fff1f1', '#e5383b', '#660708', ['#ff4d6d', '#ffccd5']]
+];
+let autoSeed = Math.floor(Math.random() * 1e9);
+
+// 시드로 섞은 테마 순서(같은 시드면 같은 순서). mulberry32 + 피셔-예이츠, 시간 O(n)
+function autoOrder(seed) {
+  let value = seed >>> 0;
+  const random = () => {
+    value = (value + 0x6d2b79f5) >>> 0;
+    let mixed = Math.imul(value ^ (value >>> 15), 1 | value);
+    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed);
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+  const order = AUTO_THEMES.map((_, index) => index);
+  for (let index = order.length - 1; index > 0; index--) {
+    const swap = Math.floor(random() * (index + 1));
+    [order[index], order[swap]] = [order[swap], order[index]];
+  }
+  return order;
+}
+// index번째 자동 테마. 모음보다 많이 만들면 한 바퀴마다 색상을 돌리고 이름에 번호를 붙인다
+function autoPreset(index) {
+  const order = autoOrder(autoSeed);
+  const lap = Math.floor(index / order.length);
+  const [name, theme, material, alpha, mod, caseColor, leds] = AUTO_THEMES[order[index % order.length]];
+  const shift = lap * 137;
+  return {
+    name: lap ? `${name} ${lap + 1}` : name, theme, material,
+    alpha: rotateHue(alpha, shift), mod: rotateHue(mod, shift), caseColor: rotateHue(caseColor, shift),
+    leds: leds.map(hex => rotateHue(hex, shift))
+  };
+}
+const isAutoPrompt = () => !elements.promptTheme.value.trim();
+
 // 만들 개수(1~20)
 const promptCount = () => Math.max(1, Math.min(20, Math.round(Number(elements.promptCount.value) || 1)));
 
 // 게임 칸 맞추기에 맞는 정면 키보드 그림 프롬프트(영어 + 한글 테마 그대로). index번째(0부터) 키보드:
 // 테마는 줄마다 돌아가며, '바꿔 가며'를 켜면 색은 개수만큼 색상환을 고르게 돌리고 소재도 차례로 바꾼다
 function buildPrompt(index = 0, total = 1) {
+  if (isAutoPrompt()) return promptText(autoPreset(index));
   const themes = elements.promptTheme.value.split('\n').map(line => line.trim()).filter(Boolean);
   const theme = themes.length ? themes[index % themes.length] : '';
   const vary = elements.promptVary.checked && total > 1;
@@ -513,15 +588,24 @@ function buildPrompt(index = 0, total = 1) {
   const material = vary ? materials[(elements.promptMaterial.selectedIndex + index) % materials.length] : elements.promptMaterial.value;
   const ledColors = [elements.newColor1.value, elements.newUseColor2.checked ? elements.newColor2.value : null, elements.newUseColor3.checked ? elements.newColor3.value : null]
     .filter(Boolean).map(hex => colorWords(rotateHue(hex, shift)));
-  const glow = elements.promptGlow.checked && elements.newPattern.value !== 'off'
-    ? `Soft RGB underglow leaking between the keys in ${ledColors.join(', ')}.`
+  return promptText({
+    theme, material, ledColors: elements.newPattern.value === 'off' ? [] : ledColors,
+    alpha: rotateHue(elements.promptAlpha.value, shift), mod: rotateHue(elements.promptMod.value, shift), caseColor: rotateHue(elements.promptCase.value, shift)
+  });
+}
+// 정해진 테마·소재·색으로 프롬프트 본문 만들기(소재는 번호나 영어 문장 둘 다 받음)
+function promptText({ theme, material, alpha, mod, caseColor, leds, ledColors }) {
+  const materialText = typeof material === 'number' ? elements.promptMaterial.options[material]?.value ?? elements.promptMaterial.value : material;
+  const ledWords = ledColors ?? (leds ?? []).map(colorWords);
+  const glow = elements.promptGlow.checked && ledWords.length
+    ? `Soft RGB underglow leaking between the keys in ${ledWords.join(', ')}.`
     : 'No RGB lighting, natural soft studio light.';
   return [
     'Wide 2:1 image. A perfectly straight-on top-down orthographic view of a single 60% ANSI mechanical keyboard, centered, filling about 88% of the width, with a plain dark background around it.',
     'The keyboard must have exactly 5 rows: row 1 has 14 keys (13 square keys + a 2-unit Backspace), row 2 has 14 keys (1.5-unit Tab, 12 square keys, 1.5-unit backslash), row 3 has 13 keys (1.75-unit Caps Lock, 11 square keys, 2.25-unit Enter), row 4 has 12 keys (2.25-unit left Shift, 10 square keys, 2.75-unit right Shift), row 5 has 3 small keys, a 6.25-unit spacebar and 4 small keys.',
     'All keys evenly spaced in a straight grid, every keycap clearly separated by a thin gap, no perspective, no tilt, no shadows covering keys.',
     'Keycaps are completely blank: no letters, no symbols, no legends, no logos, no text anywhere.',
-    `Style: ${material}. Letter keys ${colorWords(rotateHue(elements.promptAlpha.value, shift))}, modifier keys and spacebar accent ${colorWords(rotateHue(elements.promptMod.value, shift))}, case ${colorWords(rotateHue(elements.promptCase.value, shift))}.`,
+    `Style: ${materialText}. Letter keys ${colorWords(alpha)}, modifier keys and spacebar accent ${colorWords(mod)}, case ${colorWords(caseColor)}.`,
     glow,
     theme ? `Theme and decoration on the case and background: ${theme}. Keep the theme decoration around the keyboard and on the case, never on top of the keycaps.` : '',
     'Cute cyberpunk game-asset illustration, clean lines, high detail, sharp edges.'
@@ -530,8 +614,10 @@ function buildPrompt(index = 0, total = 1) {
 // 개수만큼 번호를 붙여 이어 쓴 전체 프롬프트
 function allPrompts() {
   const total = promptCount();
-  if (total === 1) return [buildPrompt(0, 1)];
-  return Array.from({ length: total }, (_, index) => `[키보드 ${index + 1}/${total}]\n${buildPrompt(index, total)}`);
+  const auto = isAutoPrompt();
+  if (total === 1 && !auto) return [buildPrompt(0, 1)];
+  const header = index => auto ? `[키보드 ${index + 1}/${total} · ${autoPreset(index).name}]` : `[키보드 ${index + 1}/${total}]`;
+  return Array.from({ length: total }, (_, index) => `${header(index)}\n${buildPrompt(index, total)}`);
 }
 let nextPromptIndex = 0;
 function refreshPrompt() {
@@ -561,6 +647,14 @@ elements.copyOne.addEventListener('click', async () => {
 ['promptCount', 'promptVary', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newPattern'].forEach(id => {
   elements[id].addEventListener('input', refreshPrompt);
   elements[id].addEventListener('change', refreshPrompt);
+});
+// 개수 칸을 1~20으로 고쳐 둔다(범위 밖 값이 남으면 폼 제출이 막힘)
+elements.promptCount.addEventListener('change', () => { elements.promptCount.value = String(promptCount()); refreshPrompt(); });
+elements.rerollPrompt.addEventListener('click', () => {
+  autoSeed = Math.floor(Math.random() * 1e9);
+  nextPromptIndex = 0;
+  refreshPrompt();
+  elements.newStatus.textContent = isAutoPrompt() ? '새 테마 조합으로 바꿨어요.' : '직접 쓴 테마가 있어서 자동 테마는 안 쓰여요. 테마 칸을 비우세요.';
 });
 elements.copyPrompt.addEventListener('click', async () => {
   refreshPrompt();
