@@ -174,7 +174,11 @@
         <button class="primary" id="applyLegend">고른 범위에 칠하기</button>
         <button id="clearLegend">원래 색으로</button>
       </div>
-      <p class="note">아래 "무엇을 움직일까"의 범위(키 하나·그 줄·전부)에 적용돼요. 원래 색 = 게임이 그림 밝기를 보고 정한 흰색·짙은 색.</p>
+      <div class="row-btns" style="margin-top:8px">
+        <button id="applyLegendAll">전체 키에 칠하기</button>
+        <button id="clearLegendAll">전체 원래 색으로</button>
+      </div>
+      <p class="note">위 줄: 아래 "무엇을 움직일까"의 범위(키 하나·그 줄·전부)에 적용. 아래 줄: 키를 안 골라도 이 스킨 모든 키에 한 번에 적용. 원래 색 = 게임이 그림 밝기를 보고 정한 흰색·짙은 색.</p>
     </div>
     <div class="card">
       <h2>무엇을 움직일까</h2>
@@ -248,7 +252,7 @@ const REACTIVES = { none: '없음', simple: '누른 키', afterglow: '잔광', w
 
 const LEGEND_KEY = 'keyfit:site-legend';
 const state = { legend: {}, boards: {}, order: [], skin: null, edits: {}, custom: {}, picked: null, scope: 'key', step: 1, undo: [], showBoxes: true, size: { width: 1, height: 1 } };
-const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'promptCount', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
+const elements = Object.fromEntries(['password', 'pushGame', 'resetServer', 'legendColor', 'applyLegend', 'clearLegend', 'applyLegendAll', 'clearLegendAll', 'promptCount', 'promptVary', 'copyOne', 'promptTheme', 'promptMaterial', 'promptAlpha', 'promptMod', 'promptCase', 'promptGlow', 'promptOut', 'copyPrompt', 'openNew', 'newDialog', 'newForm', 'newImage', 'newName', 'newRarity', 'newPattern', 'newReactive', 'newColor1', 'newColor2', 'newColor3', 'newUseColor2', 'newUseColor3', 'newStatus', 'createNew', 'cancelNew', 'deleteNew', 'newNote', 'skinSelect', 'prevSkin', 'nextSkin', 'changedBadge', 'zoom', 'toggleBoxes', 'undo', 'stage', 'board', 'boardImage', 'overlay', 'selName', 'selNumbers', 'stepToggle', 'copyCode', 'resetSkin', 'status', 'codeOut'].map(id => [id, document.getElementById(id)]));
 
 // 저장된 수정값 읽기·쓰기(브라우저가 막으면 조용히 넘어감)
 function loadEdits() {
@@ -282,13 +286,13 @@ function defaultLegend(skin, key) {
 function saveLegend() {
   try { localStorage.setItem(LEGEND_KEY, JSON.stringify(state.legend)); } catch { /* 이번 화면에서만 */ }
 }
-// 범위 안 키에 색 칠하기(null = 원래 색으로). 원래와 같으면 기록에서 뺀다
-function paintLegend(color) {
-  if (!state.picked) return;
+// 주어진 키들(기본: 지금 범위)에 색 칠하기(null = 원래 색으로). 원래와 같으면 기록에서 뺀다
+function paintLegend(color, keys = scopeKeys()) {
+  if (!state.skin || !keys.length) return;
   pushUndo();
   const skin = state.skin;
   state.legend[skin] ??= {};
-  for (const key of scopeKeys()) {
+  for (const key of keys) {
     const original = state.boards[skin].legendColors?.[key] ?? null;
     if ((color ?? null) === original) delete state.legend[skin][key];
     else state.legend[skin][key] = color;
@@ -802,6 +806,19 @@ elements.applyLegend.addEventListener('click', () => {
 elements.clearLegend.addEventListener('click', () => {
   if (!state.picked) { setStatus('먼저 키를 하나 누르세요.'); return; }
   paintLegend(null);
+});
+// 키 선택 없이 이 스킨의 모든 키 글씨 색을 한 번에 바꾸기
+function allSkinKeys() {
+  return state.skin ? Object.keys(state.boards[state.skin]?.keys ?? {}) : [];
+}
+elements.applyLegendAll.addEventListener('click', () => {
+  const keys = allSkinKeys();
+  paintLegend(elements.legendColor.value.toLowerCase(), keys);
+  setStatus(`키 ${keys.length}개 글씨를 ${elements.legendColor.value} 으로 칠했어요. (되돌리기 가능)`);
+});
+elements.clearLegendAll.addEventListener('click', () => {
+  paintLegend(null, allSkinKeys());
+  setStatus('모든 키 글씨를 원래 색으로 돌렸어요.');
 });
 document.querySelectorAll('[data-scale]').forEach(button => button.addEventListener('click', () => {
   const [x, y] = button.dataset.scale.split(',').map(Number);
