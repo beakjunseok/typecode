@@ -1,4 +1,4 @@
-// 키보드 스킨 50종 + 기본 스킨. 실제 키캡 세트의 배색·분위기만 참고한 오리지널 디자인(상표명은 쓰지 않는다).
+// 키보드 스킨 51종 + 기본 스킨. 실제 키캡 세트의 배색·분위기만 참고한 오리지널 디자인(상표명은 쓰지 않는다).
 // 키캡은 글자키(alpha)·기능키(mod)·포인트키(accent: Enter·Backspace) 3단 배색, 케이스(case)와 소재(material),
 // LED는 평상시 무늬(pattern) + 터치 반응(reactive) + 팔레트로 이루어진다. 등급이 오를수록 LED가 화려해진다.
 
@@ -107,6 +107,7 @@ const ROWS = [
   ['prism-overdrive', '프리즘 오버드라이브', 'legendary', '진주빛 홀로그램 키보드. 무지개 테두리 아래로 풀 스펙트럼 바람개비가 돈다. 콤보가 오를수록 빨리 돌고, 누르면 무지개 물결', '#eceefa', '#6e64a0', '#dcdcf2', '#6e64a0', '#f4ecff', '#6e64a0', '#f1effa', 'shine', 'pinwheel', 'splash', 'rainbow', { underglow: true, energy: true }],
   ['gilded-artisan', '금빛 아티산', 'legendary', '녹아내리는 금. 덩굴무늬를 새긴 금 케이스에 루비가 박혀 있고, 금빛 불꽃이 일렁이며 금가루가 튄다', '#f3e7c9', '#8a6514', '#d4af37', '#5a3d0c', '#d4af37', '#3a2608', '#b8862b', 'metal', 'fire', 'sparkle', ['#fff1b8', '#ffd24a', '#ff9f1c', '#c4610a'], { underglow: true }],
   ['event-horizon', '이벤트 호라이즌', 'legendary', '은하를 담은 케이스와 라일락 키캡. 뒤에서 블랙홀의 강착원반이 소용돌이치고, 누른 곳의 빛을 삼킨다', '#cdbff2', '#3a2d63', '#b9a9ea', '#3a2d63', '#f0b9d8', '#3a2d63', '#0b0820', 'pudding', 'spiral', 'blackhole', ['#ff7a18', '#ffd36e', '#ff3d6e', '#7a2cff'], { underglow: true }],
+  ['gold-edition', '골드 에디션', 'legendary', '검은 알루미늄에 24K 금장을 두른 기념판. 반투명 흑요석 키캡 아래로 금빛이 소용돌이치고, 명판에 TYPE//CODE가 새겨져 있다', '#16161a', '#ffd66b', '#d4af37', '#2a1d05', '#d4af37', '#2a1d05', '#0c0c0e', 'metal', 'spiral', 'sparkle', ['#fff1b8', '#ffc94d', '#d4a017'], { underglow: true, energy: true }],
   ['typecode-overclock', 'TYPE//CODE 오버클럭', 'legendary', '이 게임의 시그니처. 헤어라인 금속 케이스에 청록·자홍 네온, 연기 낀 투명 키캡 위로 이진수가 흩날린다. 자주 치는 키가 뜨겁게 달아오르고 콤보에 비례해 빨라진다', '#2a2f3a', '#7ff6ff', '#232833', '#ff6be6', '#2a2f3a', '#ff6be6', '#2b2f37', 'shine', 'plasma', 'heatmap', ['#00f0ff', '#ff2bd6', '#39ff88'], { underglow: true, energy: true }]
 ];
 
