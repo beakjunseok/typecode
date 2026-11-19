@@ -107,27 +107,36 @@ export function createUi(root = document) {
   }
 
   // 연습 모드: 남은 시간 / 아케이드 모드: 버틴 시간 + 아이템 남은 시간을 타이머 바로 표시
+  // 글자·변형이 그대로면 DOM을 건드리지 않는다(매 프레임 불리므로, 같은 값을 다시 쓰면 레이아웃·그리기가 헛돈다)
+  function setText(node, value) {
+    const text = String(value);
+    if (node && node.textContent !== text) node.textContent = text;
+  }
+  function setTransform(node, value) {
+    if (node && node.style.transform !== value) node.style.transform = value;
+  }
+
   function renderStats(snapshot) {
     const tier = snapshot.tierProgress.index;
     const arcade = snapshot.elapsedSeconds !== undefined;
     const timeAttack = snapshot.mode === 'timeattack';
-    elements.timeLabel.textContent = arcade ? '버틴 시간' : timeAttack ? '남은 시간 ⏳' : '남은 시간';
+    setText(elements.timeLabel, arcade ? '버틴 시간' : timeAttack ? '남은 시간 ⏳' : '남은 시간');
     // 시간 연장 모드는 소수 한 자리(시간이 조금씩 늘어나는 게 보이도록)
-    elements.timeValue.textContent = arcade ? `${Math.floor(snapshot.elapsedSeconds)}s`
-      : timeAttack ? snapshot.remainingExact.toFixed(1) : snapshot.remainingSeconds;
+    setText(elements.timeValue, arcade ? `${Math.floor(snapshot.elapsedSeconds)}s`
+      : timeAttack ? snapshot.remainingExact.toFixed(1) : snapshot.remainingSeconds);
     elements.timeStat.classList.toggle('low', arcade ? snapshot.lives === 1 && snapshot.status === 'running'
       : snapshot.status === 'running' && snapshot.remainingSeconds <= 5);
     const barRatio = arcade ? (snapshot.powerSeconds ? snapshot.powerRemaining / snapshot.powerSeconds : 0) : snapshot.remainingRatio;
-    elements.timerFill.style.transform = `scaleX(${Math.max(0, Math.min(1, barRatio))})`;
-    elements.wpmValue.textContent = snapshot.charactersPerMinute ?? snapshot.wordsPerMinute * 5;
-    elements.accuracyValue.textContent = `${snapshot.accuracy}%`;
+    setTransform(elements.timerFill, `scaleX(${Math.max(0, Math.min(1, barRatio)).toFixed(3)})`);
+    setText(elements.wpmValue, snapshot.charactersPerMinute ?? snapshot.wordsPerMinute * 5);
+    setText(elements.accuracyValue, `${snapshot.accuracy}%`);
     renderCombo(snapshot.combo);
-    elements.multiplierValue.textContent = `×${snapshot.multiplier.toFixed(1)}`;
-    elements.scoreValue.textContent = snapshot.score.toLocaleString();
-    elements.comboFill.style.transform = `scaleX(${snapshot.tierProgress.ratio})`;
-    elements.comboHint.textContent = snapshot.tierProgress.nextMultiplier
+    setText(elements.multiplierValue, `×${snapshot.multiplier.toFixed(1)}`);
+    setText(elements.scoreValue, snapshot.score.toLocaleString());
+    setTransform(elements.comboFill, `scaleX(${Number(snapshot.tierProgress.ratio).toFixed(3)})`);
+    setText(elements.comboHint, snapshot.tierProgress.nextMultiplier
       ? `×${snapshot.tierProgress.nextMultiplier.toFixed(1)}까지 클린 토큰 ${snapshot.tierProgress.remaining}개`
-      : 'MAX ×2.0';
+      : 'MAX ×2.0');
     setTier(tier);
   }
 

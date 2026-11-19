@@ -348,6 +348,7 @@ export class DefenseEngine extends TargetGameEngine {
       if (this.gameTime >= this.winAt) this.finish();
       return;
     }
+    this.statsCache?.clear();
     this.towerShots = this.towerShots.filter(shot => this.gameTime - shot.at < 0.3);
     this.guardShots = this.guardShots.filter(shot => this.gameTime - shot.at < COMPUTER_GUARD.flightSeconds + 0.35);
     if (this.buildMode && this.gameTime >= this.buildMode.until && this.targetId == null) this.cancelBuild('timeout');
@@ -764,6 +765,18 @@ export class DefenseEngine extends TargetGameEngine {
 
   // 카드 효과까지 넣은 타워 능력치(level을 주면 그 레벨 기준). O(1)
   statsOf(tower, level = tower.level) {
+    // 한 프레임 안에서 같은 타워·레벨은 한 번만 계산(적 수 × 타워 수만큼 불려서 객체를 매번 만들면 GC가 잦다)
+    const cacheKey = tower.id != null && level === tower.level ? `${tower.id}:${level}` : null;
+    if (cacheKey) {
+      const cached = this.statsCache?.get(cacheKey);
+      if (cached) return cached;
+    }
+    const stats = this.computeStats(tower, level);
+    if (cacheKey) (this.statsCache ??= new Map()).set(cacheKey, stats);
+    return stats;
+  }
+
+  computeStats(tower, level) {
     const base = towerStats(tower.type, level);
     const mods = this.mods;
     const typeDamage = mods.typeDamage[tower.type] ?? 1;
@@ -1072,6 +1085,7 @@ export class DefenseEngine extends TargetGameEngine {
     if (!card) return false;
     card.apply?.(this.mods);
     card.instant?.(this);
+    this.statsCache?.clear();
     this.cards.push(card.id);
     this.draft = null;
     this.phase = 'break';

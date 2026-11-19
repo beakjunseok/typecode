@@ -5,7 +5,7 @@ import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
 import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING, SKIN, PHONE_HELD_SCALE } from './developer-view.js';
 import { THROW_RULES, BOSS_RULES } from './throw-engine.js';
-import {
+import { qualityFor,
   setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont,
   loadArt, drawCoverArt, Juice } from './game-view.js';
 
@@ -73,6 +73,7 @@ const PLAYER_ZONE = 104;
 export class ThrowRenderer {
   constructor(canvas) {
     this.surface = setupCanvas(canvas);
+    this.quality = qualityFor(this.surface);
     this.particles = new ParticleSystem();
     this.juice = new Juice();
     this.lastWallSeconds = null;
@@ -255,6 +256,7 @@ export class ThrowRenderer {
   }
 
   render(engine, { accent }) {
+    this.quality.tick(engine.status === 'running');
     const context = this.context;
     if (!context) return;
     this.surface.resize?.();
