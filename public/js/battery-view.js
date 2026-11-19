@@ -5,7 +5,7 @@ import { drawDrone } from './drone-view.js';
 import { BATTERY_RULES } from './battery-engine.js';
 import { PERSONAS, WEATHERS, ITEM_LOOKS } from './battery-modes.js';
 import { MASCOT_PALETTES, createRig, reactRig, updateRig, drawPhoneMascot, drawDrainBot, drainBotFor } from './battery-characters.js';
-import { qualityFor, setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
+import { qualityFor, setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice, recordRect } from './game-view.js';
 
 const BEAM_SECONDS = 0.35;
 const isPvp = engine => engine.mode === 'battery-pvp';
@@ -888,6 +888,7 @@ export class BatteryRenderer {
     const width = context.measureText(bubble.text).width + 18;
     const x = -width / 2 - 10, y = -112;
     const color = PERSONAS[engine.persona].look.glow;
+    recordRect(context, 'taunt', x, y, width, 24);
     context.fillStyle = 'rgba(12, 15, 30, 0.92)';
     roundedRect(context, x, y, width, 24, 10);
     context.fill();

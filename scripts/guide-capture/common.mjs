@@ -11,6 +11,16 @@ export async function openMode(mode, { width = 1280, height = 900, setup } = {})
   else { await page.click('[data-section="game"]'); await page.click(`[data-mode="${mode}"]`); }
   await page.waitForTimeout(400);
   // 표시 상자 도우미: 캔버스 CSS px → %
+  await page.addScriptTag({ content: `
+globalThis.__rect = key => [...(globalThis.__TYPECODE_RECT__ ?? [])].reverse().find(rect => rect.key === key);
+globalThis.__rbox = (W, H, keys, label, { pad = 4, up = 0, down = 0, minWidth = 0 } = {}) => {
+  const rects = [].concat(keys).map(key => typeof key === 'object' ? key : __rect(key)).filter(Boolean);
+  if (!rects.length) return null;
+  let left = Math.min(...rects.map(r => r.left)), right = Math.max(...rects.map(r => r.left + r.width));
+  const top = Math.min(...rects.map(r => r.top)) - up, bottom = Math.max(...rects.map(r => r.top + r.height)) + down;
+  if (right - left < minWidth) { const c = (left + right) / 2; left = c - minWidth / 2; right = c + minWidth / 2; }
+  return __box(W, H, (left + right) / 2, (top + bottom) / 2, right - left + pad * 2, bottom - top + pad * 2, label);
+};` });
   await page.addScriptTag({ content: `globalThis.__box = (W, H, cx, cy, w, h, label) => ({ x: +(100 * (cx - w / 2) / W).toFixed(2), y: +(100 * (cy - h / 2) / H).toFixed(2), w: +(100 * w / W).toFixed(2), h: +(100 * h / H).toFixed(2), label });` });
   return { browser, page, errors };
 }
@@ -21,7 +31,10 @@ export const shots = {};
 // 얼려서 찍고 표시 상자 계산(markFn은 페이지 안에서 실행)
 export async function capture(page, id, markFn, { locator = '#arcadeCanvas', arg } = {}) {
   await freeze(page); await page.waitForTimeout(180);
-  const marks = markFn ? await page.evaluate(markFn, arg) : [];
+  await page.evaluate(() => { globalThis.__TYPECODE_RECT__ = []; });
+  await page.waitForTimeout(120);
+  const marks = markFn ? (await page.evaluate(markFn, arg)).filter(Boolean) : [];
+  await page.evaluate(() => { delete globalThis.__TYPECODE_RECT__; });
   await page.locator(locator).screenshot({ path: `/tmp/guide/${id}.png` });
   shots[id] = { marks };
   await unfreeze(page);

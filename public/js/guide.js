@@ -256,7 +256,10 @@ function shotMarkup(shotId) {
   const marks = shot.marks.map((mark, index) => {
     const label = mark.label ? ++number : null;
     const style = `left:${mark.x}%;top:${mark.y}%;width:${mark.w}%;height:${mark.h}%`;
-    return `<div class="guide-mark${label ? '' : ' plain'}" data-mark="${index}" style="${style}">${label ? `<b>${label}</b>` : ''}</div>`;
+    // 가장자리에 붙은 상자는 번호를 상자 안쪽에 둔다(바깥이면 잘림)
+    // 위쪽 가장자리면 번호를 상자 옆(왼쪽, 왼쪽 끝이면 오른쪽)에, 왼쪽 가장자리면 상자 안쪽에 둔다
+    const inside = mark.w > 85 ? ' wide' : mark.y < 4 ? (mark.x < 4 ? ' badge-right' : ' badge-left') : mark.x < 2.5 ? ' inside' : '';
+    return `<div class="guide-mark${label ? '' : ' plain'}${inside}" data-mark="${index}" style="${style}">${label ? `<b>${label}</b>` : ''}</div>`;
   }).join('');
   number = 0;
   const legend = shot.marks.map((mark, index) => mark.label ? `<li data-mark="${index}"><b>${++number}</b>${escapeHtml(mark.label)}</li>` : '').join('');
