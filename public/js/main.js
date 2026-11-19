@@ -2,7 +2,7 @@
 import { TypingEngine, DURATIONS, getTierIndex } from './engine.js';
 import { TimeAttackEngine, TIME_ATTACK_RULES } from './time-attack-engine.js';
 import { LANGUAGES, getTokenPool } from './tokens.js';
-import { ThrowEngine, ROBOT_TYPES } from './throw-engine.js';
+import { ThrowEngine, ROBOT_TYPES, BOSS_SKILLS, FORMATIONS } from './throw-engine.js';
 import { BatteryEngine } from './battery-engine.js';
 import { BatteryPvpHostEngine, BatteryPvpGuestEngine, PVP_RULES, PVP_PROTOCOL_VERSION } from './battery-pvp.js';
 import { hostRoom, joinRoom } from './pvp-connection.js';
@@ -42,7 +42,7 @@ const MODE_CONFIG = Object.freeze({
     hint: '로봇 발밑 낱말을 다 치면 휴대폰 발사 · 🔋 건전지로 생명 회복', Renderer: ThrowRenderer,
     // 좁은 세로 화면: 레인 3개, 토큰 14자 이하(라벨이 열 너비를 넘지 않게)
     createEngine: options => new ThrowEngine({
-      ...options, lanes: options.narrow ? 3 : 4, maxTokenLength: options.narrow ? 14 : 22
+      ...options, lanes: options.narrow ? 3 : 4, maxTokenLength: options.narrow ? 14 : 22, specials: true
     })
   },
   battery: {
@@ -274,9 +274,34 @@ function handleArcadeEvent(type, payload) {
       pulseClass(ui.elements.arcadeStage, 'shake', 400);
       ui.log('err', '👑 보스 서버봇 등장! 책상에 닿으면 바로 끝나요');
       break;
-    case 'boss-charge':
+    case 'boss-charge': {
       sound.play('powerUp');
-      ui.log('warn', '⚡ 보스가 대포를 충전해요 — 패드 낱말을 쳐서 막으세요');
+      const skill = BOSS_SKILLS[payload.skill] ?? BOSS_SKILLS.cannon;
+      ui.log('warn', `${skill.icon} 보스 기술 준비: ${skill.label}`);
+      break;
+    }
+    case 'boss-mask':
+      sound.play('zap');
+      ui.log('err', `🕶 해커봇이 화면을 가렸어요 (${payload.seconds}초) — 첫 글자는 보여요`);
+      break;
+    case 'boss-decoy':
+      sound.play('spawnRobot', { type: 'basic' });
+      break;
+    case 'boss-dash':
+      sound.play('explode');
+      break;
+    case 'formation':
+      sound.play('warning', { remainingSeconds: 3 });
+      ui.log('warn', `⚠ ${FORMATIONS[payload.formation]?.label ?? '편대'} 등장`);
+      break;
+    case 'morph':
+      sound.play('gachaTick');
+      break;
+    case 'split':
+      sound.play('explode');
+      break;
+    case 'twin-hit':
+      sound.play('tierUp', { tier: 2 });
       break;
     case 'boss-fire':
       sound.play('explode');
