@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DefenseEngine, DEFENSE_RULES, DEFAULT_PATH, createRandomPath, towerStats, PLACEMENT, TOWER_TYPES } from '../public/js/defense-engine.js';
 import { generatePathPoints, MAP_RULES, PATH_END } from '../public/js/defense-map.js';
-import { DEFENSE_CARDS, CARD_RULES, drawCards, cardById } from '../public/js/defense-cards.js';
+import { DEFENSE_CARDS, CARD_RULES, drawCards, cardById, baseMods, rarityWeights } from '../public/js/defense-cards.js';
 
 const POOL = ['let', 'var', 'map', 'if', 'do', 'go', 'use', 'mut', 'xor', 'nil', 'new', 'try', 'int', 'out', 'end']
   .map(text => ({ text, kind: 'keyword' }));
@@ -123,7 +123,7 @@ test('카드 효과: 타워 능력치·코인·가격·체력·백업 서버', (
   assert.ok(Math.abs(stats.cooldown - base.cooldown * 0.88) < 1e-9);
   assert.ok(Math.abs(stats.damage - base.damage * 1.35 * 1.25) < 1e-9);
   pick('bulk');
-  assert.equal(engine.priceAt('antivirus', null), Math.round(TOWER_TYPES.antivirus.price * (DEFENSE_RULES.priceFactor[engine.level] ?? 1) * 0.9));
+  assert.equal(engine.priceAt('antivirus', null), Math.round(TOWER_TYPES.antivirus.price * (DEFENSE_RULES.priceFactor[engine.level] ?? 1) * 0.88));
   const maxBefore = engine.maxHealth;
   pick('heatsink');
   assert.equal(engine.maxHealth, maxBefore + 20);
@@ -142,8 +142,94 @@ test('모든 카드는 이름·설명·효과가 있고 id가 겹치지 않는�
   for (const card of DEFENSE_CARDS) {
     assert.ok(card.name && card.text && card.icon && card.max >= 1);
     assert.ok(typeof card.apply === 'function' || typeof card.instant === 'function', card.id);
-    assert.ok(['common', 'rare', 'epic'].includes(card.rarity));
+    assert.ok(['common', 'rare', 'epic', 'legendary'].includes(card.rarity));
     assert.equal(cardById(card.id), card);
   }
   assert.ok(PLACEMENT.pathClear);
+});
+
+test('카드 기능은 서로 겹치지 않는다: 카드마다 다른 값 하나만 바꾸고, 그 값은 실제로 있는 칸이다', () => {
+  assert.ok(DEFENSE_CARDS.length >= 50, `카드 ${DEFENSE_CARDS.length}종`);
+  assert.equal(new Set(DEFENSE_CARDS.map(card => card.effect)).size, DEFENSE_CARDS.length, '같은 effect 두 장 없음');
+  for (const card of DEFENSE_CARDS.filter(entry => entry.apply)) {
+    const before = baseMods();
+    const after = baseMods();
+    card.apply(after);
+    const changed = [];
+    for (const key of Object.keys(before)) {
+      if (typeof before[key] === 'object') {
+        for (const inner of Object.keys(before[key])) if (before[key][inner] !== after[key][inner]) changed.push(`${key}.${inner}`);
+      } else if (before[key] !== after[key]) changed.push(key);
+    }
+    assert.deepEqual(changed, [card.effect], `${card.id}는 ${card.effect}만 바꾼다`);
+  }
+  for (const rarity of ['common', 'rare', 'epic', 'legendary']) assert.ok(DEFENSE_CARDS.some(card => card.rarity === rarity), rarity);
+});
+
+test('행운 카드는 높은 등급 비중을 키운다, 선택지 확장은 4장', () => {
+  const plain = rarityWeights(0), lucky = rarityWeights(1);
+  assert.ok(lucky.legendary / lucky.common > plain.legendary / plain.common * 3);
+  const { engine } = setup({ cards: true });
+  engine.mods.extraChoices = 1;
+  engine.wave = 3; engine.phase = 'spawning'; engine.waveTotal = 1; engine.waveSpawned = 1; engine.bugs = [];
+  engine.checkWaveClear();
+  assert.equal(engine.draft.hand.length, 4);
+});
+
+test('새 카드 동작: 셔터·콤보 보험·무료 설치·처형·연쇄 폭발·웨이브 멈춤·전설 즉시 효과', () => {
+  const { engine, events } = setup({ cards: true });
+  // 방화 셔터: 첫 공격 막음, 둘째는 맞음
+  engine.mods.shutters = 1;
+  engine.combo = 9;
+  const health = engine.health;
+  engine.breach({ type: 'packet', state: 'alive' });
+  assert.equal(engine.health, health);
+  assert.ok(events.some(event => event.type === 'shutter-block'));
+  engine.mods.comboShield = true;
+  engine.breach({ type: 'packet', state: 'alive' });
+  assert.ok(engine.health < health);
+  assert.equal(engine.combo, 9, '콤보 보험');
+  // 무료 설치권: 새 타워 0코인, 한 번 쓰면 끝
+  engine.mods.freeBuilds = 1;
+  assert.equal(engine.priceAt('antivirus', null), 0);
+  engine.coins = 0;
+  engine.selectShopItem('antivirus');
+  const spot = engine.suggestedSpots()[0];
+  assert.equal(engine.placeAtPoint(spot).bought, true);
+  assert.equal(engine.mods.freeBuilds, 0);
+  assert.ok(engine.priceAt('antivirus', null) > 0);
+  // 가비지 컬렉터
+  engine.mods.executeBelow = 0.2;
+  const big = engine.spawnBug('malware');
+  big.hp = big.maxHp = 10;
+  engine.damageBug(big, 'tower', 8.5);
+  assert.equal(big.state, 'dead');
+  // 연쇄 폭발: 옆 적이 피해를 받는다
+  engine.mods.killBlast = 1;
+  const first = engine.spawnBug('packet');
+  const second = engine.spawnBug('malware');
+  second.hp = second.maxHp = 5;
+  second.x = first.x + 0.01; second.y = first.y;
+  engine.damageBug(first, 'tower', 99);
+  assert.equal(second.hp, 4);
+  // 브레이크포인트: 웨이브 시작 3초 멈춤
+  engine.mods.waveFreeze = 3;
+  engine.phase = 'intro'; engine.phaseUntil = engine.gameTime;
+  engine.advancePhase();
+  const walker = engine.spawnBug('packet');
+  const before = walker.progress;
+  engine.moveBugs(0.5);
+  assert.equal(walker.progress, before);
+  // 루트 권한·전체 핫픽스
+  const level = engine.computerLevel;
+  engine.freeComputerUpgrade();
+  assert.equal(engine.computerLevel, level + 1);
+  const tower = engine.towers[0];
+  const towerLevel = tower.level;
+  engine.upgradeAllTowers();
+  assert.equal(tower.level, towerLevel + 1);
+  // 조기 출동
+  engine.guardian = null;
+  engine.deployGuardianEarly();
+  assert.ok(engine.guardian);
 });
