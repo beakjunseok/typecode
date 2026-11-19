@@ -48,6 +48,7 @@
         <button type="button" class="points-total" id="pointsTotal" title="보유 뽑기 포인트 · 눌러서 뽑기">0P</button>
         <button type="button" class="icon" id="soundToggle" aria-pressed="true" title="효과음">🔊</button>
         <button type="button" class="icon" id="bgmToggle" aria-pressed="true" title="배경음악">♫</button>
+        <button type="button" class="icon" id="guideButton" title="게임 방법 · 튜토리얼">❓</button>
         <button type="button" class="icon gacha-button" id="gachaButton" title="오늘의 키보드 뽑기">🎁</button>
         <button type="button" class="icon" id="collectionButton" title="키보드 도감">📖</button>
         <button type="button" class="icon" id="keyboardToggle" aria-pressed="true" title="화면 키보드">⌨</button>
@@ -79,7 +80,7 @@
       </div>
       <div class="queue" id="queueView" aria-hidden="true"></div>
     </div>
-    <div class="overlay" id="focusOverlay">여기를 클릭(탭)해서 시작 준비<br><span>첫 키 입력부터 타이머가 돕니다</span></div>
+    <div class="overlay" id="focusOverlay">여기를 클릭(탭)해서 시작 준비<br><span>첫 키 입력부터 타이머가 돕니다</span><button type="button" class="guide-open" data-guide-open>❓ 게임 방법 · 튜토리얼</button></div>
   </section>
 
   <section class="stage arcade" id="arcadeStage" aria-label="게임 화면" hidden>
@@ -137,7 +138,7 @@
       <ol class="song-list" role="listbox" aria-label="곡 목록"></ol>
       <div class="song-detail" aria-live="polite"></div>
     </div>
-    <div class="overlay" id="arcadeOverlay">여기를 클릭(탭)해서 시작 준비<br><span id="arcadeOverlayHint">첫 글자를 치면 게임이 시작됩니다</span></div>
+    <div class="overlay" id="arcadeOverlay">여기를 클릭(탭)해서 시작 준비<br><span id="arcadeOverlayHint">첫 글자를 치면 게임이 시작됩니다</span><button type="button" class="guide-open" data-guide-open>❓ 게임 방법 · 튜토리얼</button></div>
     <div class="battery-prep" id="batteryPrep" hidden>
       <div class="prep-row">
         <div class="prep-card" id="prepRival"></div>
@@ -257,6 +258,18 @@
         <button type="submit" class="primary" id="saveButton">랭킹 등록</button>
       </div>
     </form>
+  </div>
+</div>
+<div class="modal guide-modal" id="guideModal" hidden>
+  <div class="card guide-card" role="dialog" aria-modal="true" aria-labelledby="guideTitle">
+    <button type="button" class="modal-close" id="guideClose" aria-label="닫기" title="닫기 (Esc)">✕</button>
+    <h3 id="guideTitle">게임 방법</h3>
+    <div class="guide-tabs" role="tablist">
+      <button type="button" role="tab" data-guide-tab="tutorial" aria-selected="true">튜토리얼</button>
+      <button type="button" role="tab" data-guide-tab="summary" aria-selected="false">설명</button>
+    </div>
+    <div class="guide-panel" data-guide-panel="tutorial"></div>
+    <div class="guide-panel guide-summary" data-guide-panel="summary" hidden></div>
   </div>
 </div>
 <div class="modal gacha-modal" id="gachaModal" hidden>

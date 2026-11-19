@@ -31,6 +31,7 @@ import { rewardBreakdown, describeReward } from './rewards.js';
 import { requestSession, submitScore, fetchBoard, localBoard, preferences } from './api.js';
 import { createUi, TIER_COLORS } from './ui.js';
 import { getWeekLabel } from './week.js';
+import { createGuide } from './guide.js';
 
 const TICK_INTERVAL_MS = 100;
 const NARROW_WIDTH = 520;
@@ -1757,6 +1758,35 @@ function keepGameFocus() {
   updateFocusState();
 }
 
+// 게임 방법·튜토리얼: ❓ 버튼이나 시작 화면의 버튼을 눌렀을 때만 연다.
+// 판이 진행 중이면 멈출 수 없으므로 한 번 묻고 판을 처음으로 돌린 뒤 연다(PvP 대결 중엔 열지 않음)
+function bindGuide() {
+  const guide = createGuide(document.getElementById('guideModal'), {
+    sound,
+    onClose: () => { if (run.engine?.status !== 'finished') focusTypingArea(); }
+  });
+  const openGuide = event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const running = run.engine?.status === 'running';
+    if (running && isPvp()) return;
+    if (running && !window.confirm('게임 방법을 볼까요? 지금 판은 처음부터 다시 시작돼요.')) {
+      ui.elements.hiddenInput.focus({ preventScroll: true });
+      return;
+    }
+    if (running) resetGame();
+    ui.elements.hiddenInput.blur();
+    sound.play('uiClick');
+    guide.open(settings.mode);
+  };
+  document.getElementById('guideButton')?.addEventListener('click', openGuide);
+  document.querySelectorAll('[data-guide-open]').forEach(button => {
+    // 시작 화면(오버레이) 클릭 = 입력 준비이므로, 이 버튼 누름은 오버레이까지 올라가지 않게 막는다
+    button.addEventListener('pointerdown', event => event.stopPropagation());
+    button.addEventListener('click', openGuide);
+  });
+}
+
 // 닫기 버튼: 진행 중이면 한 번 묻고, 판을 끝내 처음 화면(설정·게임 고르기)으로 돌아간다
 function bindCloseGame() {
   const button = document.getElementById('closeGame');
@@ -2322,6 +2352,7 @@ function bindEvents() {
   elements.hiddenInput.addEventListener('focus', updateFocusState);
   elements.hiddenInput.addEventListener('blur', keepGameFocus);
   bindCloseGame();
+  bindGuide();
   // 게임 화면(캔버스)을 터치해도 입력창 포커스가 빠지지 않게: 터치 기본 동작(포커스 이동·흉내 마우스)을 막는다.
   // 포인터 이벤트(타워 놓기·강화 카드)는 그대로 온다
   elements.arcadeCanvas.addEventListener('touchstart', event => {

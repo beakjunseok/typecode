@@ -1320,8 +1320,53 @@ body.mobile-play #arcadeStage { margin-top: 0; }
 @keyframes prep-shake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
 /* 데스크톱: 시작 그림(오른쪽)을 가리지 않게 왼쪽 어두운 칸에 세로로 세우고, 안내 문구는 위로 올린다 */
 @media (min-width: 641px) {
-  .battery-prep { left: 8%; right: auto; width: min(38%, 440px); top: 142px; bottom: auto; }
+  .battery-prep { left: 8%; right: auto; width: min(38%, 440px); top: 186px; bottom: auto; }
   .battery-prep .prep-row { grid-template-columns: 1fr; gap: 6px; }
   #arcadeOverlay:has(+ .battery-prep:not([hidden])) { justify-content: flex-start; padding-top: 36px; }
 }
 @media (max-width: 560px) { .prep-row { grid-template-columns: 1fr; } .battery-prep { bottom: 48px; } }
+
+/* ---------- 게임 방법 · 튜토리얼 창 ---------- */
+.guide-open {
+  margin-top: 14px; padding: 7px 14px; border-radius: 999px; font: 600 13px/1 var(--font-ui);
+  background: rgba(255, 255, 255, 0.06); border: 1px solid var(--rule); color: var(--paper); cursor: pointer;
+}
+.guide-open:hover, .guide-open:focus-visible { border-color: var(--amber); color: var(--amber); }
+.guide-card { max-width: 560px; }
+.guide-card h3 { margin: 0 40px 12px 0; }
+.guide-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.guide-tabs button { flex: 1; padding: 8px; border-radius: 10px; background: transparent; border: 1px solid var(--rule); color: var(--fog); font-weight: 600; }
+.guide-tabs button[aria-selected="true"] { background: var(--raised); color: var(--paper); border-color: var(--amber); }
+.guide-dots { display: flex; gap: 6px; justify-content: center; margin-bottom: 12px; }
+.guide-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--rule); transition: transform 0.2s, background 0.2s; }
+.guide-dots i.done { background: var(--fog); }
+.guide-dots i.on { background: var(--amber); transform: scale(1.35); }
+.guide-step { min-height: 230px; text-align: center; }
+.guide-icon { font-size: 52px; line-height: 1.1; margin-bottom: 8px; animation: guide-pop 0.35s cubic-bezier(0.2, 1.4, 0.4, 1); }
+@keyframes guide-pop { from { transform: scale(0.6); opacity: 0; } }
+.guide-step h4 { margin: 0 0 8px; font-size: 17px; }
+.guide-step p { margin: 0 auto; max-width: 46ch; color: var(--fog); line-height: 1.65; font-size: 14px; }
+.guide-practice { margin-top: 16px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.guide-word { font: 700 30px/1 var(--font-code, 'JetBrains Mono', monospace); letter-spacing: 2px; }
+.guide-word span { color: var(--fog); opacity: 0.6; }
+.guide-word span.next { opacity: 1; color: var(--paper); border-bottom: 3px solid var(--amber); }
+.guide-word span.ok { opacity: 1; color: #4df0a6; }
+.guide-word span.bad { opacity: 1; color: #ff5d73; }
+.guide-card .guide-input { width: 220px; max-width: 100%; padding: 10px 12px; text-align: center; border-radius: 10px; border: 1px solid var(--rule); background: rgba(0, 0, 0, 0.3); color: var(--paper); font: 600 18px var(--font-code, 'JetBrains Mono', monospace); }
+.guide-card .guide-input:focus { outline: 2px solid var(--amber); outline-offset: 1px; }
+.guide-feedback { font-size: 13px !important; }
+.guide-feedback.ok { color: #4df0a6 !important; }
+.guide-feedback.bad { color: #ff5d73 !important; }
+.guide-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; color: var(--fog); font-size: 13px; }
+.guide-nav button { min-width: 110px; }
+.guide-summary { max-height: min(62vh, 520px); overflow-y: auto; padding-right: 4px; }
+.guide-summary h4 { margin: 14px 0 6px; font-size: 14px; color: var(--amber); }
+.guide-summary h4:first-child { margin-top: 0; }
+.guide-summary p, .guide-summary li { color: var(--fog); font-size: 13.5px; line-height: 1.6; }
+.guide-summary ul { margin: 0; padding-left: 18px; }
+.guide-summary li b { color: var(--paper); margin-right: 4px; }
+.guide-keys { border-collapse: collapse; font-size: 13.5px; }
+.guide-keys th { text-align: left; padding: 4px 12px 4px 0; white-space: nowrap; }
+.guide-keys td { color: var(--fog); padding: 4px 0; }
+.guide-keys kbd { padding: 2px 7px; border-radius: 6px; border: 1px solid var(--rule); border-bottom-width: 2px; background: var(--raised); font: 600 12px var(--font-ui); }
+@media (prefers-reduced-motion: reduce) { .guide-icon { animation: none; } }
