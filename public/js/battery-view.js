@@ -910,8 +910,8 @@ export class BatteryRenderer {
     const time = engine.gameTime;
     context.save();
     if (weather === 'storm') {
-      context.strokeStyle = 'rgba(160, 190, 255, 0.35)';
-      context.lineWidth = 1;
+      context.strokeStyle = 'rgba(170, 200, 255, 0.5)';
+      context.lineWidth = 1.3;
       context.beginPath();
       for (let drop = 0; drop < 70; drop++) {
         const x = ((drop * 97.3 + time * 220) % (width + 60)) - 30;
