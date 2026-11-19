@@ -8,6 +8,7 @@
 import { SCORING, MAX_MULTIPLIER } from './engine.js';
 import { TargetGameEngine, ARCADE_RULES, randomBetween } from './target-game.js';
 import { PERSONAS, WEATHERS, DECK_SIZE, BASE_ITEM, mirrorProfile } from './battery-modes.js';
+import { ITEM_RARITIES, rollRarity, tierValue, isRarity } from './item-rarity.js';
 
 export const BATTERY_ITEMS = Object.freeze({
   cell: Object.freeze({ label: '배터리 셀', effect: '+0.5칸', gain: 0.5, weight: 0.5, bounty: 5 }),
@@ -16,22 +17,67 @@ export const BATTERY_ITEMS = Object.freeze({
   heat: Object.freeze({ label: '발열 폭탄', effect: '상대 방전 4초 가속', gain: 0, weight: 0.12, bounty: 10 }),
   blackout: Object.freeze({ label: '화면 꺼짐', effect: '상대 3초 정지', gain: 0, weight: 0.11, bounty: 10 }),
   // ---------- 덱 전용 새 아이템(덱에 넣어야 나온다) ----------
-  reflect: Object.freeze({ label: '반사 방패', effect: '다음에 뺏기는 걸 되돌림', gain: 0, weight: 0.12, bounty: 10 }),
+  reflect: Object.freeze({ label: '반사 방패', effect: '다음에 뺏기는 걸 막고(희귀부터 되돌림)', gain: 0, weight: 0.12, bounty: 10 }),
   obfuscate: Object.freeze({ label: '난독화', effect: '상대 낱말 6초 길게', gain: 0, weight: 0.12, bounty: 10 }),
-  magnet: Object.freeze({ label: '셀 자석', effect: '3초간 지나가는 셀 자동 획득', gain: 0, weight: 0.1, bounty: 10 }),
+  magnet: Object.freeze({ label: '셀 자석', effect: '다음에 화면에 들어오는 셀 몇 개 자동 획득', gain: 0, weight: 0.1, bounty: 10 }),
   overclock: Object.freeze({ label: '오버클럭', effect: '6초간 뺏는 양 2배', gain: 0, weight: 0.11, bounty: 10 }),
-  cleanse: Object.freeze({ label: '백신 패치', effect: '나쁜 효과 지우고 5초 면역', gain: 0, weight: 0.1, bounty: 10 }),
-  trap: Object.freeze({ label: '함정 셀', effect: '가짜 셀을 띄움(상대가 먹으면 -0.5칸)', gain: 0, weight: 0.11, bounty: 10 }),
-  lucky: Object.freeze({ label: '행운 낚시', effect: '8초간 아이템 2배로 자주', gain: 0, weight: 0.1, bounty: 10 })
+  cleanse: Object.freeze({ label: '백신 패치', effect: '나쁜 효과 지우고 잠깐 뺏기·방해 면역', gain: 0, weight: 0.1, bounty: 10 }),
+  trap: Object.freeze({ label: '함정 셀', effect: '가짜 셀을 띄움(상대가 먹으면 손해)', gain: 0, weight: 0.11, bounty: 10 }),
+  lucky: Object.freeze({ label: '행운 낚시', effect: '잠깐 동안 내가 잡는 셀 2배', gain: 0, weight: 0.1, bounty: 10 })
 });
 // 원래 다섯 종(덱을 안 고르면, 그리고 대전 모드는 이것만)
 export const CLASSIC_ITEMS = Object.freeze(['cell', 'powerbank', 'eco', 'heat', 'blackout']);
 export const ITEM_EFFECTS = Object.freeze({
-  obfuscateSeconds: 6, obfuscateFactor: 1.6, obfuscateMinLength: 8,
-  magnetSeconds: 3, overclockSeconds: 6, overclockFactor: 2,
-  cleanseSeconds: 5, trapLoss: 0.5, trapFoolChance: 0.5,
-  luckySeconds: 8, luckyRate: 2
+  obfuscateFactor: 2.5, obfuscateMinLength: 8,
+  overclockFactor: 2, trapFoolChance: 1, luckyCellFactor: 3,
+  ecoFactor: -1.6, heatFactor: 3.6
 });
+// 등급별 효과 크기 [일반, 희귀, 영웅, 전설]. 배터리 셀(기본 아이템)은 등급 없이 늘 +0.5칸.
+// 값은 scripts/balance/battery-sim.mjs로 잰 '판세 변화(내 칸 − 상대 칸)'가 일반 등급끼리 비슷하고(≈0.8칸),
+// 등급이 오를 때마다 약 1.6배씩(일반 1 : 희귀 1.6 : 영웅 2.5 : 전설 4) 커지도록 맞췄다
+export const ITEM_TIERS = Object.freeze({
+  powerbank: Object.freeze({ unit: '칸', gain: [0.8, 1.3, 2, 3.2] }),
+  eco: Object.freeze({ unit: '초', seconds: [6, 9.6, 15, 24] }),
+  heat: Object.freeze({ unit: '초', seconds: [6, 9.6, 15, 24] }),
+  blackout: Object.freeze({ unit: '초', seconds: [4.4, 6.4, 11, 17.5] }),
+  reflect: Object.freeze({ unit: '배', factor: [0, 0.3, 1, 2.2] }),
+  obfuscate: Object.freeze({ unit: '초', seconds: [6, 10.5, 17, 27] }),
+  magnet: Object.freeze({ unit: '개', count: [2, 3, 4, 7] }),
+  overclock: Object.freeze({ unit: '초', seconds: [8, 13, 20, 32] }),
+  cleanse: Object.freeze({ unit: '초', seconds: [11, 17.5, 27, 44] }),
+  trap: Object.freeze({ unit: '개', count: [1, 2, 3, 4], loss: [1, 0.7, 0.75, 0.95] }),
+  lucky: Object.freeze({ unit: '초', seconds: [5.7, 9, 14, 23] })
+});
+
+// 화면·기록에 쓰는 효과 설명(등급 반영). 예: itemEffectText('eco', 'epic') → '15초간 방전 대신 충전'
+export function itemEffectText(itemKey, rarity = 'common') {
+  const number = value => String(Math.round(value * 10) / 10);
+  const seconds = number(itemTier(itemKey, rarity, 'seconds'));
+  switch (itemKey) {
+    case 'cell': return '+0.5칸';
+    case 'powerbank': return `+${number(itemTier(itemKey, rarity, 'gain'))}칸`;
+    case 'eco': return `${seconds}초간 방전 대신 충전`;
+    case 'heat': return `상대 ${seconds}초간 급방전`;
+    case 'blackout': return `상대 ${seconds}초 멈춤`;
+    case 'reflect': {
+      const factor = itemTier(itemKey, rarity, 'factor');
+      return factor > 0 ? `다음 뺏기를 막고 ${number(factor)}배 되돌림` : '다음 뺏기 1번 막기';
+    }
+    case 'obfuscate': return `상대 낱말 ${seconds}초간 길게`;
+    case 'magnet': return `다음 셀 ${itemTier(itemKey, rarity, 'count')}개 자동 획득`;
+    case 'overclock': return `${seconds}초간 뺏는 양 2배`;
+    case 'cleanse': return `나쁜 효과 지우고 ${seconds}초 면역`;
+    case 'trap': return `가짜 셀 ${itemTier(itemKey, rarity, 'count')}개(먹으면 −${number(itemTier(itemKey, rarity, 'loss'))}칸)`;
+    case 'lucky': return `${seconds}초간 잡는 셀 3배`;
+    default: return BATTERY_ITEMS[itemKey]?.effect ?? '';
+  }
+}
+
+// 이 아이템(등급 포함)의 효과 크기 하나. 표에 없으면 fallback
+export function itemTier(itemKey, rarity, field, fallback = 0) {
+  const values = ITEM_TIERS[itemKey]?.[field];
+  return values ? tierValue(values, rarity) : fallback;
+}
 
 export const BATTERY_RULES = Object.freeze({
   goalCells: 8,
@@ -40,10 +86,6 @@ export const BATTERY_RULES = Object.freeze({
   drainBounty: 10,
   baseSinkPerSecond: 0.05,
   stageSinkStep: 0.1,
-  ecoSeconds: 4,
-  ecoFactor: 0.35,
-  heatSeconds: 4,
-  heatFactor: 2.2,
   blackoutSeconds: 3,
   itemInterval: [1.4, 2.4],
   itemSpeed: 0.11,
@@ -71,7 +113,7 @@ export const BATTERY_MAX_POINTS_PER_CHARACTER = SCORING.basePoints * MAX_MULTIPL
 const RIVAL_NAMES = Object.freeze({ 1: '꾸벅봇', 2: '방전봇', 3: '과열봇', 4: '블랙아웃봇' });
 
 function createSide(cells = BATTERY_RULES.startCells) {
-  return { cells, ecoUntil: 0, heatUntil: 0, reflect: 0, obfuscatedUntil: 0, magnetUntil: 0, overclockUntil: 0, immuneUntil: 0 };
+  return { cells, ecoUntil: 0, heatUntil: 0, reflect: -1, obfuscatedUntil: 0, magnetCharges: 0, overclockUntil: 0, immuneUntil: 0, luckyUntil: 0, pendingTraps: [] };
 }
 
 export class BatteryEngine extends TargetGameEngine {
@@ -160,8 +202,8 @@ export class BatteryEngine extends TargetGameEngine {
 
   sideSinkFactor(side) {
     let factor = 1;
-    if (this.gameTime < side.ecoUntil) factor *= BATTERY_RULES.ecoFactor;
-    if (this.gameTime < side.heatUntil) factor *= BATTERY_RULES.heatFactor;
+    if (this.gameTime < side.ecoUntil) factor *= ITEM_EFFECTS.ecoFactor;
+    if (this.gameTime < side.heatUntil) factor *= ITEM_EFFECTS.heatFactor;
     return factor;
   }
 
@@ -259,24 +301,44 @@ export class BatteryEngine extends TargetGameEngine {
     return null;
   }
 
+  // 줄 서 있는 함정 셀을 0.8초 간격으로 하나씩 띄운다(자리·개수 제한은 일반 아이템과 같다)
+  spawnTraps() {
+    if (!(this.gameTime >= (this.nextTrapAt ?? Infinity))) return;
+    const side = this.me.pendingTraps.length ? this.me : this.rival.pendingTraps.length ? this.rival : null;
+    if (!side) {
+      this.nextTrapAt = Infinity;
+      return;
+    }
+    this.nextTrapAt = this.gameTime + 0.8;
+    if (this.items.filter(item => !item.consumed).length >= BATTERY_RULES.maxItems) return;
+    const y = this.chooseItemY();
+    if (y === null) return;
+    const trap = side.pendingTraps.shift();
+    this.spawnItem('cell', y, trap.owner === 'me' ? -1 : 1, trap.owner, trap.rarity);
+  }
+
   spawnIfDue() {
+    this.spawnTraps();
     if (this.gameTime < this.nextItemAt) return;
-    const rate = (WEATHERS[this.weather]?.itemRate ?? 1) * (this.gameTime < this.luckyUntil ? ITEM_EFFECTS.luckyRate : 1);
+    const rate = WEATHERS[this.weather]?.itemRate ?? 1;
     this.nextItemAt = this.gameTime + randomBetween(this.random, BATTERY_RULES.itemInterval) / (1 + (this.stage - 1) * 0.08) / rate;
     if (this.items.filter(item => !item.consumed).length >= BATTERY_RULES.maxItems) return;
     const y = this.chooseItemY();
     if (y !== null) this.spawnItem(this.chooseItemType(), y);
   }
 
-  spawnItem(itemType = 'cell', y = 0.4, direction = this.random() < 0.5 ? 1 : -1, trapOwner = null) {
+  // rarity: 정하지 않으면 등급을 뽑는다(배터리 셀은 늘 일반). 함정 셀은 놓은 함정의 등급·손해량을 물려받는다
+  spawnItem(itemType = 'cell', y = 0.4, direction = this.random() < 0.5 ? 1 : -1, trapOwner = null, rarity = null) {
     if (WEATHERS[this.weather]?.direction) direction = WEATHERS[this.weather].direction;
     const item = {
       id: this.nextId++, kind: 'item', item: itemType, x: direction > 0 ? -0.08 : 1.08, y, direction,
-      consumed: false, takenBy: null, spawnedAt: this.gameTime, token: null
+      consumed: false, takenBy: null, spawnedAt: this.gameTime, token: null,
+      rarity: isRarity(rarity) ? rarity : itemType === BASE_ITEM ? 'common' : rollRarity(this.random)
     };
     // 함정 셀: 겉보기엔 셀. 놓은 쪽이 아닌 쪽이 먹으면 손해. 방전봇은 내 함정에 반쯤 속는다
     if (trapOwner) {
       item.trapOwner = trapOwner;
+      item.trapLoss = itemTier('trap', item.rarity, 'loss', 1);
       item.aiFooled = this.random() < ITEM_EFFECTS.trapFoolChance;
     }
     item.token = this.pickToken(item.id);
@@ -307,8 +369,9 @@ export class BatteryEngine extends TargetGameEngine {
   // 셀 자석: 화면 안에 들어온 셀·보조배터리(함정 제외)를 자석을 켠 쪽이 바로 가져간다. 가져갔으면 true
   magnetPull(item) {
     if (item.trapOwner || !['cell', 'powerbank'].includes(item.item) || item.x < 0 || item.x > 1) return false;
-    const owner = this.gameTime < this.me.magnetUntil ? 'me' : this.gameTime < this.rival.magnetUntil ? 'rival' : null;
+    const owner = this.me.magnetCharges > 0 ? 'me' : this.rival.magnetCharges > 0 ? 'rival' : null;
     if (!owner) return false;
+    this[owner].magnetCharges--;
     item.consumed = true;
     item.takenBy = owner;
     item.takenAt = this.gameTime;
@@ -332,44 +395,66 @@ export class BatteryEngine extends TargetGameEngine {
     // 함정 셀: 놓은 쪽이 먹으면 아무 일 없고, 상대가 먹으면 손해
     if (item.trapOwner) {
       if (item.trapOwner !== sideKey) {
-        side.cells -= ITEM_EFFECTS.trapLoss;
+        side.cells -= item.trapLoss ?? itemTier('trap', item.rarity, 'loss', 1);
         this.emit('trap-sprung', { item, victim: sideKey });
       }
       return;
     }
     const opponentImmune = now < opponent.immuneUntil;
-    if (config.gain) side.cells = Math.min(BATTERY_RULES.goalCells, side.cells + config.gain);
-    if (item.item === 'eco') side.ecoUntil = Math.max(side.ecoUntil, now) + BATTERY_RULES.ecoSeconds;
-    if (item.item === 'heat' && !opponentImmune) opponent.heatUntil = Math.max(opponent.heatUntil, now) + BATTERY_RULES.heatSeconds;
-    if (item.item === 'reflect') side.reflect = 1;
+    const rarity = item.rarity ?? 'common';
+    const seconds = itemTier(item.item, rarity, 'seconds');
+    const lucky = item.item === BASE_ITEM && now < (side.luckyUntil ?? 0) ? ITEM_EFFECTS.luckyCellFactor : 1;
+    const gain = (item.item === 'powerbank' ? itemTier('powerbank', rarity, 'gain') : config.gain) * lucky;
+    if (gain) side.cells = Math.min(BATTERY_RULES.goalCells, side.cells + gain);
+    if (item.item === 'eco') {
+      side.ecoUntil = Math.max(side.ecoUntil, now) + seconds;
+      side.ecoSpan = side.ecoUntil - now;
+    }
+    if (item.item === 'heat' && !opponentImmune) opponent.heatUntil = Math.max(opponent.heatUntil, now) + seconds;
+    // 반사 방패: 일반은 막기만(배율 0), 희귀부터 뺏으려던 양 × 배율만큼 되돌린다. -1 = 방패 없음
+    if (item.item === 'reflect') side.reflect = Math.max(side.reflect, itemTier('reflect', rarity, 'factor', 0));
+    if (item.item === 'blackout') {
+      // 화면 꺼짐: 상대가 seconds초 동안 아무것도 못 함(방전봇은 멈춤, 내가 당하면 방전봇 탑 낱말이 안 보임)
+      if (side === this.me) this.ai.pausedUntil = Math.max(this.ai.pausedUntil, now + seconds);
+      else this.hiddenUntil = Math.max(this.hiddenUntil, now + seconds);
+    }
     if (item.item === 'obfuscate' && !opponentImmune) {
-      opponent.obfuscatedUntil = Math.max(opponent.obfuscatedUntil, now) + ITEM_EFFECTS.obfuscateSeconds;
+      opponent.obfuscatedUntil = Math.max(opponent.obfuscatedUntil, now) + seconds;
       // 내가 당했으면 상대 탑 낱말을 바로 긴 낱말로 바꾼다
       if (opponent === this.me && this.targetId !== this.rivalWord.id) this.rivalWord.token = this.pickToken(this.rivalWord.id);
     }
-    if (item.item === 'magnet') side.magnetUntil = now + ITEM_EFFECTS.magnetSeconds;
-    if (item.item === 'overclock') side.overclockUntil = now + ITEM_EFFECTS.overclockSeconds;
+    if (item.item === 'magnet') side.magnetCharges += itemTier('magnet', rarity, 'count', 1);
+    if (item.item === 'overclock') side.overclockUntil = Math.max(side.overclockUntil, now) + seconds;
     if (item.item === 'cleanse') {
       side.heatUntil = 0;
       side.obfuscatedUntil = 0;
-      side.immuneUntil = now + ITEM_EFFECTS.cleanseSeconds;
+      side.immuneUntil = Math.max(side.immuneUntil, now) + seconds;
     }
-    if (item.item === 'lucky') this.luckyUntil = now + ITEM_EFFECTS.luckySeconds;
+    if (item.item === 'lucky') side.luckyUntil = Math.max(side.luckyUntil ?? 0, now) + seconds;
+    // 함정: 등급만큼 가짜 셀을 줄 세워 두고 자리가 날 때마다 하나씩 띄운다(spawnTraps)
     if (item.item === 'trap') {
-      const y = this.chooseItemY();
-      if (y !== null) this.spawnItem('cell', y, sideKey === 'me' ? -1 : 1, sideKey);
+      const count = itemTier('trap', rarity, 'count', 1);
+      for (let index = 0; index < count; index++) side.pendingTraps.push({ rarity, owner: sideKey });
+      this.nextTrapAt = Math.min(this.nextTrapAt ?? Infinity, now);
     }
   }
 
   // 뺏기: attacker가 victim의 셀을 가져온다(오버클럭이면 2배). victim에게 반사 방패가 있으면 거꾸로 attacker가 뺏긴다
   steal(attacker, victim) {
     const amount = BATTERY_RULES.stealCells * (this.gameTime < attacker.overclockUntil ? ITEM_EFFECTS.overclockFactor : 1);
-    if (victim.reflect > 0) {
-      victim.reflect = 0;
-      const taken = Math.min(amount, Math.max(0, attacker.cells));
-      attacker.cells -= amount;
+    // 백신 패치 면역 중이면 뺏기 자체가 막힌다
+    if (this.gameTime < victim.immuneUntil) {
+      this.emit('immune-block', { attacker: attacker === this.me ? 'me' : 'rival' });
+      return { stolen: 0, reflected: false, blocked: true };
+    }
+    if (victim.reflect >= 0) {
+      // 반사 방패: 뺏으려던 양 × 방패 등급 배율만큼 거꾸로 뺏어 온다(일반 = 0배 = 막기만)
+      const reflected = amount * victim.reflect;
+      victim.reflect = -1;
+      const taken = Math.min(reflected, Math.max(0, attacker.cells));
+      attacker.cells -= reflected;
       victim.cells = Math.min(BATTERY_RULES.goalCells, victim.cells + taken);
-      this.emit('reflect', { attacker: attacker === this.me ? 'me' : 'rival', amount });
+      this.emit('reflect', { attacker: attacker === this.me ? 'me' : 'rival', amount: reflected });
       return { stolen: -taken, reflected: true };
     }
     const stolen = Math.min(amount, Math.max(0, victim.cells));
@@ -464,7 +549,6 @@ export class BatteryEngine extends TargetGameEngine {
       target.takenBy = 'rival';
       target.takenAt = this.gameTime;
       this.applyItem(this.rival, this.me, target);
-      if (target.item === 'blackout') this.hiddenUntil = this.gameTime + BATTERY_RULES.blackoutSeconds;
       if (this.targetId === target.id) {
         this.stolen++;
         this.releaseTargetIf(target.id, 'stolen');
@@ -500,7 +584,6 @@ export class BatteryEngine extends TargetGameEngine {
       this.collected[entity.item]++;
       this.score += BATTERY_ITEMS[entity.item].bounty;
       this.applyItem(this.me, this.rival, entity);
-      if (entity.item === 'blackout') this.ai.pausedUntil = this.gameTime + BATTERY_RULES.blackoutSeconds;
       this.emit('item', { item: entity });
     } else if (entity.kind === 'rival-cell') {
       // 방전봇의 배터리를 뺏어온다(상대에게 반사 방패가 있으면 내가 뺏긴다)
@@ -532,7 +615,7 @@ export class BatteryEngine extends TargetGameEngine {
       myCells: Math.max(0, this.me.cells),
       rivalCells: Math.max(0, this.rival.cells),
       powerRemaining: eco,
-      powerSeconds: BATTERY_RULES.ecoSeconds,
+      powerSeconds: Math.max(eco, this.me.ecoSpan ?? 1),
       persona: this.persona,
       weather: this.weather
     };

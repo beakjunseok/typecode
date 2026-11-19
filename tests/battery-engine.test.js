@@ -42,7 +42,7 @@ test('두 탑은 시간이 지나면 방전(침몰)된다', () => {
   assert.ok(Math.abs(engine.me.cells - engine.rival.cells) < 1e-9);
 });
 
-test('지나가는 셀을 치면 +0.5, 보조배터리는 +1', () => {
+test('지나가는 셀을 치면 +0.5, 보조배터리는 등급만큼(일반 +0.8)', () => {
   const { engine, clock } = setup();
   freezeAi(engine); noSpawns(engine);
   const cell = engine.spawnItem('cell', 0.3, 1);
@@ -50,11 +50,11 @@ test('지나가는 셀을 치면 +0.5, 보조배터리는 +1', () => {
   typeText(engine, clock, cell.token.text);
   advance(engine, clock, 0.3);
   assert.ok(engine.me.cells > before + 0.45);
-  const powerbank = engine.spawnItem('powerbank', 0.5, -1);
+  const powerbank = engine.spawnItem('powerbank', 0.5, -1, null, 'common');
   const mid = engine.me.cells;
   typeText(engine, clock, powerbank.token.text);
   advance(engine, clock, 0.3);
-  assert.ok(engine.me.cells > mid + 0.95);
+  assert.ok(engine.me.cells > mid + 0.75);
 });
 
 test('뺏기: 상대 탑 낱말을 치면 상대 −0.5 · 나 +0.5, 낱말은 바로 새로 바뀐다', () => {
@@ -240,16 +240,31 @@ test('덱: 셀 + 고른 4개만 나온다', () => {
   assert.ok(seen.size >= 3);
 });
 
-test('반사 방패: 뺏으려던 쪽이 거꾸로 셀을 잃는다', () => {
+test('반사 방패: 일반은 막기만, 희귀부터 뺏으려던 쪽이 거꾸로 셀을 잃는다', () => {
   const { engine, events } = setupMode({ persona: 'rusher' });
-  engine.me.reflect = 1;
-  const before = { me: engine.me.cells, rival: engine.rival.cells };
-  const result = engine.steal(engine.rival, engine.me);
+  engine.applyItem(engine.me, engine.rival, { item: 'reflect', rarity: 'common' });
+  let before = { me: engine.me.cells, rival: engine.rival.cells };
+  let result = engine.steal(engine.rival, engine.me);
   assert.equal(result.reflected, true);
-  assert.ok(engine.rival.cells < before.rival);
-  assert.ok(engine.me.cells > before.me);
-  assert.equal(engine.me.reflect, 0);
+  assert.equal(engine.me.cells, before.me);
+  assert.equal(engine.rival.cells, before.rival);
+  assert.equal(engine.me.reflect, -1);
+  engine.applyItem(engine.me, engine.rival, { item: 'reflect', rarity: 'legendary' });
+  before = { me: engine.me.cells, rival: engine.rival.cells };
+  result = engine.steal(engine.rival, engine.me);
+  assert.ok(engine.rival.cells < before.rival - 1);
+  assert.ok(engine.me.cells > before.me + 1);
   assert.ok(events.some(event => event.type === 'reflect'));
+});
+
+test('백신 패치: 면역 중엔 뺏기도 막힌다', () => {
+  const { engine, events } = setupMode({ persona: 'rusher' });
+  engine.applyItem(engine.me, engine.rival, { item: 'cleanse', rarity: 'common' });
+  const before = engine.me.cells;
+  const result = engine.steal(engine.rival, engine.me);
+  assert.equal(result.blocked, true);
+  assert.equal(engine.me.cells, before);
+  assert.ok(events.some(event => event.type === 'immune-block'));
 });
 
 test('오버클럭: 뺏는 양이 2배', () => {
@@ -273,8 +288,8 @@ test('난독화와 백신: 면역 중엔 난독화가 막힌다', () => {
 test('함정 셀: 놓은 쪽은 무해, 상대는 손해', () => {
   const { engine, events } = setupMode({ persona: 'rusher' });
   const before = engine.me.cells;
-  engine.applyItem(engine.me, engine.rival, { item: 'cell', trapOwner: 'rival' });
-  assert.equal(engine.me.cells, before - ITEM_EFFECTS.trapLoss);
+  engine.applyItem(engine.me, engine.rival, { item: 'cell', trapOwner: 'rival', trapLoss: 1 });
+  assert.equal(engine.me.cells, before - 1);
   assert.ok(events.some(event => event.type === 'trap-sprung'));
   const rivalBefore = engine.rival.cells;
   engine.applyItem(engine.rival, engine.me, { item: 'cell', trapOwner: 'rival' });
@@ -283,10 +298,13 @@ test('함정 셀: 놓은 쪽은 무해, 상대는 손해', () => {
 
 test('셀 자석: 화면 안 셀을 바로 가져간다(함정은 제외)', () => {
   const { engine, events } = setupMode({ persona: 'rusher' });
-  engine.me.magnetUntil = engine.gameTime + 5;
+  engine.applyItem(engine.me, engine.rival, { item: 'magnet', rarity: 'common' });
+  assert.equal(engine.me.magnetCharges, 2);
   assert.equal(engine.magnetPull({ id: 900, item: 'cell', x: 0.5 }), true);
   assert.equal(engine.magnetPull({ id: 901, item: 'cell', x: 0.5, trapOwner: 'rival' }), false);
   assert.equal(engine.magnetPull({ id: 902, item: 'heat', x: 0.5 }), false);
+  assert.equal(engine.magnetPull({ id: 903, item: 'cell', x: 0.5 }), true);
+  assert.equal(engine.magnetPull({ id: 904, item: 'cell', x: 0.5 }), false, '자석 횟수 다 씀');
   assert.ok(events.some(event => event.type === 'magnet-take'));
 });
 

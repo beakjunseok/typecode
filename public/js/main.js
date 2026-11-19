@@ -3,7 +3,8 @@ import { TypingEngine, DURATIONS, getTierIndex } from './engine.js';
 import { TimeAttackEngine, TIME_ATTACK_RULES } from './time-attack-engine.js';
 import { LANGUAGES, getTokenPool } from './tokens.js';
 import { ThrowEngine, ROBOT_TYPES, BOSS_SKILLS, FORMATIONS } from './throw-engine.js';
-import { BatteryEngine, BATTERY_ITEMS } from './battery-engine.js';
+import { BatteryEngine, BATTERY_ITEMS, itemEffectText } from './battery-engine.js';
+import { ITEM_RARITIES, RARITY_ORDER } from './item-rarity.js';
 import { PERSONAS, PERSONA_ORDER, WEATHERS, DECK_SIZE, BASE_ITEM, DEFAULT_DECK, ITEM_LOOKS, mirrorProfile, pickWeather } from './battery-modes.js';
 import { BatteryPvpHostEngine, BatteryPvpGuestEngine, PVP_RULES, PVP_PROTOCOL_VERSION } from './battery-pvp.js';
 import { hostRoom, joinRoom } from './pvp-connection.js';
@@ -331,6 +332,10 @@ function handleArcadeEvent(type, payload) {
     case 'boss-pushed':
       ui.log('ok', '🛡 보스를 밀어내 펀치를 막았어요');
       break;
+    case 'shield-block':
+      sound.play('glassCrack');
+      ui.log('ok', `🛡 보호막이 막았어요 (남은 보호막 ${payload.shields})`);
+      break;
     case 'boss-punch':
       sound.play('explode');
       run.engine?.hitStop?.(0.1);
@@ -338,12 +343,15 @@ function handleArcadeEvent(type, payload) {
       break;
     case 'item-spawn':
       sound.play('itemSpawn');
-      if (!battery) ui.log('info', payload.item.item === 'battery' ? '🔋 건전지 등장 — 치면 생명 1칸 회복' : '💻 노트북 상자 등장');
+      if (!battery) {
+        const rarity = payload.item.rarity && payload.item.rarity !== 'common' ? `${ITEM_RARITIES[payload.item.rarity]?.label ?? ''} ` : '';
+        ui.log('info', payload.item.item === 'battery' ? `🔋 ${rarity}건전지 등장 — 치면 생명 회복` : `💻 ${rarity}노트북 상자 등장`);
+      }
+      if (['epic', 'legendary'].includes(payload.item.rarity)) sound.play('tierUp', { tier: payload.item.rarity === 'legendary' ? 3 : 2 });
       break;
     case 'item':
       sound.play(battery && payload.item.item === 'heat' ? 'explode' : 'powerUp');
-      ui.log('ok', battery ? BATTERY_ITEM_LOG[payload.item.item](rivalName())
-        : payload.item.item === 'battery' ? `건전지 충전 — 생명 ${payload.lives}칸` : '노트북 장착 — 8초간 두 개씩 던지기');
+      ui.log('ok', battery ? batteryItemLog(payload.item, rivalName()) : throwItemLog(payload));
       break;
     case 'drain':
       sound.play('hit');
@@ -351,7 +359,7 @@ function handleArcadeEvent(type, payload) {
       break;
     case 'rival-take':
       sound.play('error');
-      ui.log('warn', `${rivalName()}이(가) ${BATTERY_ITEM_NAMES[payload.item.item]}을(를) 가져갔습니다`);
+      ui.log('warn', `${rivalName()}이(가) ${batteryItemName(payload.item)}을(를) 가져갔습니다`);
       break;
     case 'rival-attack':
       sound.play('lifeLost');
@@ -414,12 +422,16 @@ function handleArcadeEvent(type, payload) {
   }
 }
 
-const BATTERY_ITEM_NAMES = { cell: '배터리 셀', powerbank: '보조배터리', eco: '저전력 모드', heat: '발열 폭탄', blackout: '화면 꺼짐' };
-// 아이템 획득 로그(상대 이름은 AI면 '방전봇', PvP면 상대 이름)
-const BATTERY_ITEM_LOG = {
-  cell: () => '배터리 셀 획득 — +0.5칸', powerbank: () => '보조배터리 드론 — +1칸', eco: () => '저전력 모드 — 4초간 방전 감속',
-  heat: rival => `발열 폭탄 — ${rival} 4초간 급방전`,
-  blackout: rival => (isPvp() ? `화면 꺼짐 — ${rival} 3초 입력 막힘` : `화면 꺼짐 — ${rival} 3초 정지`)
+// 아이템 이름·획득 로그(등급 포함). 상대 이름은 AI면 '방전봇', PvP면 상대 이름
+const batteryItemName = item => {
+  const rarity = item?.rarity && item.rarity !== 'common' && item.item !== 'cell' ? `${ITEM_RARITIES[item.rarity]?.label ?? ''} ` : '';
+  return `${rarity}${BATTERY_ITEMS[item?.item]?.label ?? '아이템'}`;
+};
+const batteryItemLog = (item, rival) => `${batteryItemName(item)} — ${itemEffectText(item.item, item.rarity).replace('상대', rival)}`;
+const throwItemLog = payload => {
+  const rarity = payload.item.rarity && payload.item.rarity !== 'common' ? `${ITEM_RARITIES[payload.item.rarity]?.label ?? ''} ` : '';
+  if (payload.item.item === 'battery') return `${rarity}건전지 — 생명 +${payload.restored ?? 1}${payload.shieldsGained ? `, 보호막 +${payload.shieldsGained}` : ''} (생명 ${payload.lives}칸)`;
+  return `${rarity}노트북 — ${Math.round(payload.laptopSeconds ?? 0)}초간 ${payload.shots ?? 2}개씩 던지기`;
 };
 
 // ---------- 세션 · 제출 ----------
@@ -991,6 +1003,10 @@ function handleDefenseEvent(type, payload) {
     case 'wave-start':
       bgm.setTempoBpm(payload.bpm);
       return true;
+    case 'breakpoint':
+      sound.play('glassCrack');
+      ui.log('ok', `⏸ 브레이크포인트 — 모든 적 ${payload.seconds}초 멈춤`);
+      return true;
     case 'wave-clear':
       sound.play('newRecord');
       ui.log('ok', `WAVE ${payload.wave} CLEAR (+${payload.bonus}🪙${payload.perfect ? ' · 무피해' : ''})`);
@@ -1091,10 +1107,14 @@ function handleBatteryModeEvent(type, payload) {
       return true;
     case 'trap-sprung':
       sound.play(payload.victim === 'me' ? 'lifeLost' : 'powerUp');
-      ui.log(payload.victim === 'me' ? 'err' : 'ok', payload.victim === 'me' ? '🪤 함정 셀이었어요! -0.5칸' : '🪤 방전봇이 함정에 걸렸어요');
+      ui.log(payload.victim === 'me' ? 'err' : 'ok', payload.victim === 'me' ? `🪤 함정 셀이었어요! −${Math.round((payload.item.trapLoss ?? 1) * 10) / 10}칸` : `🪤 ${rivalName()}이(가) 함정에 걸렸어요`);
       return true;
     case 'magnet-take':
       sound.play(payload.owner === 'me' ? 'itemSpawn' : 'error');
+      return true;
+    case 'immune-block':
+      sound.play('glassCrack');
+      ui.log(payload.attacker === 'me' ? 'warn' : 'ok', payload.attacker === 'me' ? `💊 ${rivalName()}이(가) 면역 중이라 못 뺏었어요` : '💊 면역! 뺏기를 막았어요');
       return true;
     default:
       return false;
@@ -1154,7 +1174,7 @@ function updateBatteryPrep() {
     chip.type = 'button';
     chip.className = 'prep-chip';
     chip.dataset.item = key;
-    chip.title = item.effect;
+    chip.title = `${item.label} — 등급이 높을수록 세져요\n${RARITY_ORDER.map(rarity => `${ITEM_RARITIES[rarity].label}: ${itemEffectText(key, rarity)}`).join('\n')}`;
     chip.style.setProperty('--chip', ITEM_LOOKS[key]?.color ?? '#36e2ff');
     chip.setAttribute('aria-pressed', String(batteryPrep.deck.includes(key)));
     chip.textContent = `${ITEM_LOOKS[key]?.icon ?? ''} ${item.label}`;

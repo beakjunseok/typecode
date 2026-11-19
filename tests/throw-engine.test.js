@@ -41,7 +41,7 @@ function startWithRobot(engine, clock, typeKey = 'basic') {
 
 test('토큰 길이 필터와 점수 상한 상수', () => {
   assert.ok(filterThrowTokens([{ text: '?' }, { text: 'if' }]).every(token => token.text.length >= 2));
-  assert.equal(MAX_POINTS_PER_CHARACTER, 330, '쌍둥이봇: 노트북 두 발 × 쌍둥이 둘');
+  assert.equal(MAX_POINTS_PER_CHARACTER, 480, '쌍둥이봇: 노트북 최대 세 발(영웅·전설) × 쌍둥이 둘');
   assert.throws(() => new ThrowEngine({ tokenPool: [{ text: 'a' }] }));
 });
 
@@ -153,16 +153,17 @@ test('달팽봇: 탱크보다도 느리고, 휴대폰은 낱말 두 개(맞으�
   assert.equal(engine.kills.slow, 2, '노트북 한 방');
 });
 
-test('노트북 아이템: 맞히면 8초간 노트북(두 개씩), 탱크는 낱말 하나로 처치', () => {
+test('노트북 아이템: 일반은 6초간 두 개씩, 탱크는 낱말 하나로 처치', () => {
   const { engine, events } = createEngine();
   const clock = { now: 0 };
   engine.start(0);
   engine.nextSpawnAt = Infinity;
   const item = engine.spawnItem(2);
+  item.rarity = 'common';
   typeText(engine, clock, item.token.text);
   advance(engine, clock, 0.3);
   assert.ok(events.some(event => event.type === 'item'));
-  assert.ok(engine.laptopRemaining() > 7.5);
+  assert.ok(engine.laptopRemaining() > 5.5 && engine.laptopRemaining() <= 6);
   const tank = engine.spawnRobot('tank', 0);
   const result = typeText(engine, clock, tank.token.text);
   assert.equal(result.weapon, 'laptop');
@@ -572,4 +573,28 @@ test('보스 3종: 셋 중 하나가 나오고, 기술은 그 보스 목록에�
     if (kind === 'printer') assert.ok(events.some(event => event.type === 'boss-fire' && event.payload.pad.paper));
     if (kind === 'hacker') assert.ok(events.some(event => event.type === 'boss-mask') && events.some(event => event.type === 'boss-decoy'));
   }
+});
+
+test('등급: 전설 노트북은 세 개씩, 전설 건전지는 생명을 채우고 남는 만큼 보호막', () => {
+  const { engine, events } = createEngine();
+  const clock = { now: 0 };
+  engine.start(0);
+  engine.nextSpawnAt = Infinity;
+  engine.nextItemAt = Infinity;
+  const laptop = engine.spawnItem(2, 'laptop');
+  laptop.rarity = 'legendary';
+  engine.activateItem(laptop);
+  assert.equal(engine.laptopShots, 3);
+  assert.ok(engine.laptopRemaining() > 11);
+  engine.lives = 1;
+  const battery = engine.spawnItem(1, 'battery');
+  battery.rarity = 'legendary';
+  engine.activateItem(battery);
+  assert.equal(engine.lives, 3);
+  assert.equal(engine.shields, 2);
+  // 보호막이 생명 대신 깨진다
+  engine.loseLife({ test: true });
+  assert.equal(engine.lives, 3);
+  assert.equal(engine.shields, 1);
+  assert.ok(events.some(event => event.type === 'shield-block'));
 });

@@ -7,7 +7,8 @@ import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING, SKIN
 import { THROW_RULES, BOSS_RULES, ROBOT_TYPES, BOSS_SKILLS, FORMATIONS } from './throw-engine.js';
 import { qualityFor,
   setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont,
-  loadArt, drawCoverArt, Juice } from './game-view.js';
+  loadArt, drawCoverArt, Juice, drawRarityTag } from './game-view.js';
+import { ITEM_RARITIES } from './item-rarity.js';
 
 // 서버실 복도 그림(AI 생성, public/art/throw-stage.webp). 소실점이 화면 가운데 위로 오게 깐다
 const STAGE_ART = loadArt('/art/throw-stage.webp');
@@ -201,7 +202,17 @@ export class ThrowRenderer {
       this.particles.burst(this.columnX(item.lane), this.toY(item.x) - 14, { color: ITEM_STYLE[item.item].color, count: 32, speed: 220, life: 0.8 });
       this.juice.flash(ITEM_STYLE[item.item].color, 0.18, 0.3);
       this.juice.ring(this.columnX(item.lane), this.toY(item.x) - 14, { color: ITEM_STYLE[item.item].color, radius: 110, life: 0.5, width: 6 });
-      this.juice.popup(this.columnX(item.lane), this.toY(item.x) - 40, item.item === 'laptop' ? '💻 두 개씩!' : '🔋 +1', { color: ITEM_STYLE[item.item].color, size: 22 });
+      const rarity = ITEM_RARITIES[item.rarity] ?? ITEM_RARITIES.common;
+      const prefix = item.rarity && item.rarity !== 'common' ? `${rarity.label} ` : '';
+      const text = item.item === 'laptop'
+        ? `${prefix}💻 ${payload.shots ?? 2}개씩 · ${Math.round(payload.laptopSeconds ?? 0)}초!`
+        : `${prefix}🔋 +${payload.restored ?? 1}${payload.shieldsGained ? ` 🛡+${payload.shieldsGained}` : ''}`;
+      this.juice.popup(this.columnX(item.lane), this.toY(item.x) - 40, text, { color: item.rarity && item.rarity !== 'common' ? rarity.color : ITEM_STYLE[item.item].color, size: item.rarity === 'legendary' ? 26 : 22 });
+      if (item.rarity === 'legendary' || item.rarity === 'epic') this.juice.shake(item.rarity === 'legendary' ? 0.35 : 0.18);
+    } else if (type === 'shield-block') {
+      const { x, y } = this.playerPosition();
+      this.juice.ring(x, y - 30, { color: '#7fd8ff', radius: 90, life: 0.45, width: 5 });
+      this.juice.popup(x, y - 80, '🛡 보호막이 막았어요!', { color: '#7fd8ff', size: 18 });
     } else if (type === 'boss-warning') {
       this.juice.shake(0.5);
       this.juice.flash('#ff2846', 0.3, 0.6);
@@ -1777,10 +1788,13 @@ export class ThrowRenderer {
     context.fillStyle = style.fill;
     roundedRect(context, -20, -16, 40, 28, 6);
     context.fill();
-    context.strokeStyle = style.color;
-    context.lineWidth = 2;
+    const rarity = ITEM_RARITIES[item.rarity];
+    const ranked = rarity && item.rarity !== 'common';
+    context.strokeStyle = ranked ? rarity.color : style.color;
+    context.lineWidth = ranked ? 3 : 2;
     context.stroke();
     context.shadowBlur = 0;
+    if (ranked) drawRarityTag(context, 0, -54, item.rarity, engine.gameTime, { label: rarity.label, color: rarity.color });
     if (item.item === 'battery') this.drawBatteryShape(context, 0, -2, engine.gameTime);
     else this.drawLaptopShape(context, 0, -3, 1, 0);
     context.restore();
@@ -2062,6 +2076,11 @@ export class ThrowRenderer {
       const state = index >= engine.lives ? 'empty' : engine.lives === 1 ? 'low' : 'full';
       this.drawLifeBattery(context, 10 + index * 30, HUD_HEIGHT / 2, state, engine.gameTime);
     }
+    // 보호막(건전지 회복이 넘친 만큼): 생명 오른쪽에 파란 방패
+    for (let index = 0; index < (engine.shields ?? 0); index++) {
+      context.fillStyle = '#7fd8ff';
+      context.fillText('🛡', 10 + ARCADE_RULES.startLives * 30 + 4 + index * 18, HUD_HEIGHT / 2 + 1);
+    }
     // 가운데: 목표까지 처치 수
     context.textAlign = 'center';
     context.fillStyle = engine.winAt != null ? '#4df0a6' : engine.bossPhase ? '#ff5d73' : '#e6e9f5';
@@ -2072,8 +2091,8 @@ export class ThrowRenderer {
     context.font = canvasFont(12);
     if (laptop > 0) {
       context.fillStyle = '#c792ea';
-      context.fillText(`💻 노트북 ×2 · ${laptop.toFixed(1)}s`, width - 10, HUD_HEIGHT / 2);
-      context.fillRect(width - 130, HUD_HEIGHT - 5, 120 * (laptop / THROW_RULES.laptopSeconds), 3);
+      context.fillText(`💻 노트북 ×${engine.laptopShots ?? 2} · ${laptop.toFixed(1)}s`, width - 10, HUD_HEIGHT / 2);
+      context.fillRect(width - 130, HUD_HEIGHT - 5, 120 * Math.min(1, laptop / Math.max(laptop, engine.laptopSpan ?? THROW_RULES.laptopSeconds)), 3);
     } else {
       context.fillStyle = '#8a93b8';
       context.fillText('📱 휴대폰', width - 10, HUD_HEIGHT / 2);
