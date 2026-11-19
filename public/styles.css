@@ -1318,4 +1318,10 @@ body.mobile-play #arcadeStage { margin-top: 0; }
 .prep-chip[aria-pressed="true"] { color: #0b0f1c; background: var(--chip, #36e2ff); border-color: var(--chip, #36e2ff); }
 .prep-chip.full { animation: prep-shake 0.3s; }
 @keyframes prep-shake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+/* 데스크톱: 시작 그림(오른쪽)을 가리지 않게 왼쪽 어두운 칸에 세로로 세우고, 안내 문구는 위로 올린다 */
+@media (min-width: 641px) {
+  .battery-prep { left: 8%; right: auto; width: min(38%, 440px); top: 142px; bottom: auto; }
+  .battery-prep .prep-row { grid-template-columns: 1fr; gap: 6px; }
+  #arcadeOverlay:has(+ .battery-prep:not([hidden])) { justify-content: flex-start; padding-top: 36px; }
+}
 @media (max-width: 560px) { .prep-row { grid-template-columns: 1fr; } .battery-prep { bottom: 48px; } }
