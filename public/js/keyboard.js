@@ -160,20 +160,29 @@ export function createKeyboard(container, { compact = false, interactive = false
   let lastFrameAt = 0;
   const clock = () => (globalThis.performance?.now() ?? Date.now()) / 1000;
 
+  const boardCache = { element: board };
+  // 마지막으로 쓴 값을 항목(키)마다 기억해 두고 바뀐 것만 쓴다. O(1)
+  function setIfChanged(target, name, value) {
+    target.lastLed ??= {};
+    if (target.lastLed[name] === value) return;
+    target.lastLed[name] = value;
+    target.element.style.setProperty(name, value);
+  }
+
   function paintLeds(time) {
     const audio = ledConfig.pattern.startsWith('audio') ? audioSource?.() : null;
     led.frame(time, ledConfig, { bands: audio?.bands, level: audio?.level, energy }, colors);
+    // 값이 그대로인 CSS 변수는 다시 쓰지 않는다(쓸 때마다 그 키의 스타일 계산·다시 그리기가 일어난다)
     for (const key of ledKeys) {
       const color = colors[key.index];
-      const style = key.element.style;
-      style.setProperty('--led', ledCss(color));
-      style.setProperty('--led-a', (color.a * ledGlow).toFixed(3));
-      if (shine) style.setProperty('--led-text', color.a > 0.08 ? ledCss({ ...color, l: Math.max(color.l, 66) }) : '');
+      setIfChanged(key, '--led', ledCss(color));
+      setIfChanged(key, '--led-a', (color.a * ledGlow).toFixed(2));
+      if (shine) setIfChanged(key, '--led-text', color.a > 0.08 ? ledCss({ ...color, l: Math.max(color.l, 66) }) : '');
     }
     const space = colors[ledKeys.length - 1];
     if (space) {
-      board.style.setProperty('--under', ledCss(space));
-      board.style.setProperty('--under-a', space.a.toFixed(3));
+      setIfChanged(boardCache, '--under', ledCss(space));
+      setIfChanged(boardCache, '--under-a', space.a.toFixed(2));
     }
   }
 

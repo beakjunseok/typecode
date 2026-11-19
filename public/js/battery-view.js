@@ -4,7 +4,7 @@ import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
 import { BATTERY_RULES } from './battery-engine.js';
 import { MASCOT_PALETTES, createRig, reactRig, updateRig, drawPhoneMascot, drawDrainBot, drainBotFor } from './battery-characters.js';
-import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
+import { qualityFor, setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
 
 const BEAM_SECONDS = 0.35;
 const isPvp = engine => engine.mode === 'battery-pvp';
@@ -38,6 +38,7 @@ const ITEM_STYLE = {
 export class BatteryRenderer {
   constructor(canvas) {
     this.surface = setupCanvas(canvas);
+    this.quality = qualityFor(this.surface);
     this.particles = new ParticleSystem();
     this.juice = new Juice();
     this.lastWallSeconds = null;
@@ -165,6 +166,7 @@ export class BatteryRenderer {
   }
 
   render(engine, { accent }) {
+    this.quality.tick(engine.status === 'running');
     this.pruneEffects();
     const context = this.context;
     if (!context) return;

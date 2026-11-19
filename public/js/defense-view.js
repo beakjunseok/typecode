@@ -4,7 +4,7 @@
 import { ARCADE_RULES } from './target-game.js';
 import { DEFENSE_RULES, TOWER_TYPES, SHOP_ITEMS, DEFENSE_PATH, DEFENSE_COMPUTER, ATTACK_TYPES, COMPUTER_GUARD, GUARDIAN, GUARDIAN_LEVEL, ENEMY_TIERS, wordCoins, towerStats, TOWER_MAX_PERKS, pointOnPath } from './defense-engine.js';
 import { cardById, CARD_RARITY_LABELS } from './defense-cards.js';
-import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
+import { qualityFor, setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
 
 const HUD_HEIGHT = 34;
 const SHOP_HEIGHT = 46;
@@ -53,6 +53,8 @@ const HONEY = Object.freeze({ light: '#ffe08a', body: '#f5b82e', dark: '#a8660c'
 export class DefenseRenderer {
   constructor(canvas) {
     this.surface = setupCanvas(canvas);
+    this.quality = qualityFor(this.surface);
+    this.quality.onChange(() => { this.staticLayer = null; });
     this.particles = new ParticleSystem();
     this.juice = new Juice();
     this.visuals = new VisualStates(() => ({ labelPop: new Spring(0, { stiffness: 420, damping: 18 }) }));
@@ -405,6 +407,7 @@ export class DefenseRenderer {
     this.particles.update(frameSeconds);
     this.visuals.step(frameSeconds, new Set(engine.targetables().map(entity => entity.id)));
     const wallNow = wallSeconds();
+    this.quality.tick(engine.status === 'running', wallNow);
     this.juice.step(this.lastWallSeconds == null ? 0 : wallNow - this.lastWallSeconds);
     this.lastWallSeconds = wallNow;
     this.juice.setDanger(engine.status === 'running' && engine.isDanger() ? 1 - engine.health / (engine.maxHealth * DEFENSE_RULES.dangerRatio) * 0.6 : 0);
@@ -723,13 +726,13 @@ export class DefenseRenderer {
   }
 
   // 길: 어두운 띠 + 하늘색 가장자리 + 컴퓨터 쪽으로 흐르는 점선
-  drawPath(context, engine) {
+  // 길 띠(가장자리 빛 + 어두운 길): 움직이지 않으므로 바탕 캔버스에 한 번만 그린다
+  drawPathBands(context, engine, danger) {
     const points = (engine.path?.points ?? DEFENSE_PATH).map(point => this.toScreen(point));
     const trace = () => {
       context.beginPath();
       points.forEach((point, index) => (index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y)));
     };
-    const danger = engine.isDanger();
     context.lineJoin = 'round';
     context.lineCap = 'round';
     context.strokeStyle = danger ? 'rgba(255, 77, 109, 0.35)' : 'rgba(54, 226, 255, 0.28)';
@@ -741,6 +744,18 @@ export class DefenseRenderer {
     context.lineWidth = pathWidth;
     trace();
     context.stroke();
+  }
+
+  drawPath(context, engine) {
+    const points = (engine.path?.points ?? DEFENSE_PATH).map(point => this.toScreen(point));
+    const trace = () => {
+      context.beginPath();
+      points.forEach((point, index) => (index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y)));
+    };
+    const danger = engine.isDanger();
+    if (!this.staticLayer) this.drawPathBands(context, engine, danger);
+    context.lineJoin = 'round';
+    context.lineCap = 'round';
     context.strokeStyle = danger ? 'rgba(255, 77, 109, 0.45)' : 'rgba(54, 226, 255, 0.35)';
     context.lineWidth = 2;
     context.setLineDash([6, 10]);
@@ -822,8 +837,67 @@ export class DefenseRenderer {
   }
 
   // 그림이 있으면 그림, 없으면 남색 그라데이션 + 격자 + 떨어지는 코드 비. 위험하면 붉게 물든다
-  drawBackground(context, width, height, engine) {
+  // ---------- 성능 ----------
+  get lowFx() {
+    return this.quality.lowFx;
+  }
+
+  setLowFx(enabled) {
+    this.quality.setLowFx(enabled);
+  }
+
+  // 움직이지 않는 바탕(배경 그림·어두운 막·길 띠)을 화면 밖 캔버스에 한 번 그려 두고 매 프레임 한 장으로 붙인다.
+  // 크기·배율·길·그림 로딩·위험 상태가 바뀔 때만 다시 그린다. 흐르는 점선·위험 붉은 빛·글자 비는 매 프레임 따로
+  drawStaticLayer(context, width, height, engine) {
+    const ratio = this.surface.ratio || 1;
+    const danger = engine.isDanger();
+    const key = `${width}x${height}@${ratio}|${engine.path?.name ?? 'default'}|${engine.path?.points?.length ?? 0}|${isArtReady(STAGE_ART)}|${danger}`;
+    if (this.staticLayer?.key !== key) {
+      const canvas = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(Math.round(width * ratio), Math.round(height * ratio)) : Object.assign(document.createElement('canvas'), { width: Math.round(width * ratio), height: Math.round(height * ratio) });
+      const layer = canvas.getContext('2d');
+      if (!layer) return false;
+      layer.setTransform(ratio, 0, 0, ratio, 0, 0);
+      this.drawBackgroundBase(layer, width, height);
+      this.drawPathBands(layer, engine, danger);
+      this.staticLayer = { key, canvas };
+    }
+    context.drawImage(this.staticLayer.canvas, 0, 0, width, height);
+    return true;
+  }
+
+  drawBackgroundBase(context, width, height) {
     if (isArtReady(STAGE_ART)) {
+      const layout = this.artLayout();
+      context.fillStyle = SCENE.bgTop;
+      context.fillRect(0, 0, width, height);
+      context.drawImage(STAGE_ART, layout.left, layout.top, layout.drawWidth, layout.drawHeight);
+      context.fillStyle = 'rgba(6, 9, 22, 0.25)';
+      context.fillRect(0, 0, width, height);
+      return;
+    }
+    const gradient = context.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, SCENE.bgTop);
+    gradient.addColorStop(1, SCENE.bgBottom);
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+    context.strokeStyle = SCENE.grid;
+    context.lineWidth = 1;
+    context.beginPath();
+    for (let x = (width / 2) % 32; x < width; x += 32) {
+      context.moveTo(x + 0.5, HUD_HEIGHT);
+      context.lineTo(x + 0.5, height);
+    }
+    for (let y = HUD_HEIGHT; y < height; y += 32) {
+      context.moveTo(0, y + 0.5);
+      context.lineTo(width, y + 0.5);
+    }
+    context.stroke();
+  }
+
+  drawBackground(context, width, height, engine) {
+    if (this.drawStaticLayer(context, width, height, engine)) {
+      if (!isArtReady(STAGE_ART) && !this.lowFx) this.drawCodeRain(context, width, height, engine);
+    } else if (isArtReady(STAGE_ART)) {
       const layout = this.artLayout();
       context.fillStyle = SCENE.bgTop;
       context.fillRect(0, 0, width, height);

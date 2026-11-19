@@ -1,6 +1,6 @@
 // 리듬 모드 화면: 4레인(손가락 구역), 위에서 떨어지는 큰 원 글자 노트, 아래 판정선, 맨 위에 지금 만드는 낱말.
 // 노트 위치 = 판정선 − (정박 시각 − 게임 시간) ÷ 떨어지는 시간 × 레인 높이. 게임 시간은 오디오 시계를 따른다.
-import { setupCanvas, roundedRect, ParticleSystem, canvasFont, CANVAS_FONTS, Juice } from './game-view.js';
+import { qualityFor, setupCanvas, roundedRect, ParticleSystem, canvasFont, CANVAS_FONTS, Juice } from './game-view.js';
 
 // 리듬 손맛: 박자를 읽어야 하므로 타격 정지는 없고 흔들림은 아주 약하게. 콤보 마디마다 큰 글씨
 const COMBO_MILESTONE = 25;
@@ -32,6 +32,7 @@ const visibleCharacter = character => character === ' ' ? '␣' : character;
 export class RhythmRenderer {
   constructor(canvas) {
     this.surface = setupCanvas(canvas);
+    this.quality = qualityFor(this.surface);
     this.particles = new ParticleSystem();
     this.juice = new Juice();
     this.lastWallSeconds = null;
@@ -158,6 +159,7 @@ export class RhythmRenderer {
   }
 
   render(engine, { accent }) {
+    this.quality.tick(engine.status === 'running');
     const context = this.context;
     if (!context) return;
     this.mirror = engine.options?.mirror === true;

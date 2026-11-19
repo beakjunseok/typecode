@@ -1473,10 +1473,10 @@ function renderInputBar() {
   if (!bar) return;
   const engine = run.engine;
   if (!isArcade() || !engine) {
-    bar.hidden = true;
+    if (!bar.hidden) bar.hidden = true;
     return;
   }
-  bar.hidden = false;
+  if (bar.hidden) bar.hidden = false;
   if (settings.mode === 'rhythm') {
     renderRhythmInputBar(engine);
     return;
@@ -1486,11 +1486,13 @@ function renderInputBar() {
   const correctLength = target ? [...typed].findIndex((character, index) => character !== target.token.text[index]) : -1;
   const goodPart = correctLength === -1 ? typed : typed.slice(0, correctLength);
   const badPart = correctLength === -1 ? '' : typed.slice(correctLength);
-  ui.elements.inputTyped.textContent = goodPart;
-  ui.elements.inputWrong.textContent = badPart;
-  ui.elements.inputRest.textContent = target ? target.token.text.slice(typed.length) : '';
+  // 매 프레임 불리므로 바뀐 글자만 쓴다
+  const setText = (node, text) => { if (node && node.textContent !== text) node.textContent = text; };
+  setText(ui.elements.inputTyped, goodPart);
+  setText(ui.elements.inputWrong, badPart);
+  setText(ui.elements.inputRest, target ? target.token.text.slice(typed.length) : '');
   const notice = run.inputNotice && run.inputNotice.until > Date.now() ? run.inputNotice.message : '';
-  ui.elements.inputTarget.textContent = notice || (target ? '' : engine.status === 'finished' ? 'game over' : '낱말의 첫 글자를 치세요');
+  setText(ui.elements.inputTarget, notice || (target ? '' : engine.status === 'finished' ? 'game over' : '낱말의 첫 글자를 치세요'));
   ui.elements.inputTarget.classList.toggle('notice', Boolean(notice));
   updateArcadeKeyboardHint();
 }

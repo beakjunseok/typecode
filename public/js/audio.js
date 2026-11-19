@@ -436,7 +436,9 @@ function comboFrequency(combo) {
 // 같은 소리를 다시 울리기까지 최소 간격(초). 타워가 많을 때 한 프레임에 수십 번 겹치지 않게
 const THROTTLED_SOUNDS = Object.freeze({
   empCharge: 0.08, empBlast: 0.07, zap: 0.06, honeyLob: 0.08, honeySplat: 0.08, honeyStep: 0.05,
-  ignite: 0.07, missileLaunch: 0.06, missileBoom: 0.06, laserShot: 0.05, towerLand: 0.05, bossLaserCharge: 0.3, bossLaser: 0.2, cardHover: 0.05
+  ignite: 0.07, missileLaunch: 0.06, missileBoom: 0.06, laserShot: 0.05, towerLand: 0.05, bossLaserCharge: 0.3, bossLaser: 0.2, cardHover: 0.05,
+  // 적이 한꺼번에 많을 때 같은 소리가 겹겹이 쌓이지 않게(소리마다 오디오 노드를 새로 만들어 비싸다)
+  spawnRobot: 0.06, explode: 0.05, glassCrack: 0.1, lifeLost: 0.1
 });
 
 const SOUNDS = {

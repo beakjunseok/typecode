@@ -25,11 +25,12 @@ const MAX_PARTICLES = 400;
 
 export function setupCanvas(canvas) {
   const context = canvas?.getContext?.('2d') ?? null;
-  const surface = { canvas, context, width: 0, height: 0, ratio: 1 };
+  // maxRatio: 화면 배율 상한(기본 2). 느린 기기에서는 낮춰 픽셀 수를 줄인다
+  const surface = { canvas, context, width: 0, height: 0, ratio: 1, maxRatio: 2 };
   const resize = () => {
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
+    const ratio = Math.min(globalThis.devicePixelRatio || 1, surface.maxRatio);
     const width = Math.max(1, Math.round(rect.width));
     const height = Math.max(1, Math.round(rect.height));
     // 크기가 같으면 캔버스를 다시 할당하지 않는다(매 프레임 호출돼도 비용 없음).
@@ -44,7 +45,87 @@ export function setupCanvas(canvas) {
   resize();
   if (typeof ResizeObserver === 'function' && canvas) new ResizeObserver(resize).observe(canvas);
   surface.resize = resize;
+  surface.setMaxRatio = value => {
+    surface.maxRatio = Math.max(1, Number(value) || 2);
+    resize();
+  };
   return surface;
+}
+
+// ---------- 자동 화질 조절(모든 아케이드 게임 공용) ----------
+// 프레임 간격(지수 평균)을 재서 1.5초 넘게 느리면(24ms↑) 저사양 모드, 4초 넘게 60fps 근처(18ms↓)면 되돌린다.
+// 왔다 갔다 하지 않도록 두 번째로 저사양이 되면 그 뒤로는 되돌리지 않는다.
+// 저사양 모드: 그림자 흐림(shadowBlur)·필터(filter)를 끄고(둘 다 그릴 때마다 픽셀을 다시 훑어 가장 비싸다) 화면 배율을 1.5로 낮춘다.
+// 그리는 코드를 고치지 않도록 그 캔버스 context의 두 속성만 가로챈다. 같은 캔버스를 쓰는 렌더러끼리 하나를 나눠 쓴다
+const QUALITY_BY_CANVAS = new WeakMap();
+
+export class QualityGovernor {
+  constructor(context) {
+    this.lowFx = false;
+    this.frameMs = 16;
+    this.slowSince = null;
+    this.fastSince = null;
+    this.lastAt = null;
+    this.downgrades = 0;
+    this.surfaces = new Set();
+    this.listeners = new Set();
+    this.install(context);
+  }
+
+  install(context) {
+    const prototype = context && Object.getPrototypeOf(context);
+    const shadow = prototype && Object.getOwnPropertyDescriptor(prototype, 'shadowBlur');
+    const filter = prototype && Object.getOwnPropertyDescriptor(prototype, 'filter');
+    const governor = this;
+    try {
+      if (shadow?.set) Object.defineProperty(context, 'shadowBlur', { configurable: true, get() { return shadow.get.call(this); }, set(value) { shadow.set.call(this, governor.lowFx ? 0 : value); } });
+      if (filter?.set) Object.defineProperty(context, 'filter', { configurable: true, get() { return filter.get.call(this); }, set(value) { filter.set.call(this, governor.lowFx ? 'none' : value); } });
+    } catch {
+      /* 가로챌 수 없는 환경이면 그대로 둔다 */
+    }
+  }
+
+  // 매 프레임 한 번. running이 아니면(결과 화면 등) 재지 않는다. 5초 넘는 공백(탭 이동)은 버리고, 큰 간격은 100ms로 자른다
+  tick(running, now = (globalThis.performance?.now() ?? Date.now()) / 1000) {
+    const delta = this.lastAt == null ? 0 : now - this.lastAt;
+    this.lastAt = now;
+    if (!running || !(delta > 0) || delta > 5) return;
+    this.frameMs += (Math.min(0.1, delta) * 1000 - this.frameMs) * 0.1;
+    if (!this.lowFx) {
+      this.slowSince = this.frameMs > 24 ? this.slowSince ?? now : null;
+      if (this.slowSince != null && now - this.slowSince > 1.5) this.setLowFx(true);
+    } else {
+      if (this.downgrades >= 2) return;
+      this.fastSince = this.frameMs < 18 ? this.fastSince ?? now : null;
+      if (this.fastSince != null && now - this.fastSince > 4) this.setLowFx(false);
+    }
+  }
+
+  setLowFx(enabled) {
+    if (enabled && !this.lowFx) this.downgrades++;
+    this.lowFx = Boolean(enabled);
+    this.slowSince = null;
+    this.fastSince = null;
+    for (const surface of this.surfaces) surface.setMaxRatio?.(this.lowFx ? 1.5 : 2);
+    for (const listener of this.listeners) listener(this.lowFx);
+  }
+
+  onChange(listener) {
+    this.listeners.add(listener);
+  }
+}
+
+// 이 캔버스의 화질 조절기(없으면 만든다)
+export function qualityFor(surface) {
+  const canvas = surface?.canvas;
+  if (!canvas || !surface.context) return new QualityGovernor(null);
+  let governor = QUALITY_BY_CANVAS.get(canvas);
+  if (!governor) {
+    governor = new QualityGovernor(surface.context);
+    QUALITY_BY_CANVAS.set(canvas, governor);
+  }
+  governor.surfaces.add(surface);
+  return governor;
 }
 
 // 배경 그림을 한 번만 불러 둔다(브라우저가 아니면 null). 그릴 때는 isArtReady로 다 받았는지 확인한다
