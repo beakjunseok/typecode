@@ -422,8 +422,9 @@ function drawSweat(context, rig, motion) {
 }
 
 // 방전봇: 플러그 머리 상자 로봇. options: { paused(화면 꺼짐), worried, result }
-export function drawDrainBot(context, rig, { paused = false, worried = false, result = null, level = 2 }) {
-  const look = drainBotFor(level);
+// lookOverride: 성격(battery-modes.js PERSONAS.look)으로 바꿀 색 — base 레벨 캐릭터 위에 덮는다
+export function drawDrainBot(context, rig, { paused = false, worried = false, result = null, level = 2, lookOverride = null }) {
+  const look = lookOverride ? { ...drainBotFor(lookOverride.base ?? level), ...lookOverride, limb: lookOverride.body ?? drainBotFor(lookOverride.base ?? level).limb, limbShade: lookOverride.bodyDark ?? drainBotFor(lookOverride.base ?? level).limbShade } : drainBotFor(level);
   const time = rig.clock;
   const motion = bodyMotion(rig, { sleeping: paused, worried, result });
   const calm = !paused && !result && rig.typing < 0.3;

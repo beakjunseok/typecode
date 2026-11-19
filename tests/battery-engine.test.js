@@ -209,3 +209,115 @@ test('혼자 하기 상대 캐릭터: 레벨마다 다른 이름, 그림 쪽 이
   assert.equal(new Set(names).size, 4);
   names.forEach((name, index) => assert.equal(name, DRAIN_BOTS[index + 1].name));
 });
+
+import { PERSONAS, PERSONA_ORDER, WEATHERS, WEATHER_ORDER, DEFAULT_DECK, DECK_SIZE, ITEM_LOOKS, pickWeather, mirrorProfile } from '../public/js/battery-modes.js';
+import { ITEM_EFFECTS } from '../public/js/battery-engine.js';
+
+function setupMode(options = {}, seed = 13) {
+  const events = [];
+  const engine = new BatteryEngine({ tokenPool: getTokenPool('python'), level: 2, random: seeded(seed), onEvent: (type, payload) => events.push({ type, payload }), ...options });
+  const clock = { now: 0 };
+  engine.start(0);
+  return { engine, events, clock };
+}
+
+test('성격 6종: 모양·도발·아이템 모양이 모두 갖춰져 있다', () => {
+  assert.equal(PERSONA_ORDER.length, 6);
+  for (const key of PERSONA_ORDER) {
+    const persona = PERSONAS[key];
+    assert.ok(persona.name && persona.icon && persona.look.glow, key);
+    for (const kind of ['start', 'win', 'lose']) assert.ok(persona.taunts[kind]?.length, `${key}.${kind}`);
+  }
+  for (const key of Object.keys(BATTERY_ITEMS)) assert.ok(ITEM_LOOKS[key], key);
+  assert.equal(DEFAULT_DECK.length, DECK_SIZE);
+});
+
+test('덱: 셀 + 고른 4개만 나온다', () => {
+  const deck = ['reflect', 'magnet', 'trap', 'lucky'];
+  const { engine } = setupMode({ deck, persona: 'rusher' });
+  const seen = new Set(Array.from({ length: 400 }, () => engine.chooseItemType()));
+  for (const item of seen) assert.ok(['cell', ...deck].includes(item), item);
+  assert.ok(seen.size >= 3);
+});
+
+test('반사 방패: 뺏으려던 쪽이 거꾸로 셀을 잃는다', () => {
+  const { engine, events } = setupMode({ persona: 'rusher' });
+  engine.me.reflect = 1;
+  const before = { me: engine.me.cells, rival: engine.rival.cells };
+  const result = engine.steal(engine.rival, engine.me);
+  assert.equal(result.reflected, true);
+  assert.ok(engine.rival.cells < before.rival);
+  assert.ok(engine.me.cells > before.me);
+  assert.equal(engine.me.reflect, 0);
+  assert.ok(events.some(event => event.type === 'reflect'));
+});
+
+test('오버클럭: 뺏는 양이 2배', () => {
+  const { engine } = setupMode({ persona: 'rusher' });
+  engine.rival.cells = 3;
+  engine.me.overclockUntil = engine.gameTime + 5;
+  const result = engine.steal(engine.me, engine.rival);
+  assert.equal(result.stolen, BATTERY_RULES.stealCells * ITEM_EFFECTS.overclockFactor);
+});
+
+test('난독화와 백신: 면역 중엔 난독화가 막힌다', () => {
+  const { engine } = setupMode({ persona: 'rusher' });
+  engine.applyItem(engine.rival, engine.me, { item: 'obfuscate' });
+  assert.ok(engine.me.obfuscatedUntil > engine.gameTime);
+  engine.applyItem(engine.me, engine.rival, { item: 'cleanse' });
+  assert.equal(engine.me.obfuscatedUntil, 0);
+  engine.applyItem(engine.rival, engine.me, { item: 'obfuscate' });
+  assert.equal(engine.me.obfuscatedUntil, 0);
+});
+
+test('함정 셀: 놓은 쪽은 무해, 상대는 손해', () => {
+  const { engine, events } = setupMode({ persona: 'rusher' });
+  const before = engine.me.cells;
+  engine.applyItem(engine.me, engine.rival, { item: 'cell', trapOwner: 'rival' });
+  assert.equal(engine.me.cells, before - ITEM_EFFECTS.trapLoss);
+  assert.ok(events.some(event => event.type === 'trap-sprung'));
+  const rivalBefore = engine.rival.cells;
+  engine.applyItem(engine.rival, engine.me, { item: 'cell', trapOwner: 'rival' });
+  assert.equal(engine.rival.cells, rivalBefore);
+});
+
+test('셀 자석: 화면 안 셀을 바로 가져간다(함정은 제외)', () => {
+  const { engine, events } = setupMode({ persona: 'rusher' });
+  engine.me.magnetUntil = engine.gameTime + 5;
+  assert.equal(engine.magnetPull({ id: 900, item: 'cell', x: 0.5 }), true);
+  assert.equal(engine.magnetPull({ id: 901, item: 'cell', x: 0.5, trapOwner: 'rival' }), false);
+  assert.equal(engine.magnetPull({ id: 902, item: 'heat', x: 0.5 }), false);
+  assert.ok(events.some(event => event.type === 'magnet-take'));
+});
+
+test('날씨: 파도는 10초마다 크게 가라앉고, 썰물은 덜 가라앉는다', () => {
+  const calm = setupMode({ persona: 'rusher', weather: 'calm' }).engine;
+  const ebb = setupMode({ persona: 'rusher', weather: 'ebb' }).engine;
+  assert.ok(ebb.sinkPerSecond() < calm.sinkPerSecond());
+  const { engine, events, clock } = setupMode({ persona: 'rusher', weather: 'waves' });
+  freezeAi(engine);
+  noSpawns(engine);
+  advance(engine, clock, WEATHERS.waves.every + 0.2);
+  assert.ok(events.some(event => event.type === 'big-wave'));
+  assert.ok(engine.gameTime < engine.waveUntil);
+  assert.ok(engine.sinkPerSecond() > calm.sinkPerSecond());
+});
+
+test('날씨 뽑기: 같은 날씨가 연달아 나오지 않는다', () => {
+  const random = seeded(5);
+  let previous = 'calm';
+  for (let round = 0; round < 50; round++) {
+    const next = pickWeather(random, previous);
+    assert.ok(WEATHER_ORDER.includes(next));
+    assert.notEqual(next, previous);
+    previous = next;
+  }
+});
+
+test('미러봇 프로필: 이상한 값은 안전한 범위로', () => {
+  const profile = mirrorProfile({ charactersPerSecond: 999, attacks: 5, collects: 0 });
+  assert.ok(profile.cps > 0 && profile.cps < 20);
+  assert.ok(profile.attack >= 0 && profile.attack <= 1);
+  const empty = mirrorProfile(null);
+  assert.ok(empty.cps > 0);
+});

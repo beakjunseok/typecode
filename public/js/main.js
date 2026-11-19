@@ -3,7 +3,8 @@ import { TypingEngine, DURATIONS, getTierIndex } from './engine.js';
 import { TimeAttackEngine, TIME_ATTACK_RULES } from './time-attack-engine.js';
 import { LANGUAGES, getTokenPool } from './tokens.js';
 import { ThrowEngine, ROBOT_TYPES, BOSS_SKILLS, FORMATIONS } from './throw-engine.js';
-import { BatteryEngine } from './battery-engine.js';
+import { BatteryEngine, BATTERY_ITEMS } from './battery-engine.js';
+import { PERSONAS, PERSONA_ORDER, WEATHERS, DECK_SIZE, BASE_ITEM, DEFAULT_DECK, ITEM_LOOKS, mirrorProfile, pickWeather } from './battery-modes.js';
 import { BatteryPvpHostEngine, BatteryPvpGuestEngine, PVP_RULES, PVP_PROTOCOL_VERSION } from './battery-pvp.js';
 import { hostRoom, joinRoom } from './pvp-connection.js';
 import { createPvpLobby } from './pvp-lobby.js';
@@ -48,7 +49,7 @@ const MODE_CONFIG = Object.freeze({
   battery: {
     label: '배터리 구조 SOS', arcade: true, title: 'battery-rescue.sh', resultTitle: 'BATTERY REPORT',
     hint: '지나가는 셀 낱말로 충전 · 방전봇 탑 낱말로 공격', Renderer: BatteryRenderer,
-    createEngine: options => new BatteryEngine({ ...options, maxTokenLength: options.narrow ? 14 : 18 })
+    createEngine: options => new BatteryEngine({ ...options, maxTokenLength: options.narrow ? 14 : 18, ...batteryMatchOptions() })
   },
   defense: {
     label: '컴퓨터 디펜스', arcade: true, title: 'firewall.sys', resultTitle: 'SYSTEM HACKED',
@@ -194,8 +195,10 @@ function handleArcadeEvent(type, payload) {
   renderer?.onEvent(type, payload, run.engine);
   if (settings.mode === 'defense' && handleDefenseEvent(type, payload)) return;
   const battery = settings.mode === 'battery';
+  if (battery && handleBatteryModeEvent(type, payload)) return;
   switch (type) {
     case 'start':
+      if (battery) updateBatteryPrep();
       if (settings.mode === 'rhythm') {
         sound.ensureContext();
         songPreview.stop();
@@ -586,6 +589,7 @@ function resultMood(summary) {
 function handleFinish(summary) {
   // 판이 끝나면 숨겼던 메뉴를 다시 보여 준다(결과창·랭킹)
   queueMicrotask(updateMobilePlay);
+  advanceBatteryPrep(summary);
   if (isPvp()) {
     pvp.phase = 'ended';
     pvp.lastOutcome = summary.outcome;
@@ -1051,6 +1055,131 @@ function startMusic() {
   bgm.play(bossWave ? 'boss' : settings.mode);
 }
 
+// ---------- 배터리 구조 판 준비(혼자 하기) ----------
+// 상대는 라인업 순서대로(이기면 다음 상대), 날씨는 판마다 무작위(같은 날씨 연속 없음), 덱은 고른 대로 저장
+const batteryPrep = {
+  ladder: Math.max(0, Number(preferences.get('batteryLadder', 0)) || 0),
+  deck: sanitizeDeck(preferences.get('batteryDeck', DEFAULT_DECK)),
+  mirror: preferences.get('batteryMirror', null),
+  weather: pickWeather(Math.random, preferences.get('batteryWeather', null))
+};
+
+function sanitizeDeck(deck) {
+  const valid = (Array.isArray(deck) ? deck : []).filter(key => BATTERY_ITEMS[key] && key !== BASE_ITEM);
+  return [...new Set(valid)].slice(0, DECK_SIZE);
+}
+
+const currentPersona = () => PERSONA_ORDER[batteryPrep.ladder % PERSONA_ORDER.length];
+
+function batteryMatchOptions() {
+  return { persona: currentPersona(), deck: batteryPrep.deck, weather: batteryPrep.weather, mirrorProfile: batteryPrep.mirror ?? undefined };
+}
+
+// 배터리 판 꾸미기 이벤트(성격 대사·날씨·새 아이템). 소리·기록만, 그림은 화면(BatteryRenderer)이 한다. 처리했으면 true
+function handleBatteryModeEvent(type, payload) {
+  switch (type) {
+    case 'taunt':
+      return true;
+    case 'big-wave':
+      sound.play('splash');
+      ui.log('warn', '🌊 큰 파도! 두 탑이 가라앉아요');
+      return true;
+    case 'reflect':
+      sound.play('glassCrack');
+      ui.log(payload.attacker === 'me' ? 'err' : 'ok', payload.attacker === 'me' ? '🪞 방전봇의 반사 방패에 막혀 되레 뺏겼어요' : '🪞 반사 방패! 뺏으려던 걸 되돌려 받았어요');
+      return true;
+    case 'trap-sprung':
+      sound.play(payload.victim === 'me' ? 'lifeLost' : 'powerUp');
+      ui.log(payload.victim === 'me' ? 'err' : 'ok', payload.victim === 'me' ? '🪤 함정 셀이었어요! -0.5칸' : '🪤 방전봇이 함정에 걸렸어요');
+      return true;
+    case 'magnet-take':
+      sound.play(payload.owner === 'me' ? 'itemSpawn' : 'error');
+      return true;
+    default:
+      return false;
+  }
+}
+
+// 판이 끝나면: 이겼으면 다음 상대, 내 습관을 미러봇용으로 기억, 다음 판 날씨를 새로 뽑는다
+function advanceBatteryPrep(summary) {
+  if (summary.mode !== 'battery' || isPvp() || summary.autoPlay) return;
+  if (summary.outcome === 'rescued' || summary.outcome === 'rival-sunk') {
+    batteryPrep.ladder++;
+    preferences.set('batteryLadder', batteryPrep.ladder);
+  }
+  batteryPrep.mirror = mirrorProfile(summary);
+  preferences.set('batteryMirror', batteryPrep.mirror);
+  preferences.set('batteryWeather', batteryPrep.weather);
+  batteryPrep.weather = pickWeather(Math.random, batteryPrep.weather);
+}
+
+// 준비 판: 혼자 하기에서 아직 시작 전일 때만 보인다
+function updateBatteryPrep() {
+  const panel = document.getElementById('batteryPrep');
+  if (!panel) return;
+  const show = settings.mode === 'battery' && !isPvp() && run.engine?.status === 'ready';
+  panel.hidden = !show;
+  if (!show) return;
+  const personaKey = currentPersona();
+  const persona = PERSONAS[personaKey];
+  const round = Math.floor(batteryPrep.ladder / PERSONA_ORDER.length) + 1;
+  const rival = document.getElementById('prepRival');
+  rival.style.setProperty('--persona', persona.look.glow);
+  rival.innerHTML = '';
+  rival.append(
+    Object.assign(document.createElement('span'), { className: 'prep-icon', textContent: persona.icon }),
+    Object.assign(document.createElement('div'), { className: 'prep-text' })
+  );
+  rival.lastChild.append(
+    Object.assign(document.createElement('b'), { textContent: `상대 ${batteryPrep.ladder % PERSONA_ORDER.length + 1}/${PERSONA_ORDER.length}${round > 1 ? ` (${round}회차)` : ''} · ${persona.name}` }),
+    Object.assign(document.createElement('small'), { textContent: persona.blurb })
+  );
+  const weather = WEATHERS[batteryPrep.weather];
+  const weatherCard = document.getElementById('prepWeather');
+  weatherCard.style.setProperty('--persona', '#4fc3ff');
+  weatherCard.innerHTML = '';
+  weatherCard.append(
+    Object.assign(document.createElement('span'), { className: 'prep-icon', textContent: weather.icon }),
+    Object.assign(document.createElement('div'), { className: 'prep-text' })
+  );
+  weatherCard.lastChild.append(
+    Object.assign(document.createElement('b'), { textContent: `날씨 · ${weather.name}` }),
+    Object.assign(document.createElement('small'), { textContent: weather.blurb })
+  );
+  document.getElementById('prepDeckCount').textContent = `${batteryPrep.deck.length}/${DECK_SIZE}`;
+  const chips = document.getElementById('prepDeck');
+  chips.replaceChildren(...Object.entries(BATTERY_ITEMS).filter(([key]) => key !== BASE_ITEM).map(([key, item]) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'prep-chip';
+    chip.dataset.item = key;
+    chip.title = item.effect;
+    chip.style.setProperty('--chip', ITEM_LOOKS[key]?.color ?? '#36e2ff');
+    chip.setAttribute('aria-pressed', String(batteryPrep.deck.includes(key)));
+    chip.textContent = `${ITEM_LOOKS[key]?.icon ?? ''} ${item.label}`;
+    return chip;
+  }));
+}
+
+// 덱 칩 누르기: 넣기/빼기(꽉 차 있으면 흔들기). 아직 시작 전이라 판을 새 덱으로 다시 만든다
+function toggleDeckItem(key) {
+  const deck = batteryPrep.deck;
+  if (deck.includes(key)) batteryPrep.deck = deck.filter(entry => entry !== key);
+  else if (deck.length >= DECK_SIZE) {
+    const chip = document.querySelector(`.prep-chip[data-item="${key}"]`);
+    chip?.classList.remove('full');
+    void chip?.offsetWidth;
+    chip?.classList.add('full');
+    sound.play('error');
+    ui.log('warn', `덱은 ${DECK_SIZE}종까지예요 — 하나를 빼고 넣으세요`);
+    return;
+  } else batteryPrep.deck = [...deck, key];
+  preferences.set('batteryDeck', batteryPrep.deck);
+  sound.play('uiClick');
+  if (run.engine?.status === 'ready') resetGame();
+  else updateBatteryPrep();
+}
+
 function createEngine() {
   if (!isArcade()) {
     if (isTimeAttack()) return new TimeAttackEngine({ tokenPool: getTokenPool(settings.languageKey), onEvent: handlePracticeEvent });
@@ -1097,6 +1226,7 @@ function resetGame() {
     ui.renderToken(run.engine);
     updateKeyboardHint();
   }
+  updateBatteryPrep();
   renderStats();
   renderInputBar();
   updateFocusState();
@@ -2171,6 +2301,14 @@ function bindEvents() {
   elements.saveForm.addEventListener('submit', handleSave);
   elements.focusOverlay.addEventListener('click', focusTypingArea);
   elements.arcadeOverlay.addEventListener('click', focusTypingArea);
+  // 덱 칩: 누르는 순간 포커스를 뺏기지 않게(입력창 유지)
+  const prepDeck = document.getElementById('prepDeck');
+  prepDeck?.addEventListener('mousedown', event => event.preventDefault());
+  prepDeck?.addEventListener('click', event => {
+    const chip = event.target.closest('.prep-chip');
+    if (chip) toggleDeckItem(chip.dataset.item);
+    elements.hiddenInput?.focus({ preventScroll: true });
+  });
   elements.stage.addEventListener('click', focusTypingArea);
   elements.arcadeStage.addEventListener('click', focusTypingArea);
   bindDefensePointer(elements.arcadeCanvas);
