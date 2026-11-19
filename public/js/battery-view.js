@@ -5,7 +5,8 @@ import { drawDrone } from './drone-view.js';
 import { BATTERY_RULES } from './battery-engine.js';
 import { PERSONAS, WEATHERS, ITEM_LOOKS } from './battery-modes.js';
 import { MASCOT_PALETTES, createRig, reactRig, updateRig, drawPhoneMascot, drawDrainBot, drainBotFor } from './battery-characters.js';
-import { qualityFor, setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice, recordRect } from './game-view.js';
+import { qualityFor, setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice, recordRect, drawRarityTag } from './game-view.js';
+import { ITEM_RARITIES } from './item-rarity.js';
 
 const BEAM_SECONDS = 0.35;
 const isPvp = engine => engine.mode === 'battery-pvp';
@@ -147,8 +148,14 @@ export class BatteryRenderer {
       juice.popup(me.x, me.y - 34, '-0.5', { color: '#ff5d73', size: 22 });
     } else if (type === 'item') {
       const { x, y } = this.itemPosition(payload.item);
-      juice.ring(x, y, { color: ITEM_STYLE[payload.item.item].color, radius: 100, life: 0.5, width: 6 });
-      juice.flash(ITEM_STYLE[payload.item.item].color, 0.15, 0.3);
+      const rarity = payload.item.item !== 'cell' ? ITEM_RARITIES[payload.item.rarity] : null;
+      const color = rarity && payload.item.rarity !== 'common' ? rarity.color : ITEM_STYLE[payload.item.item].color;
+      juice.ring(x, y, { color, radius: payload.item.rarity === 'legendary' ? 150 : 100, life: 0.5, width: 6 });
+      juice.flash(color, payload.item.rarity === 'legendary' ? 0.3 : 0.15, 0.3);
+      if (rarity && payload.item.rarity !== 'common') {
+        juice.popup(x, y - 40, `${rarity.label}!`, { color, size: payload.item.rarity === 'legendary' ? 26 : 20 });
+        if (payload.item.rarity === 'legendary' || payload.item.rarity === 'epic') juice.shake(payload.item.rarity === 'legendary' ? 0.4 : 0.2);
+      }
     } else if (type === 'rival-take') {
       juice.shake(0.2);
     } else if (type === 'stage-clear' || (type === 'round-end' && payload.mine)) {
@@ -802,8 +809,21 @@ export class BatteryRenderer {
     context.globalAlpha = alpha;
     context.translate(x, y);
     context.scale(scale, scale);
-    context.shadowColor = style.color;
-    context.shadowBlur = 12;
+    // 등급(희귀 이상, 셀 제외 — 함정 셀이 티 나지 않게): 등급 색 고리 + 머리 위 등급 이름
+    const rarity = item.item !== 'cell' && item.rarity && item.rarity !== 'common' ? ITEM_RARITIES[item.rarity] : null;
+    if (rarity) {
+      context.save();
+      context.strokeStyle = rarity.color;
+      context.globalAlpha *= 0.55 + 0.35 * Math.sin(engine.gameTime * 5 + item.id);
+      context.lineWidth = item.rarity === 'legendary' ? 3.5 : 2.5;
+      context.beginPath();
+      context.arc(0, 0, 21, 0, Math.PI * 2);
+      context.stroke();
+      context.restore();
+      drawRarityTag(context, 0, -31, item.rarity, engine.gameTime, { label: rarity.label, color: rarity.color });
+    }
+    context.shadowColor = rarity?.color ?? style.color;
+    context.shadowBlur = rarity ? 18 : 12;
     if (item.item === 'cell') this.drawCellIcon(context, style.color);
     else if (item.item === 'powerbank') this.drawPowerbankDrone(context, engine);
     else if (item.item === 'eco') this.drawEcoIcon(context, style.color);
@@ -854,8 +874,8 @@ export class BatteryRenderer {
     if (!state) return;
     const now = engine.gameTime;
     const badges = [];
-    if (state.reflect > 0) badges.push('🪞');
-    if (now < state.magnetUntil) badges.push('🧲');
+    if (state.reflect >= 0) badges.push('🪞');
+    if (state.magnetCharges > 0) badges.push('🧲');
     if (now < state.overclockUntil) badges.push('⚙');
     if (now < state.immuneUntil) badges.push('💊');
     if (now < state.obfuscatedUntil) badges.push('🌀');

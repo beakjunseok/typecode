@@ -4,7 +4,8 @@
 //    방장 스냅샷(초당 20회)을 좌우 반전해 받는다(각자 자기 탑이 왼쪽). 낱말을 다 치면 방장에게 '가져가기' 요청.
 // 같은 아이템을 둘이 거의 동시에 치면 방장 기기에 먼저 도착한 쪽이 가져간다.
 // 경기: 3판 2선승. 한 판 = 먼저 8칸(100%) 충전하거나 상대를 0%로 만든 쪽 승리. 판마다 조금씩 빨라진다.
-import { BatteryEngine, BATTERY_ITEMS, BATTERY_RULES } from './battery-engine.js';
+import { BatteryEngine, BATTERY_ITEMS, BATTERY_RULES, itemTier } from './battery-engine.js';
+import { isRarity } from './item-rarity.js';
 import { TargetGameEngine } from './target-game.js';
 
 export const PVP_PROTOCOL_VERSION = 1;
@@ -90,7 +91,7 @@ export class BatteryPvpHostEngine extends BatteryEngine {
       target.takenBy = 'rival';
       target.takenAt = this.gameTime;
       this.applyItem(this.rival, this.me, target);
-      if (target.item === 'blackout') this.blockedUntil = this.gameTime + PVP_RULES.blackoutSeconds;
+      if (target.item === 'blackout') this.blockedUntil = this.gameTime + itemTier('blackout', target.rarity, 'seconds', PVP_RULES.blackoutSeconds);
       if (this.targetId === target.id) {
         this.stolen++;
         this.releaseTargetIf(target.id, 'stolen');
@@ -119,7 +120,7 @@ export class BatteryPvpHostEngine extends BatteryEngine {
     if (this.status !== 'running') return;
     if (entity.kind === 'item' && entity.item === 'blackout') {
       super.onProjectileLanded(entity);
-      this.ai.pausedUntil = this.gameTime + PVP_RULES.blackoutSeconds;
+      this.ai.pausedUntil = this.gameTime + itemTier('blackout', entity.rarity, 'seconds', PVP_RULES.blackoutSeconds);
       this.outbox.push({ type: 'host-take', itemId: entity.id, item: entity.item });
       return;
     }
@@ -190,7 +191,7 @@ export class BatteryPvpHostEngine extends BatteryEngine {
       hostBlockedUntil: this.blockedUntil,
       guestBlockedUntil: this.ai.pausedUntil,
       items: this.items.map(item => ({
-        id: item.id, item: item.item, x: item.x, y: item.y, direction: item.direction,
+        id: item.id, item: item.item, rarity: item.rarity, x: item.x, y: item.y, direction: item.direction,
         consumed: item.consumed, takenBy: item.takenBy, takenAt: item.takenAt, token: tokenOf(item.token)
       })),
       events
@@ -338,7 +339,7 @@ export class BatteryPvpGuestEngine extends BatteryEngine {
         this.releaseTargetIf(raw.id, 'stolen');
       }
       Object.assign(item, {
-        item: raw.item, x: 1 - raw.x, y: raw.y, direction: -raw.direction, token: tokenOf(raw.token),
+        item: raw.item, rarity: isRarity(raw.rarity) ? raw.rarity : 'common', x: 1 - raw.x, y: raw.y, direction: -raw.direction, token: tokenOf(raw.token),
         consumed: raw.consumed || pending, takenBy: raw.consumed ? mirrorSide(raw.takenBy) : pending ? 'me' : null,
         takenAt: raw.takenAt ?? item.takenAt
       });

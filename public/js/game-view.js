@@ -384,6 +384,40 @@ export class Juice {
   }
 }
 
+// 아이템 등급 표시(희귀 이상): 아이템 위 작은 알약 모양 글씨 + 전설은 도는 빛살. 일반은 아무것도 그리지 않는다
+export function drawRarityTag(context, x, y, rarity, time = 0, { label, color, scale = 1 } = {}) {
+  if (!rarity || rarity === 'common' || !label) return;
+  context.save();
+  context.translate(x, y);
+  context.scale(scale, scale);
+  if (rarity === 'legendary') {
+    context.globalAlpha = 0.35;
+    context.fillStyle = color;
+    for (let ray = 0; ray < 8; ray++) {
+      const angle = time * 0.8 + (ray * Math.PI) / 4;
+      context.beginPath();
+      context.moveTo(0, 22);
+      context.arc(0, 22, 46, angle - 0.09, angle + 0.09);
+      context.closePath();
+      context.fill();
+    }
+    context.globalAlpha = 1;
+  }
+  context.font = "700 10px 'Pretendard', 'Noto Sans KR', system-ui, sans-serif";
+  const width = context.measureText(label).width + 12;
+  roundedRect(context, -width / 2, -8, width, 15, 7);
+  context.fillStyle = 'rgba(8, 10, 20, 0.88)';
+  context.fill();
+  context.lineWidth = 1.5;
+  context.strokeStyle = color;
+  context.stroke();
+  context.fillStyle = color;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(label, 0, 0.5);
+  context.restore();
+}
+
 // 좌상단 HUD: 생명(♥/SLA)과 아이템 남은 시간 게이지
 export function drawHud(context, { lives, maxLives, livesLabel, powerLabel, powerRemaining, powerSeconds, accent }) {
   context.font = "600 13px 'JetBrains Mono', ui-monospace, monospace";

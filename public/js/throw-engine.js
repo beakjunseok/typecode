@@ -1,6 +1,7 @@
 // '휴대폰 던지기' 모드: 위에서 내려오는 로봇에게 토큰을 쳐서 휴대폰(아이템 사용 시 노트북)을 던진다.
 // 좌표 x는 0(내 책상)~1(화면 오른쪽 끝). 공통 규칙(조준·입력·콤보·생명)은 TargetGameEngine에 있다.
 import { SCORING, MAX_MULTIPLIER } from './engine.js';
+import { rollRarity, tierValue, isRarity } from './item-rarity.js';
 import { TargetGameEngine, ARCADE_RULES, filterArcadeTokens, randomBetween } from './target-game.js';
 
 export const ROBOT_TYPES = Object.freeze({
@@ -85,9 +86,17 @@ export const BOSS_RULES = Object.freeze({
 });
 
 export const ITEM_TYPES = Object.freeze({
-  laptop: Object.freeze({ label: '노트북', effect: '8초간 노트북 두 개씩 투척' }),
-  battery: Object.freeze({ label: '건전지', effect: '생명(건전지) 1칸 회복' })
+  laptop: Object.freeze({ label: '노트북', effect: '잠깐 노트북 여러 개씩 투척' }),
+  battery: Object.freeze({ label: '건전지', effect: '생명 회복(넘치면 보호막)' })
 });
+// 등급별 효과 [일반, 희귀, 영웅, 전설]. 가치(추가 처치 ≈ 초 × (개수 − 1), 회복 칸)가 대략 1 : 1.6 : 2.5 : 4가 되게:
+//  노트북 6초×2개(6) · 10초×2개(10) · 8초×3개(16) · 12초×3개(24),  건전지 회복 1 · 2 · 3 · 4칸(가득 찬 뒤 남는 만큼 보호막)
+export const ITEM_TIERS = Object.freeze({
+  laptop: Object.freeze({ seconds: [6, 10, 8, 12], shots: [2, 2, 3, 3] }),
+  battery: Object.freeze({ heal: [1, 2, 3, 4] })
+});
+// 보호막: 로봇·종이·보스 주먹에 한 번 맞는 걸 대신 막는다. 최대 개수
+export const MAX_SHIELDS = 3;
 
 // 시간이 지나면 로봇이 빨라진다: seconds초에 걸쳐 최대 (1 + max)배
 const SPEED_RAMP = Object.freeze({ seconds: 240, max: 0.5 });
@@ -100,6 +109,7 @@ export const WEAPONS = Object.freeze({
   phone: Object.freeze({ label: '휴대폰', damage: 1, shots: 1 }),
   laptop: Object.freeze({ label: '노트북', damage: 1, shots: 2 })
 });
+const MAX_LAPTOP_SHOTS = Math.max(...ITEM_TIERS.laptop.shots);
 // 두 번째 노트북이 첫 번째보다 늦게 손을 떠나는 시간(초)
 const SECOND_SHOT_DELAY = 0.1;
 
@@ -129,7 +139,7 @@ export const THROW_RULES = Object.freeze({
 // 노트북은 낱말 하나에 최대 shots대를 처치할 수 있다(목표 + 옆 로봇). 보스 보너스는 한 판에 한 번이고
 // 보스까지 가려면 최소 goalKills × 최소 토큰 길이만큼 쳐야 하므로 그만큼 나눠 더한다
 export const MAX_POINTS_PER_CHARACTER = SCORING.basePoints * MAX_MULTIPLIER
-  + (WEAPONS.laptop.shots * 2 * Math.max(...Object.values(ROBOT_TYPES).filter(type => !type.boss).map(type => type.bounty))) / ARCADE_RULES.minTokenLength
+  + (MAX_LAPTOP_SHOTS * 2 * Math.max(...Object.values(ROBOT_TYPES).filter(type => !type.boss).map(type => type.bounty))) / ARCADE_RULES.minTokenLength
   + Math.max(...Object.values(ROBOT_TYPES).filter(type => type.boss).map(type => type.bounty)) / (THROW_RULES.goalKills * ARCADE_RULES.minTokenLength);
 
 export const filterThrowTokens = filterArcadeTokens;
@@ -141,6 +151,9 @@ export class ThrowEngine extends TargetGameEngine {
     this.robots = [];
     this.items = [];
     this.laptopUntil = 0;
+    this.laptopShots = WEAPONS.laptop.shots;
+    this.laptopSpan = THROW_RULES.laptopSeconds;
+    this.shields = 0;
     this.nextSpawnAt = 0.4;
     this.nextItemAt = randomBetween(this.random, THROW_RULES.firstItemAt);
     this.nextBatteryAt = Infinity;
@@ -389,6 +402,12 @@ export class ThrowEngine extends TargetGameEngine {
 
   loseLife(cause) {
     if (this.winAt != null) return;
+    // 보호막이 있으면 생명 대신 보호막 하나가 깨진다(콤보도 유지)
+    if (this.shields > 0) {
+      this.shields--;
+      this.emit('shield-block', { cause, shields: this.shields });
+      return;
+    }
     super.loseLife(cause);
     if (this.status === 'finished') this.outcome = 'overrun';
   }
@@ -587,7 +606,7 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   spawnItem(lane = this.chooseLane(THROW_RULES.itemSpeed, false) ?? 0, itemType = this.chooseItemType()) {
-    const item = { id: this.nextId++, kind: 'item', item: itemType, lane, x: THROW_RULES.spawnX, consumed: false, token: null };
+    const item = { id: this.nextId++, kind: 'item', item: itemType, rarity: rollRarity(this.random), lane, x: THROW_RULES.spawnX, consumed: false, token: null };
     item.token = this.pickToken(item.id);
     this.items.push(item);
     this.emit('item-spawn', { item });
@@ -656,7 +675,7 @@ export class ThrowEngine extends TargetGameEngine {
   // 아이템·패드는 한 개로 끝. 로봇에게는 무기의 shots만큼 던진다: 목표가 아직 안 죽으면 같은 목표에,
   // 이미 죽을 만큼 맞았으면 옆 로봇에게. 옆 로봇도 없으면 남은 것은 던지지 않는다
   onFire(target, projectile) {
-    const weapon = WEAPONS[projectile.weapon];
+    const weapon = projectile.weapon === 'laptop' ? { ...WEAPONS.laptop, shots: this.laptopShots } : WEAPONS[projectile.weapon];
     projectile.damage = weapon.damage;
     projectile.lane = target.lane;
     if (target.kind === 'item' || target.kind === 'pad') {
@@ -725,16 +744,28 @@ export class ThrowEngine extends TargetGameEngine {
     this.emit('pad-blocked', { pad, bonus: BOSS_RULES.padBlockBonus });
   }
 
+  // 아이템 효과(등급별): 건전지 = heal칸 회복, 가득 차고 남는 만큼 보호막. 노트북 = seconds초 동안 shots개씩.
+  // 노트북을 이어 먹으면 시간은 더하고 개수는 둘 중 큰 쪽
   activateItem(item) {
     this.itemsCollected++;
+    const rarity = isRarity(item.rarity) ? item.rarity : 'common';
     if (item.item === 'battery') {
-      this.lives = Math.min(ARCADE_RULES.startLives, this.lives + 1);
+      const heal = tierValue(ITEM_TIERS.battery.heal, rarity);
+      const missing = ARCADE_RULES.startLives - this.lives;
+      const restored = Math.min(heal, missing);
+      const shieldsGained = Math.min(MAX_SHIELDS - this.shields, heal - restored);
+      this.lives += restored;
+      this.shields += Math.max(0, shieldsGained);
       if (!this.isDamaged()) this.nextBatteryAt = Infinity;
-      this.emit('item', { item, lives: this.lives });
+      this.emit('item', { item, lives: this.lives, restored, shields: this.shields, shieldsGained: Math.max(0, shieldsGained) });
       return;
     }
-    this.laptopUntil = Math.max(this.laptopUntil, this.gameTime) + THROW_RULES.laptopSeconds;
-    this.emit('item', { item, laptopSeconds: this.laptopRemaining() });
+    const seconds = tierValue(ITEM_TIERS.laptop.seconds, rarity);
+    const shots = tierValue(ITEM_TIERS.laptop.shots, rarity);
+    this.laptopShots = this.laptopRemaining() > 0 ? Math.max(this.laptopShots, shots) : shots;
+    this.laptopUntil = Math.max(this.laptopUntil, this.gameTime) + seconds;
+    this.laptopSpan = this.laptopRemaining();
+    this.emit('item', { item, laptopSeconds: this.laptopRemaining(), shots: this.laptopShots });
   }
 
   damageRobot(robot, projectile) {
@@ -762,7 +793,7 @@ export class ThrowEngine extends TargetGameEngine {
   }
 
   snapshotExtras() {
-    return { laptopRemaining: this.laptopRemaining(), powerRemaining: this.laptopRemaining(), powerSeconds: THROW_RULES.laptopSeconds, bossPhase: this.bossPhase, bossKind: this.bossKind, masked: this.isMasked() };
+    return { laptopRemaining: this.laptopRemaining(), powerRemaining: this.laptopRemaining(), powerSeconds: Math.max(this.laptopRemaining(), this.laptopSpan), laptopShots: this.laptopShots, shields: this.shields, bossPhase: this.bossPhase, bossKind: this.bossKind, masked: this.isMasked() };
   }
 
   summaryExtras() {

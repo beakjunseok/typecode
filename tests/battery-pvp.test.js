@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BatteryPvpHostEngine, BatteryPvpGuestEngine, PVP_RULES, parsePvpMessage } from '../public/js/battery-pvp.js';
-import { BATTERY_RULES, BATTERY_ITEMS } from '../public/js/battery-engine.js';
+import { BATTERY_RULES, BATTERY_ITEMS, itemTier } from '../public/js/battery-engine.js';
 
 const POOL = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliet', 'kilo', 'lima', 'mike', 'november']
   .map(text => ({ text, kind: 'keyword' }));
@@ -133,20 +133,20 @@ test('낱말이 이미 바뀐 공격(늦게 도착)은 거절', () => {
   assert.equal(host.applyRemoteClaim({ claimId: 2, targetId: host.rivalWord.id, text: host.rivalWord.token.text }).ok, false, '자기 탑 낱말은 못 침');
 });
 
-test('화면 꺼짐: 가져간 쪽의 상대가 3초 동안 못 친다(양쪽 모두)', () => {
+test('화면 꺼짐: 가져간 쪽의 상대가 등급만큼(일반 4.4초) 못 친다(양쪽 모두)', () => {
   const { host, guest, clock, sync, start, advance } = createMatch();
   start();
-  const blackout = host.spawnItem('blackout', 0.4, 1);
+  const blackout = host.spawnItem('blackout', 0.4, 1, null, 'common');
   sync();
   typeText(guest, clock, blackout.token.text);
   sync();
   assert.ok(host.blockedUntil > host.gameTime);
   assert.equal(host.input(host.rivalWord.token.text[0], clock.now).reason, 'blocked');
-  advance(PVP_RULES.blackoutSeconds + 0.1);
-  assert.notEqual(host.input(host.rivalWord.token.text[0], clock.now).reason, 'blocked', '3초 뒤 풀림');
+  advance(itemTier('blackout', 'common', 'seconds') + 0.1);
+  assert.notEqual(host.input(host.rivalWord.token.text[0], clock.now).reason, 'blocked', '시간이 지나면 풀림');
   host.clearInput(clock.now);
 
-  const second = host.spawnItem('blackout', 0.5, 1);
+  const second = host.spawnItem('blackout', 0.5, 1, null, 'common');
   sync();
   typeText(host, clock, second.token.text);
   advance(0.3);

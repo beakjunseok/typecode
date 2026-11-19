@@ -21,6 +21,9 @@ export const DEFENSE_RULES = Object.freeze({
   phaseShieldSeconds: 1.5,
   introSeconds: 2.4,
   breakSeconds: 4,
+  freezeTrigger: 0.45,
+  freezesPerWave: 2,
+  frozenDamage: 1.5,
   winPauseSeconds: 1.4,
   // 웨이브 n의 공격 수 = base + step × (n - 1) (+ 보스 웨이브면 보스 1)
   bugsPerWave: Object.freeze({ base: 6, step: 1.5 }),
@@ -376,7 +379,9 @@ export class DefenseEngine extends TargetGameEngine {
       this.phaseUntil = Infinity;
       this.nextSpawnAt = this.gameTime;
       this.shutterUsed = 0;
-      this.freezeUntil = this.mods.waveFreeze > 0 ? this.gameTime + this.mods.waveFreeze : 0;
+      this.freezeUntil = 0;
+      this.freezeUsed = 0;
+      this.bossFreezeUsed = false;
       this.emit('wave-start', { wave: this.wave, bpm: this.bpm(), freeze: this.mods.waveFreeze });
     } else if (this.phase === 'break') {
       this.startWave(this.wave + 1);
@@ -809,6 +814,20 @@ export class DefenseEngine extends TargetGameEngine {
       if (queued.has(bug.id)) continue;
       const type = BUG_TYPES[bug.type];
       const rage = bug.phase === 2 ? type.phaseTwo.speedFactor : 1;
+      // 브레이크포인트: 웨이브마다 두 번, 지상 적이 길의 45%를 넘으면 모든 적을 waveFreeze초 멈춘다(타워는 계속 쏜다).
+      // 보스 웨이브에서는 한 번을 보스 몫으로 남겨 둔다
+      if (this.mods.waveFreeze > 0 && !bug.air && bug.progress >= DEFENSE_RULES.freezeTrigger && this.gameTime >= (this.freezeUntil ?? 0)) {
+        const boss = Boolean(BUG_TYPES[bug.type].boss);
+        const reserved = DEFENSE_RULES.bossWaves[this.wave] && !this.bossFreezeUsed && !boss ? 1 : 0;
+        if ((this.freezeUsed ?? 0) < DEFENSE_RULES.freezesPerWave - reserved) {
+          this.freezeUsed = (this.freezeUsed ?? 0) + 1;
+          if (boss) this.bossFreezeUsed = true;
+          this.freezeUntil = this.gameTime + this.mods.waveFreeze;
+          // 멈춘 동안 새 적도 나오지 않게 미룬다(풀릴 때 한꺼번에 몰려오지 않도록)
+          this.nextSpawnAt = Math.max(this.nextSpawnAt ?? 0, this.gameTime) + this.mods.waveFreeze;
+          this.emit('breakpoint', { seconds: this.mods.waveFreeze });
+        }
+      }
       const stunned = this.gameTime < bug.shieldUntil || this.gameTime < (this.freezeUntil ?? 0) ? 0 : 1;
       const distance = bug.air ? Math.max(0.2, Math.hypot(DEFENSE_COMPUTER.x - bug.origin.x, DEFENSE_COMPUTER.y - bug.origin.y)) : 1;
       const tierSpeed = ENEMY_TIERS[bug.tier ?? 1].speed;
@@ -932,6 +951,8 @@ export class DefenseEngine extends TargetGameEngine {
     }
     if (BUG_TYPES[bug.type].boss) amount *= this.mods.bossDamage;
     if (bug.air && source !== 'dot') amount *= this.mods.airDamage;
+    // 브레이크포인트로 멈춘 적은 피해를 더 받는다(디버거에 걸린 프로세스)
+    if (this.gameTime < (this.freezeUntil ?? 0)) amount *= DEFENSE_RULES.frozenDamage;
     bug.hp -= amount;
     if (bug.hp < 1e-6) bug.hp = 0;
     // 가비지 컬렉터: 체력이 기준 아래로 떨어진 졸개는 바로 처치
@@ -1042,7 +1063,7 @@ export class DefenseEngine extends TargetGameEngine {
     this.wavesCleared = this.wave;
     if (!this.waveTookDamage) this.noDamageWaves++;
     const bonus = this.gainCoins(waveBonusCoins(this.wave, this.waveTookDamage) * this.mods.waveBonus, 'wave');
-    if (this.mods.interest > 0) this.gainCoins(Math.min(80, this.coins * this.mods.interest), 'interest');
+    if (this.mods.interest > 0) this.gainCoins(Math.min(120, this.coins * this.mods.interest), 'interest');
     this.score += Math.round(DEFENSE_RULES.waveScore * this.wave * this.mods.scoreBonus);
     this.emit('wave-clear', { wave: this.wave, bonus, perfect: !this.waveTookDamage });
     if (this.wave >= DEFENSE_RULES.waves) {
@@ -1149,7 +1170,7 @@ export class DefenseEngine extends TargetGameEngine {
   onFire(target, projectile) {
     this.projectiles = this.projectiles.filter(entry => entry !== projectile);
     const jackpot = this.mods.jackpot > 0 && this.random() < this.mods.jackpot;
-    const coins = this.gainCoins(wordCoins(target.token.text.length, this.wave, Math.floor(this.combo * this.mods.comboBoost)) * this.mods.wordCoins * (jackpot ? 5 : 1), 'word');
+    const coins = this.gainCoins(wordCoins(target.token.text.length, this.wave, Math.floor(this.combo * this.mods.comboBoost)) * this.mods.wordCoins * (jackpot ? 8 : 1), 'word');
     if (jackpot) this.emit('jackpot', { coins });
     this.wordsTyped++;
     this.stream = this.stream.filter(word => word.id !== target.id);

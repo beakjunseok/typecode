@@ -200,6 +200,7 @@ export class DefenseRenderer {
     if (type === 'lock') this.visuals.get(payload.target.id).labelPop.kick(14);
     else if (type === 'mistake' && payload.target) this.visuals.get(payload.target.id).labelPop.kick(-10);
     const now = wallSeconds();
+    if (type === 'breakpoint') this.banner = { text: '⏸ 브레이크포인트', sub: `모든 적 ${payload.seconds}초 멈춤`, at: now, color: CARD_COLORS.legendary };
     if (type === 'word-done') {
       this.wordFlights.push({ text: payload.word.token.text, coins: payload.coins, at: now });
       this.streamShift.value = 1;

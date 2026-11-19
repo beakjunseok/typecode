@@ -119,14 +119,14 @@ test('카드 효과: 타워 능력치·코인·가격·체력·백업 서버', (
   pick('vaccine');
   pick('awaken');
   const stats = engine.statsOf(tower);
-  assert.ok(Math.abs(stats.range - (base.range + 0.025)) < 1e-9);
+  assert.ok(Math.abs(stats.range - (base.range + 0.022)) < 1e-9);
   assert.ok(Math.abs(stats.cooldown - base.cooldown * 0.88) < 1e-9);
-  assert.ok(Math.abs(stats.damage - base.damage * 1.35 * 1.25) < 1e-9);
+  assert.ok(Math.abs(stats.damage - base.damage * 1.6 * 1.35) < 1e-9);
   pick('bulk');
-  assert.equal(engine.priceAt('antivirus', null), Math.round(TOWER_TYPES.antivirus.price * (DEFENSE_RULES.priceFactor[engine.level] ?? 1) * 0.88));
+  assert.equal(engine.priceAt('antivirus', null), Math.round(TOWER_TYPES.antivirus.price * (DEFENSE_RULES.priceFactor[engine.level] ?? 1) * 0.8));
   const maxBefore = engine.maxHealth;
   pick('heatsink');
-  assert.equal(engine.maxHealth, maxBefore + 20);
+  assert.equal(engine.maxHealth, maxBefore + 10);
   pick('backup');
   engine.health = 1;
   engine.breach({ type: 'malware', state: 'alive' });
@@ -212,14 +212,20 @@ test('새 카드 동작: 셔터·콤보 보험·무료 설치·처형·연쇄 �
   second.x = first.x + 0.01; second.y = first.y;
   engine.damageBug(first, 'tower', 99);
   assert.equal(second.hp, 4);
-  // 브레이크포인트: 웨이브 시작 3초 멈춤
+  // 브레이크포인트: 웨이브마다 두 번, 적이 길의 45%를 넘으면 모두 멈춤(처음 지나기 전에는 그대로 걸음)
   engine.mods.waveFreeze = 3;
   engine.phase = 'intro'; engine.phaseUntil = engine.gameTime;
   engine.advancePhase();
   const walker = engine.spawnBug('packet');
-  const before = walker.progress;
+  const early = walker.progress;
   engine.moveBugs(0.5);
-  assert.equal(walker.progress, before);
+  assert.ok(walker.progress > early, '아직은 걷는다');
+  walker.progress = DEFENSE_RULES.freezeTrigger + 0.01;
+  engine.moveBugs(0.016);
+  const frozenAt = walker.progress;
+  engine.moveBugs(0.5);
+  assert.equal(walker.progress, frozenAt, '멈춤');
+  assert.equal(engine.freezeUsed, 1);
   // 루트 권한·전체 핫픽스
   const level = engine.computerLevel;
   engine.freeComputerUpgrade();
