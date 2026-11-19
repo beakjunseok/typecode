@@ -8,6 +8,8 @@
 // 난이도별 상점가 ×0.85/1/1.08/1.2(Bloons TD 6), 체력 150/100/80/60%.
 import { TargetGameEngine, ARCADE_RULES, randomBetween } from './target-game.js';
 import { SCORING, MAX_MULTIPLIER } from './engine.js';
+import { createDefensePath, generatePathPoints, mapName } from './defense-map.js';
+import { CARD_RULES, baseMods, cardById, drawCards } from './defense-cards.js';
 
 export const DEFENSE_RULES = Object.freeze({
   waves: 25,
@@ -99,23 +101,6 @@ export const PLACEMENT = Object.freeze({
   sellRefund: 0.7
 });
 
-// 길 위 비율 s(0~1) → 좌표. 구간 길이를 미리 재 두고 선형 보간. O(구간 수)
-const PATH_SEGMENTS = DEFENSE_PATH.slice(1).map((point, index) => {
-  const from = DEFENSE_PATH[index];
-  return { from, to: point, length: Math.hypot(point.x - from.x, point.y - from.y) };
-});
-export const PATH_LENGTH = PATH_SEGMENTS.reduce((sum, segment) => sum + segment.length, 0);
-export function pointOnPath(progress) {
-  let remaining = Math.max(0, Math.min(1, progress)) * PATH_LENGTH;
-  for (const segment of PATH_SEGMENTS) {
-    if (remaining <= segment.length) {
-      const ratio = segment.length ? remaining / segment.length : 0;
-      return { x: segment.from.x + (segment.to.x - segment.from.x) * ratio, y: segment.from.y + (segment.to.y - segment.from.y) * ratio };
-    }
-    remaining -= segment.length;
-  }
-  return { ...DEFENSE_PATH.at(-1) };
-}
 
 // 공격 종류: hp = 맞혀야 하는 횟수(타워 한 방 = 1), speed = 초당 가는 비율(0→1),
 // damage = 컴퓨터에 닿으면 깎이는 체력, bounty = 처치 점수, towerCoins = 잡았을 때 코인.
@@ -190,40 +175,22 @@ export const SHOP_ITEMS = Object.freeze({
 // 공중 공격이 출발하는 위(들판 y = 0)의 x 후보: 길 입구와 겹치지 않게 가운데·오른쪽 위주
 const AIR_LANES = Object.freeze([0.3, 0.5, 0.7, 0.88]);
 
-// 점과 선분 사이 거리(타원 단위: x는 rx, y는 ry로 나눠 잰다). O(1)
-function ellipseDistanceToSegment(point, from, to, radii) {
-  const px = point.x / radii.x, py = point.y / radii.y;
-  const ax = from.x / radii.x, ay = from.y / radii.y, bx = to.x / radii.x, by = to.y / radii.y;
-  const dx = bx - ax, dy = by - ay;
-  const lengthSquared = dx * dx + dy * dy;
-  const t = lengthSquared ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSquared)) : 0;
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-}
-
-// 길 위(또는 길에 너무 가까운) 점인가. O(구간 수)
-export function isOnPath(point) {
-  return PATH_SEGMENTS.some(segment => ellipseDistanceToSegment(point, segment.from, segment.to, PLACEMENT.pathClear) < 1);
-}
-
-// 키보드 추천 자리 후보: 0.07 간격 격자 중 길·컴퓨터를 피한 곳, 길을 많이 덮는(사거리 안 길 표본이 많은) 순.
-// 처음 한 번만 계산한다. O(격자 수 × 길 표본 수)
-const PATH_SAMPLES = Array.from({ length: 80 }, (_, index) => pointOnPath(index / 79));
-const CANDIDATE_SPOTS = (() => {
-  const candidates = [];
-  for (let y = 0.06; y <= 0.95; y += 0.07) {
-    for (let x = 0.06; x <= 0.95; x += 0.07) {
-      const point = { x: Math.round(x * 1000) / 1000, y: Math.round(y * 1000) / 1000 };
-      if (isOnPath(point) || inComputerZone(point)) continue;
-      const coverage = PATH_SAMPLES.filter(sample => Math.hypot(sample.x - point.x, sample.y - point.y) <= 0.26).length;
-      candidates.push({ ...point, coverage });
-    }
-  }
-  return Object.freeze(candidates.sort((first, second) => second.coverage - first.coverage));
-})();
-
 function inComputerZone(point) {
   const zone = PLACEMENT.computerZone;
   return ((point.x - zone.x) / zone.rx) ** 2 + ((point.y - zone.y) / zone.ry) ** 2 < 1;
+}
+
+// 기본 길(시험·예전 판용). 판마다 다른 길은 DefenseEngine({ randomMap: true })가 만든다
+export const DEFAULT_PATH = createDefensePath(DEFENSE_PATH, { clear: PLACEMENT.pathClear, blocked: inComputerZone });
+export const PATH_LENGTH = DEFAULT_PATH.length;
+export const pointOnPath = progress => DEFAULT_PATH.pointAt(progress);
+export const isOnPath = point => DEFAULT_PATH.isOn(point);
+
+// 판마다 다른 길: 생성에 실패하면 기본 길
+export function createRandomPath(random = Math.random) {
+  const points = generatePathPoints(random);
+  if (!points) return DEFAULT_PATH;
+  return createDefensePath(points, { clear: PLACEMENT.pathClear, blocked: inComputerZone, name: mapName(points, random) });
 }
 
 // 웨이브 BPM: 레벨 시작 BPM + 5 × (웨이브 - 1). O(1)
@@ -287,6 +254,13 @@ export const MAX_POINTS_PER_CHARACTER = SCORING.basePoints * MAX_MULTIPLIER
 export class DefenseEngine extends TargetGameEngine {
   constructor(options) {
     super({ ...options, mode: 'defense' });
+    // 길: 직접 준 길 → 판마다 다른 길(randomMap) → 기본 길
+    this.path = options.path ?? (options.randomMap ? createRandomPath(this.random) : DEFAULT_PATH);
+    // 강화 카드: cardsEnabled면 CARD_RULES.every 웨이브마다 3장 중 1장
+    this.cardsEnabled = Boolean(options.cards);
+    this.mods = baseMods();
+    this.cards = [];
+    this.draft = null;
     this.lives = 1;
     this.maxHealth = DEFENSE_RULES.maxHealth[this.level];
     this.health = this.maxHealth;
@@ -466,7 +440,7 @@ export class DefenseEngine extends TargetGameEngine {
     const air = Boolean(type.air);
     const origin = air ? (from ? { x: from.x, y: from.y } : { x: AIR_LANES[Math.floor(this.random() * AIR_LANES.length)], y: 0 }) : null;
     const progress = !air && from ? Math.max(0, Math.min(0.98, from.progress ?? 0)) : 0;
-    const start = air ? origin : pointOnPath(progress);
+    const start = air ? origin : this.path.pointAt(progress);
     const bug = {
       id: this.nextId++, kind: 'bug', type: typeKey, air, origin, progress, x: start.x, y: start.y,
       hp: 0, maxHp: 0, state: 'alive', spawnedAt: this.gameTime, resolvedAt: null, wave: this.wave,
@@ -489,7 +463,7 @@ export class DefenseEngine extends TargetGameEngine {
     const targets = this.bugs
       .filter(bug => bug.state === 'alive' && bug.air && bug.hp > 0 && Math.hypot(bug.x - guard.x, bug.y - guard.y) <= stats.range)
       .sort((first, second) => second.progress - first.progress)
-      .slice(0, stats.shots);
+      .slice(0, stats.shots + this.mods.guardShots);
     if (!targets.length) return;
     this.guardReadyAt = this.gameTime + stats.cooldown;
     targets.forEach((target, index) => {
@@ -677,7 +651,7 @@ export class DefenseEngine extends TargetGameEngine {
   computerUpgradeInfo() {
     const maxed = this.computerLevel >= COMPUTER_LEVELS.length - 1;
     const next = maxed ? null : this.computerStats(this.computerLevel + 1);
-    const price = maxed ? null : Math.round(next.price * (DEFENSE_RULES.priceFactor[this.level] ?? 1));
+    const price = maxed ? null : Math.round(next.price * (DEFENSE_RULES.priceFactor[this.level] ?? 1) * this.mods.priceFactor);
     return { level: this.computerLevel, maxed, price, affordable: !maxed && this.coins >= price, current: this.computerStats(), next };
   }
 
@@ -766,7 +740,7 @@ export class DefenseEngine extends TargetGameEngine {
     for (const puddle of this.activePuddlesUnder(bug)) factor = Math.min(factor, puddle.slow);
     for (const tower of this.towers) {
       const config = TOWER_TYPES[tower.type];
-      if (config.slow < 1 && !bug.air && this.gameTime >= (tower.lockedUntil ?? 0) && this.inRange(tower, bug)) factor = Math.min(factor, towerStats(tower.type, tower.level).slow);
+      if (config.slow < 1 && !bug.air && this.gameTime >= (tower.lockedUntil ?? 0) && this.inRange(tower, bug)) factor = Math.min(factor, this.statsOf(tower).slow);
     }
     return factor;
   }
@@ -785,8 +759,30 @@ export class DefenseEngine extends TargetGameEngine {
     return airFirst + bug.progress;
   }
 
+  // 카드 효과까지 넣은 타워 능력치(level을 주면 그 레벨 기준). O(1)
+  statsOf(tower, level = tower.level) {
+    const base = towerStats(tower.type, level);
+    const mods = this.mods;
+    const typeDamage = mods.typeDamage[tower.type] ?? 1;
+    return {
+      ...base,
+      range: base.range + mods.towerRange,
+      cooldown: base.cooldown * mods.towerCooldown,
+      damage: base.damage * mods.towerDamage * typeDamage,
+      shots: base.shots + (mods.typeShots[tower.type] ?? 0),
+      burn: base.burn ? { seconds: base.burn.seconds, dps: base.burn.dps * mods.burn * mods.towerDamage } : null,
+      puddle: base.puddle ? { ...base.puddle, seconds: base.puddle.seconds * mods.puddleSeconds, slow: base.puddle.slow * mods.puddleSlow } : null,
+      splash: base.splash * mods.splash
+    };
+  }
+
+  // 치명타 카드: 확률로 피해 2배
+  critical(amount) {
+    return this.mods.critChance > 0 && this.random() < this.mods.critChance ? amount * 2 : amount;
+  }
+
   inRange(tower, bug) {
-    const range = towerStats(tower.type, tower.level).range;
+    const range = this.statsOf(tower).range;
     return Math.hypot(tower.x - bug.x, tower.y - bug.y) <= range;
   }
 
@@ -800,10 +796,10 @@ export class DefenseEngine extends TargetGameEngine {
       const stunned = this.gameTime < bug.shieldUntil ? 0 : 1;
       const distance = bug.air ? Math.max(0.2, Math.hypot(DEFENSE_COMPUTER.x - bug.origin.x, DEFENSE_COMPUTER.y - bug.origin.y)) : 1;
       const tierSpeed = ENEMY_TIERS[bug.tier ?? 1].speed;
-      bug.progress += type.speed * tierSpeed * this.difficulty.speed * this.slowFactor(bug) * rage * stunned * frameSeconds / distance * (bug.air ? 0.9 : 1);
+      bug.progress += type.speed * tierSpeed * this.mods.enemySpeed * this.difficulty.speed * this.slowFactor(bug) * rage * stunned * frameSeconds / distance * (bug.air ? 0.9 : 1);
       const point = bug.air
         ? { x: bug.origin.x + (DEFENSE_COMPUTER.x - bug.origin.x) * Math.min(1, bug.progress), y: bug.origin.y + (DEFENSE_COMPUTER.y - 0.1 - bug.origin.y) * Math.min(1, bug.progress) }
-        : pointOnPath(bug.progress);
+        : this.path.pointAt(bug.progress);
       bug.x = point.x;
       bug.y = point.y;
       if (bug.progress >= 1) this.breach(bug);
@@ -824,6 +820,13 @@ export class DefenseEngine extends TargetGameEngine {
     this.combo = 0;
     this.emit('damage', { bug, damage, health: this.health, lives: this.health > 0 ? 1 : 0 });
     if (!wasDanger && this.isDanger()) this.emit('danger', { health: this.health });
+    if (this.health <= 0 && this.mods.backups > 0) {
+      // 백업 서버 카드: 한 번 절반 체력으로 되살아난다
+      this.mods.backups--;
+      this.health = Math.round(this.maxHealth * 0.5);
+      this.emit('backup-restore', { health: this.health });
+      return;
+    }
     if (this.health <= 0) {
       this.outcome = 'breached';
       this.finish();
@@ -834,7 +837,7 @@ export class DefenseEngine extends TargetGameEngine {
   fireTowers() {
     for (const tower of this.towers) {
       if (this.gameTime < tower.readyAt || this.gameTime < (tower.lockedUntil ?? 0)) continue;
-      const stats = towerStats(tower.type, tower.level);
+      const stats = this.statsOf(tower);
       const targets = this.bugs
         .filter(bug => bug.state === 'alive' && bug.hp > 0 && this.canTarget(tower, bug) && this.inRange(tower, bug))
         .sort((first, second) => this.targetPriority(tower, second) - this.targetPriority(tower, first))
@@ -871,7 +874,7 @@ export class DefenseEngine extends TargetGameEngine {
           }
           this.emit('splash', { tower, x: center.x, y: center.y, radius: stats.splash, hits: hits.length, jammed: jammed.length });
           for (const bug of hits) {
-            this.damageBug(bug, 'tower', stats.damage);
+            this.damageBug(bug, 'tower', this.critical(stats.damage));
             if (this.status !== 'running') return;
           }
           for (const bug of jammed) {
@@ -880,7 +883,7 @@ export class DefenseEngine extends TargetGameEngine {
           }
           continue;
         }
-        if (stats.damage > 0) this.damageBug(target, 'tower', stats.damage);
+        if (stats.damage > 0) this.damageBug(target, 'tower', this.critical(stats.damage));
         if (this.status !== 'running') return;
       }
     }
@@ -894,6 +897,7 @@ export class DefenseEngine extends TargetGameEngine {
       if (source !== 'dot') this.emit('bug-blocked', { bug });
       return;
     }
+    if (BUG_TYPES[bug.type].boss) amount *= this.mods.bossDamage;
     bug.hp -= amount;
     if (bug.hp < 1e-6) bug.hp = 0;
     const phaseTwo = BUG_TYPES[bug.type].phaseTwo;
@@ -915,7 +919,7 @@ export class DefenseEngine extends TargetGameEngine {
     this.kills[bug.type]++;
     this.waveKilled++;
     this.score += type.bounty;
-    this.gainCoins(type.towerCoins * ENEMY_TIERS[bug.tier ?? 1].coins, 'tower');
+    this.gainCoins(type.towerCoins * ENEMY_TIERS[bug.tier ?? 1].coins * this.mods.killCoins, 'tower');
     this.emit('bug-kill', { bug, source, combo: this.combo });
   }
 
@@ -966,7 +970,8 @@ export class DefenseEngine extends TargetGameEngine {
     if (this.bugs.some(bug => bug.state === 'alive')) return;
     this.wavesCleared = this.wave;
     if (!this.waveTookDamage) this.noDamageWaves++;
-    const bonus = this.gainCoins(waveBonusCoins(this.wave, this.waveTookDamage), 'wave');
+    const bonus = this.gainCoins(waveBonusCoins(this.wave, this.waveTookDamage) * this.mods.waveBonus, 'wave');
+    if (this.mods.interest > 0) this.gainCoins(Math.min(80, this.coins * this.mods.interest), 'interest');
     this.score += DEFENSE_RULES.waveScore * this.wave;
     this.emit('wave-clear', { wave: this.wave, bonus, perfect: !this.waveTookDamage });
     if (this.wave >= DEFENSE_RULES.waves) {
@@ -977,8 +982,53 @@ export class DefenseEngine extends TargetGameEngine {
       this.emit('goal', { waves: this.wavesCleared });
       return;
     }
+    if (this.cardsEnabled && this.wave % CARD_RULES.every === 0) {
+      this.openDraft();
+      return;
+    }
     this.phase = 'break';
     this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds;
+  }
+
+  // ---------- 강화 카드 ----------
+  // 카드 고르기 시작: 웨이브 사이에 멈추고 3장을 보여 준다(고를 때까지 다음 웨이브 안 옴, 낱말 수입도 멈춤)
+  openDraft() {
+    const hand = drawCards(this.cards, this.random);
+    if (!hand.length) {
+      this.phase = 'break';
+      this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds;
+      return;
+    }
+    if (this.buildMode) this.cancelBuild('draft', { silent: true });
+    this.clearBuffer();
+    this.phase = 'draft';
+    this.phaseUntil = Infinity;
+    this.draft = { wave: this.wave, hand };
+    this.emit('draft', { wave: this.wave, hand });
+  }
+
+  // index번째 카드 고르기(0부터). 효과를 적용하고 쉬는 시간으로 넘어간다
+  chooseCard(index) {
+    if (this.phase !== 'draft' || !this.draft) return false;
+    const card = cardById(this.draft.hand[index]);
+    if (!card) return false;
+    card.apply?.(this.mods);
+    card.instant?.(this);
+    this.cards.push(card.id);
+    this.draft = null;
+    this.phase = 'break';
+    this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds;
+    this.emit('card-picked', { card: card.id, cards: [...this.cards] });
+    return true;
+  }
+
+  healComputer(amount) {
+    this.health = Math.min(this.maxHealth, this.health + Math.max(0, amount));
+  }
+
+  raiseMaxHealth(amount) {
+    this.maxHealth += Math.max(0, amount);
+    this.healComputer(amount);
   }
 
   // ---------- 낱말 줄(수입) ----------
@@ -995,7 +1045,7 @@ export class DefenseEngine extends TargetGameEngine {
   // 낱말 하나를 다 치면: 투사체 없이 코인(콤보·웨이브 배율), 다음 낱말이 올라온다
   onFire(target, projectile) {
     this.projectiles = this.projectiles.filter(entry => entry !== projectile);
-    const coins = this.gainCoins(wordCoins(target.token.text.length, this.wave, this.combo), 'word');
+    const coins = this.gainCoins(wordCoins(target.token.text.length, this.wave, this.combo) * this.mods.wordCoins, 'word');
     this.wordsTyped++;
     this.stream = this.stream.filter(word => word.id !== target.id);
     this.refillStream();
@@ -1010,6 +1060,7 @@ export class DefenseEngine extends TargetGameEngine {
       return true;
     }
     if (!/^[1-9]$/.test(key)) return false;
+    if (this.phase === 'draft') return this.chooseCard(Number(key) - 1);
     if (this.buildMode) {
       const spot = this.spots[Number(key) - 1];
       if (spot) this.placeAtSpot(spot);
@@ -1027,7 +1078,7 @@ export class DefenseEngine extends TargetGameEngine {
     const { margin, towerGap } = PLACEMENT;
     if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return 'outside';
     if (point.x < margin || point.x > 1 - margin || point.y < margin || point.y > 1 - margin) return 'outside';
-    if (isOnPath(point)) return 'path';
+    if (this.path.isOn(point)) return 'path';
     if (inComputerZone(point)) return 'computer';
     if (this.towers.some(tower => Math.hypot((tower.x - point.x) / towerGap.x, (tower.y - point.y) / towerGap.y) < 1)) return 'blocked';
     return null;
@@ -1056,7 +1107,7 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   canBuildNew() {
-    return this.towers.length < DEFENSE_RULES.maxTowers && CANDIDATE_SPOTS.some(point => !this.placementProblem(point));
+    return this.towers.length < DEFENSE_RULES.maxTowers && this.path.candidates.some(point => !this.placementProblem(point));
   }
 
   upgradableTowers(towerKey) {
@@ -1067,7 +1118,7 @@ export class DefenseEngine extends TargetGameEngine {
   suggestedSpots() {
     if (this.towers.length >= DEFENSE_RULES.maxTowers) return [];
     const chosen = [];
-    for (const point of CANDIDATE_SPOTS) {
+    for (const point of this.path.candidates) {
       if (chosen.length >= DEFENSE_RULES.suggestions) break;
       if (this.placementProblem(point)) continue;
       if (chosen.some(other => Math.hypot((other.x - point.x) / 0.16, (other.y - point.y) / 0.16) < 1)) continue;
@@ -1079,7 +1130,7 @@ export class DefenseEngine extends TargetGameEngine {
   // 새 타워면 기본가, 업그레이드면 기본가 × 1.5^레벨, 난이도 배율. tower가 null이면 새 타워
   priceAt(towerKey, tower) {
     const factor = DEFENSE_RULES.priceFactor[this.level] ?? 1;
-    return Math.round(TOWER_TYPES[towerKey].price * factor * 1.5 ** (tower ? tower.level : 0));
+    return Math.round(TOWER_TYPES[towerKey].price * factor * this.mods.priceFactor * 1.5 ** (tower ? tower.level : 0));
   }
 
   // 상점 낱말: 패치는 바로 수리, 타워는 설치 모드(추천 자리·같은 타워 위에 짧은 낱말, 화면을 눌러도 됨). 같은 타워를 다시 치면 취소
@@ -1204,8 +1255,8 @@ export class DefenseEngine extends TargetGameEngine {
     const price = maxed ? null : this.priceAt(tower.type, tower);
     return {
       level: tower.level, maxed, price, affordable: !maxed && this.coins >= price,
-      current: towerStats(tower.type, tower.level),
-      next: maxed ? null : towerStats(tower.type, tower.level + 1),
+      current: this.statsOf(tower),
+      next: maxed ? null : this.statsOf(tower, tower.level + 1),
       perk: !maxed && tower.level + 1 >= DEFENSE_RULES.maxTowerLevel ? TOWER_MAX_PERKS[tower.type] : null
     };
   }
@@ -1227,6 +1278,7 @@ export class DefenseEngine extends TargetGameEngine {
   // 승리 연출 중에는 입력을 받지 않는다
   input(character, nowMs) {
     if (this.winAt != null) return { accepted: false, reason: 'finished' };
+    if (this.phase === 'draft') return { accepted: false, reason: 'draft' };
     return super.input(character, nowMs);
   }
 
@@ -1246,7 +1298,10 @@ export class DefenseEngine extends TargetGameEngine {
       waveKilled: this.waveKilled,
       waveTotal: this.waveTotal,
       boss: this.bugs.find(bug => bug.state === 'alive' && BUG_TYPES[bug.type].boss) ?? null,
-      buildMode: this.buildMode ? { ...this.buildMode } : null
+      buildMode: this.buildMode ? { ...this.buildMode } : null,
+      draft: this.draft ? { ...this.draft, hand: [...this.draft.hand] } : null,
+      cards: [...this.cards],
+      map: this.path.name
     };
   }
 
@@ -1261,6 +1316,8 @@ export class DefenseEngine extends TargetGameEngine {
       towersBuilt: this.towersBuilt,
       healthLeft: this.health,
       noDamageWaves: this.noDamageWaves,
+      cards: [...this.cards],
+      map: this.path.name,
       kills: { ...this.kills }
     };
   }

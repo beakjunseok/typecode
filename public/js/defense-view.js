@@ -3,6 +3,7 @@
 // 배경 그림(public/art/defense-stage.webp)이 있으면 그림 속 돔이 컴퓨터 자리에 오도록 깔고, 없으면 격자·코드 비·컴퓨터를 직접 그린다.
 import { ARCADE_RULES } from './target-game.js';
 import { DEFENSE_RULES, TOWER_TYPES, SHOP_ITEMS, DEFENSE_PATH, DEFENSE_COMPUTER, ATTACK_TYPES, COMPUTER_GUARD, GUARDIAN, GUARDIAN_LEVEL, ENEMY_TIERS, wordCoins, towerStats, TOWER_MAX_PERKS, pointOnPath } from './defense-engine.js';
+import { cardById, CARD_RARITY_LABELS } from './defense-cards.js';
 import { setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
 
 const HUD_HEIGHT = 34;
@@ -26,6 +27,8 @@ const SCENE = Object.freeze({
   bgTop: '#060916', bgBottom: '#0b1030', grid: 'rgba(54, 226, 255, 0.07)', rain: '#2fd27a', shield: '#36e2ff',
   ink: '#e9edf8', fog: '#8a93b8', coin: '#ffd166', danger: '#ff4d6d', amber: '#ffb547'
 });
+// 강화 카드 등급 색
+const CARD_COLORS = Object.freeze({ common: '#9fb3c8', rare: '#36e2ff', epic: '#c77dff' });
 // 공격 모양: 패킷 = 빨간 마름모, 스팸 = 성난 봉투, 악성 파일 = 성난 문서, 랜섬웨어 = 큰 자물쇠 괴물
 const BUG_STYLE = Object.freeze({
   packet: { body: '#ff5d73', dark: '#7a1530', size: 12 },
@@ -197,6 +200,7 @@ export class DefenseRenderer {
       this.wordFlights.push({ text: payload.word.token.text, coins: payload.coins, at: now });
       this.streamShift.value = 1;
     }
+    if (type === 'draft') this.draftOpenedAt = null;
     if (type === 'start') {
       this.selectTower(null);
       this.motions.clear();
@@ -207,9 +211,14 @@ export class DefenseRenderer {
       const tierUp = payload.tierUp ? ENEMY_TIERS[payload.tier] : null;
       this.banner = tierUp
         ? { text: `WAVE ${wave} · 적 ${tierUp.label} 업그레이드!`, sub: `체력 ×${tierUp.hp} · 속도 ×${tierUp.speed} · 장갑 강화`, at: now, color: payload.tier >= 3 ? SCENE.danger : SCENE.amber }
-        : { text: wave === DEFENSE_RULES.waves ? `FINAL WAVE ${wave}` : `WAVE ${wave}`, sub: `BPM ${payload.bpm ?? engine?.bpm?.() ?? ''} · 해킹을 막으세요`, at: now, color: wave === DEFENSE_RULES.waves ? SCENE.danger : SCENE.shield };
+        : { text: wave === DEFENSE_RULES.waves ? `FINAL WAVE ${wave}` : `WAVE ${wave}`, sub: wave === 1 && engine?.path?.name ? `맵: ${engine.path.name} · 해킹을 막으세요` : `BPM ${payload.bpm ?? engine?.bpm?.() ?? ''} · 해킹을 막으세요`, at: now, color: wave === DEFENSE_RULES.waves ? SCENE.danger : SCENE.shield };
     } else if (type === 'wave-clear') {
       this.banner = { text: `WAVE ${payload.wave} CLEAR`, sub: `+${payload.bonus} 코인${payload.perfect ? ' · 무피해 보너스' : ''}`, at: now, color: '#4df0a6' };
+    } else if (type === 'card-picked') {
+      const card = cardById(payload.card);
+      if (card) this.banner = { text: `${card.icon} ${card.name}`, sub: card.text, at: now, color: CARD_COLORS[card.rarity] };
+    } else if (type === 'backup-restore') {
+      this.banner = { text: '💾 백업 서버 가동!', sub: `체력 ${payload.health}으로 되살아났어요`, at: now, color: '#4df0a6' };
     } else if (type === 'goal') {
       this.banner = { text: 'SYSTEM SECURE', sub: '모든 공격을 막았습니다!', at: now, color: '#4df0a6' };
     } else if (type === 'boss-phase') {
@@ -400,6 +409,7 @@ export class DefenseRenderer {
     context.clearRect(0, 0, width, height);
     this.juice.beginShake(context);
     this.drawBackground(context, width, height, engine);
+    this.currentPath = engine.path ?? null;
     this.drawPath(context, engine);
     this.drawComputer(context, engine);
     this.drawGuard(context, engine);
@@ -428,6 +438,97 @@ export class DefenseRenderer {
     this.drawUpgradeCard(context, engine);
     this.drawBuildHint(context, width, engine);
     this.drawBanner(context, width);
+    this.drawDraft(context, width, height, engine);
+  }
+
+  // 강화 카드 고르기: 화면을 어둡게 하고 3장을 가운데에. 카드 자리는 draftRects에 남겨 눌렀을 때 찾는다
+  drawDraft(context, width, height, engine) {
+    this.draftRects = [];
+    const draft = engine.draft;
+    if (!draft || engine.phase !== 'draft') return;
+    const time = wallSeconds();
+    this.draftOpenedAt ??= time;
+    const appear = easeOutBack(Math.min(1, (time - this.draftOpenedAt) / 0.35));
+    context.save();
+    context.fillStyle = 'rgba(5, 7, 16, 0.78)';
+    context.fillRect(0, 0, width, height);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = SCENE.ink;
+    context.font = canvasFont(width < 520 ? 16 : 20, 'ui', 700);
+    context.fillText(`WAVE ${draft.wave} 돌파 · 강화 카드를 고르세요`, width / 2, height * 0.16);
+    context.fillStyle = SCENE.fog;
+    context.font = canvasFont(12, 'ui', 600);
+    context.fillText('숫자 키 1·2·3 또는 카드를 눌러요 · 이번 판에만 적용', width / 2, height * 0.16 + 24);
+    const count = draft.hand.length;
+    const gap = 12;
+    const cardWidth = Math.min(190, (width - 24 - gap * (count - 1)) / count);
+    const cardHeight = Math.min(230, height * 0.52);
+    const totalWidth = cardWidth * count + gap * (count - 1);
+    const top = height * 0.24 + 20;
+    draft.hand.forEach((id, index) => {
+      const card = cardById(id);
+      if (!card) return;
+      const x = (width - totalWidth) / 2 + index * (cardWidth + gap);
+      const rect = { x, y: top, width: cardWidth, height: cardHeight, index };
+      this.draftRects.push(rect);
+      const color = CARD_COLORS[card.rarity] ?? SCENE.ink;
+      const hover = this.pointer && this.pointer.x >= x && this.pointer.x <= x + cardWidth && this.pointer.y >= top && this.pointer.y <= top + cardHeight;
+      const lift = hover ? -6 : Math.sin(time * 2 + index) * 2;
+      context.save();
+      context.translate(x + cardWidth / 2, top + cardHeight / 2 + lift);
+      context.scale(appear, appear);
+      context.translate(-cardWidth / 2, -cardHeight / 2);
+      context.shadowColor = color;
+      context.shadowBlur = hover ? 26 : 14;
+      context.fillStyle = 'rgba(16, 20, 38, 0.97)';
+      roundedRect(context, 0, 0, cardWidth, cardHeight, 14);
+      context.fill();
+      context.shadowBlur = 0;
+      context.lineWidth = hover ? 2.5 : 1.5;
+      context.strokeStyle = color;
+      roundedRect(context, 0, 0, cardWidth, cardHeight, 14);
+      context.stroke();
+      context.fillStyle = color;
+      context.font = canvasFont(11, 'ui', 700);
+      context.fillText(`${index + 1} · ${CARD_RARITY_LABELS[card.rarity] ?? ''}`, cardWidth / 2, 18);
+      context.font = canvasFont(Math.min(40, cardWidth * 0.24), 'ui', 700);
+      context.fillText(card.icon, cardWidth / 2, cardHeight * 0.32);
+      context.fillStyle = SCENE.ink;
+      context.font = canvasFont(cardWidth < 130 ? 13 : 15, 'ui', 700);
+      context.fillText(card.name, cardWidth / 2, cardHeight * 0.55);
+      context.fillStyle = SCENE.fog;
+      context.font = canvasFont(cardWidth < 130 ? 10 : 12, 'ui', 600);
+      this.wrapText(context, card.text, cardWidth - 18).forEach((line, lineIndex) => context.fillText(line, cardWidth / 2, cardHeight * 0.68 + lineIndex * 16));
+      const owned = engine.cards.filter(entry => entry === card.id).length;
+      if (owned) {
+        context.fillStyle = color;
+        context.font = canvasFont(10, 'ui', 700);
+        context.fillText(`보유 ${owned}/${card.max}`, cardWidth / 2, cardHeight - 14);
+      }
+      context.restore();
+    });
+    context.restore();
+  }
+
+  // 글을 폭에 맞춰 줄바꿈(띄어쓰기 기준, 한 낱말이 넘치면 글자 단위). 최대 3줄
+  wrapText(context, text, maxWidth) {
+    const lines = [];
+    let line = '';
+    for (const word of String(text).split(' ')) {
+      const next = line ? `${line} ${word}` : word;
+      if (context.measureText(next).width <= maxWidth) { line = next; continue; }
+      if (line) lines.push(line);
+      line = word;
+    }
+    if (line) lines.push(line);
+    return lines.slice(0, 3);
+  }
+
+  // 누른 점이 강화 카드면 그 번호(0부터), 아니면 -1
+  draftCardAt(screenX, screenY) {
+    const rect = (this.draftRects ?? []).find(entry => screenX >= entry.x && screenX <= entry.x + entry.width && screenY >= entry.y && screenY <= entry.y + entry.height);
+    return rect ? rect.index : -1;
   }
 
   // 그림 배치: 그림 속 방패 돔의 중심을 컴퓨터 자리에, 돔 꼭대기를 길 끝 근처에 맞춘다.
@@ -450,7 +551,7 @@ export class DefenseRenderer {
 
   // 길: 어두운 띠 + 하늘색 가장자리 + 컴퓨터 쪽으로 흐르는 점선
   drawPath(context, engine) {
-    const points = DEFENSE_PATH.map(point => this.toScreen(point));
+    const points = (engine.path?.points ?? DEFENSE_PATH).map(point => this.toScreen(point));
     const trace = () => {
       context.beginPath();
       points.forEach((point, index) => (index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y)));
@@ -609,7 +710,8 @@ export class DefenseRenderer {
   drawTowerRange(context, tower, engine) {
     const { x, y } = this.towerPosition(tower);
     const color = TOWER_STYLE[tower.type];
-    const range = this.rangePixels(towerStats(tower.type, tower.level).range);
+    const statsAt = level => engine.statsOf ? engine.statsOf(tower, level) : towerStats(tower.type, level);
+    const range = this.rangePixels(statsAt(tower.level).range);
     const selected = this.selectedTowerId === tower.id;
     context.save();
     if (selected && tower.level < DEFENSE_RULES.maxTowerLevel) {
@@ -618,7 +720,7 @@ export class DefenseRenderer {
       context.strokeStyle = '#ffffff';
       context.setLineDash([3, 5]);
       context.beginPath();
-      context.arc(x, y, this.rangePixels(towerStats(tower.type, tower.level + 1).range), 0, Math.PI * 2);
+      context.arc(x, y, this.rangePixels(statsAt(tower.level + 1).range), 0, Math.PI * 2);
       context.stroke();
       context.setLineDash([]);
     }
@@ -1379,7 +1481,7 @@ export class DefenseRenderer {
   drawBuildPreview(context, engine) {
     const mode = engine.buildMode;
     if (!mode) return;
-    const points = DEFENSE_PATH.map(point => this.toScreen(point));
+    const points = (engine.path?.points ?? DEFENSE_PATH).map(point => this.toScreen(point));
     context.save();
     context.strokeStyle = 'rgba(255, 77, 109, 0.14)';
     context.lineWidth = this.pathWidth() + 26;
@@ -1414,7 +1516,7 @@ export class DefenseRenderer {
     context.lineWidth = 2;
     context.setLineDash([5, 5]);
     context.beginPath();
-    context.arc(x, y, ok ? this.rangePixels(towerStats(mode.tower, sameTower ? Math.min(DEFENSE_RULES.maxTowerLevel, sameTower.level + 1) : 1).range) : 22, 0, Math.PI * 2);
+    context.arc(x, y, ok ? this.rangePixels((engine.statsOf ? engine.statsOf({ type: mode.tower }, sameTower ? Math.min(DEFENSE_RULES.maxTowerLevel, sameTower.level + 1) : 1) : towerStats(mode.tower, sameTower ? Math.min(DEFENSE_RULES.maxTowerLevel, sameTower.level + 1) : 1)).range) : 22, 0, Math.PI * 2);
     context.stroke();
     context.setLineDash([]);
     if (ok) {
@@ -1632,7 +1734,7 @@ export class DefenseRenderer {
   bugHeading(bug, x, y) {
     const ahead = bug.air
       ? this.toScreen({ x: DEFENSE_COMPUTER.x, y: DEFENSE_COMPUTER.y - 0.1 })
-      : this.toScreen(pointOnPath(Math.min(1, bug.progress + 0.01)));
+      : this.toScreen((this.currentPath ?? { pointAt: pointOnPath }).pointAt(Math.min(1, bug.progress + 0.01)));
     return Math.atan2(ahead.y - y, ahead.x - x) || 0;
   }
 
@@ -3851,6 +3953,10 @@ export class DefenseRenderer {
     context.fillText(`♩ ${engine.bpm()}`, 104, middle);
     context.fillStyle = SCENE.coin;
     context.fillText(`🪙 ${engine.coins}`, 160, middle);
+    if (engine.cards?.length && width >= 420) {
+      context.fillStyle = CARD_COLORS.rare;
+      context.fillText(`🃏 ${engine.cards.length}`, 236, middle);
+    }
     const barWidth = Math.min(160, width * 0.28);
     const left = width - barWidth - 12;
     const ratio = Math.max(0, this.displayHealth / engine.maxHealth);

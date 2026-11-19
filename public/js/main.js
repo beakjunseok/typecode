@@ -24,6 +24,7 @@ import { loadSkinOverrides } from './skin-overrides.js';
 import { createKeyboardCollection } from './gacha-view.js';
 import { EARNING } from './gacha.js';
 import { DefenseEngine, DEFENSE_RULES, TOWER_TYPES, ATTACK_TYPES } from './defense-engine.js';
+import { cardById } from './defense-cards.js';
 import { DefenseRenderer } from './defense-view.js';
 import { rewardBreakdown, describeReward } from './rewards.js';
 import { requestSession, submitScore, fetchBoard, localBoard, preferences } from './api.js';
@@ -52,7 +53,7 @@ const MODE_CONFIG = Object.freeze({
   defense: {
     label: '컴퓨터 디펜스', arcade: true, title: 'firewall.sys', resultTitle: 'SYSTEM HACKED',
     hint: '낱말을 쳐서 코인 벌기 · 상점을 눌러 타워 설치 · 타워·컴퓨터를 눌러 강화', Renderer: DefenseRenderer,
-    createEngine: options => new DefenseEngine({ ...options, maxTokenLength: options.narrow ? 12 : 16 })
+    createEngine: options => new DefenseEngine({ ...options, maxTokenLength: options.narrow ? 12 : 16, randomMap: true, cards: true })
   },
   rhythm: {
     label: '코딩 리듬', arcade: true, title: 'beat-compiler.wav', resultTitle: 'STAGE CLEAR',
@@ -685,7 +686,7 @@ function bindDefensePointer(canvas) {
     const rect = canvas.getBoundingClientRect();
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   };
-  const activeRenderer = () => (settings.mode === 'defense' && run.engine?.buildMode && run.engine.status === 'running' ? renderers.defense : null);
+  const activeRenderer = () => (settings.mode === 'defense' && (run.engine?.buildMode || run.engine?.phase === 'draft') && run.engine.status === 'running' ? renderers.defense : null);
   canvas.addEventListener('pointermove', event => {
     const renderer = activeRenderer();
     renderers.defense?.setPointer(renderer ? localPoint(event) : null);
@@ -694,6 +695,14 @@ function bindDefensePointer(canvas) {
   canvas.addEventListener('pointerdown', event => {
     if (settings.mode !== 'defense' || run.engine?.status !== 'running') return;
     const point = localPoint(event);
+    // 강화 카드 고르기 중: 카드를 누르면 그 카드, 다른 곳은 무시
+    if (run.engine.phase === 'draft') {
+      event.preventDefault();
+      const index = renderers.defense?.draftCardAt(point.x, point.y) ?? -1;
+      if (index >= 0) run.engine.chooseCard(index);
+      ui.elements.hiddenInput?.focus({ preventScroll: true });
+      return;
+    }
     // 상점 칸을 누르면 그 품목 고르기(타워 → 설치 모드, 수리 → 바로 구매)
     const shopItem = renderers.defense?.shopItemAt(run.engine, point.x, point.y);
     if (shopItem) {
@@ -798,6 +807,22 @@ function handleDefenseEvent(type, payload) {
       return true;
     case 'boss-summon':
       sound.play('spawnRobot', { type: 'basic' });
+      return true;
+    case 'draft':
+      sound.play('milestone');
+      ui.log('info', `🃏 WAVE ${payload.wave} 돌파 — 강화 카드 3장 중 1장을 고르세요 (1·2·3)`);
+      return true;
+    case 'card-picked': {
+      const card = cardById(payload.card);
+      sound.play('tierUp', { tier: 3 });
+      emitSparks(ui.elements.arcadeStage, { color: '#36e2ff' });
+      if (card) ui.log('info', `${card.icon} ${card.name}: ${card.text}`);
+      return true;
+    }
+    case 'backup-restore':
+      sound.play('tierUp', { tier: 4 });
+      pulseClass(ui.elements.arcadeStage, 'tier-flash', 600);
+      ui.log('warn', `💾 백업 서버 가동 — 체력 ${payload.health}으로 복구`);
       return true;
     case 'tower-locked':
       sound.play('error');
@@ -1365,6 +1390,11 @@ function handleDefenseHotkey(event) {
   const engine = run.engine;
   if (settings.mode !== 'defense' || engine?.status !== 'running' || event.isComposing) return false;
   if (event.key === 'Escape' && !engine.buildMode) return false;
+  if (engine.phase === 'draft' && /^[1-9]$/.test(event.key)) {
+    const picked = engine.hotkey(event.key);
+    event.preventDefault();
+    return picked || true;
+  }
   if (/^[0-9]$/.test(event.key)) {
     const expected = engine.stream?.[0]?.token.text[engine.typed?.length ?? 0];
     if (expected === event.key) return false;
