@@ -3,6 +3,7 @@
 import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
 import { BATTERY_RULES } from './battery-engine.js';
+import { PERSONAS, WEATHERS, ITEM_LOOKS } from './battery-modes.js';
 import { MASCOT_PALETTES, createRig, reactRig, updateRig, drawPhoneMascot, drawDrainBot, drainBotFor } from './battery-characters.js';
 import { qualityFor, setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice } from './game-view.js';
 
@@ -27,13 +28,7 @@ const SCENE = Object.freeze({
   seaTop: '#16306a', seaBottom: '#060a19', seaBack: '#0f1a3e', crest: '#7fa7f5',
   danger: '#7a1f3a', rail: '#4df0a6', ink: '#0e1222', paper: '#e9edf8', fog: '#8a93b8', dim: '#5a6288'
 });
-const ITEM_STYLE = {
-  cell: { color: '#4df0a6', label: '+0.5' },
-  powerbank: { color: '#36e2ff', label: '+1' },
-  eco: { color: '#c3e88d', label: 'ECO' },
-  heat: { color: '#ff7a45', label: 'HEAT' },
-  blackout: { color: '#c792ea', label: 'OFF' }
-};
+const ITEM_STYLE = Object.fromEntries(Object.entries(ITEM_LOOKS).map(([key, look]) => [key, { color: look.color, label: look.tag, icon: look.icon }]));
 
 export class BatteryRenderer {
   constructor(canvas) {
@@ -92,6 +87,17 @@ export class BatteryRenderer {
   }
 
   onEvent(type, payload, engine) {
+    if (type === 'taunt') this.tauntBubble = { text: payload.text, at: wallSeconds() };
+    if (type === 'big-wave') this.juice?.shake?.(0.5);
+    if (type === 'reflect' && this.context) {
+      const target = this.characterPosition(payload.attacker === 'me' ? 'rival' : 'me');
+      this.juice?.ring?.(target.x, target.y - 20, { color: '#9ff0ff', radius: 80, life: 0.45, width: 5 });
+      this.juice?.popup?.(target.x, target.y - 70, '🪞 반사!', { color: '#9ff0ff', size: 20 });
+    }
+    if (type === 'trap-sprung' && this.context) {
+      const target = this.characterPosition(payload.victim);
+      this.juice?.popup?.(target.x, target.y - 70, '🪤 함정! -0.5', { color: '#ffb547', size: 20 });
+    }
     if (type === 'lock') this.visuals.get(payload.target.id).labelPop.kick(14);
     else if (type === 'mistake' && payload.target) this.visuals.get(payload.target.id).labelPop.kick(-10);
     this.reactCharacters(type, payload);
@@ -197,6 +203,7 @@ export class BatteryRenderer {
     this.drawTower(context, 'me', engine);
     this.drawTower(context, 'rival', engine);
     this.drawSea(context, width, height, engine);
+    this.drawWeather(context, width, height, engine);
     this.drawCharacter(context, 'me', engine);
     this.drawCharacter(context, 'rival', engine);
     this.drawTowerLabels(context, engine);
@@ -714,8 +721,10 @@ export class BatteryRenderer {
         percent, sleeping: state.sleeping, worried: state.worried, result: state.result
       });
     } else {
-      drawDrainBot(context, rig, { paused: state.sleeping, worried: state.worried, result: state.result, level: engine.level });
+      drawDrainBot(context, rig, { paused: state.sleeping, worried: state.worried, result: state.result, level: engine.level, lookOverride: engine.persona ? PERSONAS[engine.persona].look : null });
     }
+    this.drawStatusBadges(context, side, engine);
+    if (side === 'rival') this.drawTaunt(context, engine);
     if (state.sleeping) {
       context.fillStyle = '#c792ea';
       context.font = canvasFont(12);
@@ -799,8 +808,18 @@ export class BatteryRenderer {
     else if (item.item === 'powerbank') this.drawPowerbankDrone(context, engine);
     else if (item.item === 'eco') this.drawEcoIcon(context, style.color);
     else if (item.item === 'heat') this.drawHeatIcon(context, engine);
-    else this.drawBlackoutIcon(context, style.color);
+    else if (item.item === 'blackout') this.drawBlackoutIcon(context, style.color);
+    else this.drawEmojiItem(context, style, engine, item);
     context.shadowBlur = 0;
+    // 함정 셀: 놓은 쪽만 알아보게 작은 표시(내 함정 = 초록 점, 방전봇 함정 = 아주 작은 붉은 금)
+    if (item.trapOwner === 'me') {
+      context.fillStyle = '#4df0a6';
+      context.beginPath(); context.arc(10, -12, 3, 0, Math.PI * 2); context.fill();
+    } else if (item.trapOwner === 'rival') {
+      context.strokeStyle = 'rgba(255, 93, 115, 0.55)';
+      context.lineWidth = 1;
+      context.beginPath(); context.moveTo(-3, -8); context.lineTo(1, -2); context.lineTo(-2, 4); context.stroke();
+    }
     context.restore();
     if (!item.consumed) {
       const pop = this.visuals.get(item.id).labelPop.value * 0.4;
@@ -809,6 +828,142 @@ export class BatteryRenderer {
         attacker: engine.aiProgressFor(item.id)
       });
     }
+  }
+
+  // 새 아이템(덱 전용): 빛나는 동그라미 안에 아이콘
+  drawEmojiItem(context, style, engine, item) {
+    const pulse = 0.5 + 0.5 * Math.sin(engine.gameTime * 4 + item.id);
+    context.fillStyle = 'rgba(10, 14, 30, 0.85)';
+    context.beginPath();
+    context.arc(0, 0, 15, 0, Math.PI * 2);
+    context.fill();
+    context.lineWidth = 2;
+    context.strokeStyle = style.color;
+    context.globalAlpha *= 0.7 + pulse * 0.3;
+    context.stroke();
+    context.shadowBlur = 0;
+    context.font = canvasFont(16, 'ui', 700);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(style.icon, 0, 1);
+  }
+
+  // 캐릭터 머리 위 상태 아이콘: 반사·자석·오버클럭·면역·난독화(걸림)
+  drawStatusBadges(context, side, engine) {
+    const state = engine[side];
+    if (!state) return;
+    const now = engine.gameTime;
+    const badges = [];
+    if (state.reflect > 0) badges.push('🪞');
+    if (now < state.magnetUntil) badges.push('🧲');
+    if (now < state.overclockUntil) badges.push('⚙');
+    if (now < state.immuneUntil) badges.push('💊');
+    if (now < state.obfuscatedUntil) badges.push('🌀');
+    if (!badges.length) return;
+    context.font = canvasFont(13, 'ui', 700);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    const column = side === 'me' ? -36 : 36;
+    badges.forEach((badge, index) => {
+      const y = -34 - index * 19 + Math.sin(now * 3 + index) * 1.5;
+      context.fillStyle = 'rgba(10, 14, 30, 0.75)';
+      context.beginPath();
+      context.arc(column, y, 9.5, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = '#ffffff';
+      context.fillText(badge, column, y + 1);
+    });
+  }
+
+  // 방전봇 도발 말풍선(2.4초)
+  drawTaunt(context, engine) {
+    const bubble = this.tauntBubble;
+    if (!bubble || !engine.persona) return;
+    const age = wallSeconds() - bubble.at;
+    if (age > 2.4) return;
+    const alpha = age < 0.15 ? age / 0.15 : age > 2 ? (2.4 - age) / 0.4 : 1;
+    context.save();
+    context.globalAlpha = alpha;
+    context.font = canvasFont(12, 'ui', 700);
+    const width = context.measureText(bubble.text).width + 18;
+    const x = -width / 2 - 10, y = -112;
+    const color = PERSONAS[engine.persona].look.glow;
+    context.fillStyle = 'rgba(12, 15, 30, 0.92)';
+    roundedRect(context, x, y, width, 24, 10);
+    context.fill();
+    context.strokeStyle = color;
+    context.lineWidth = 1.5;
+    context.stroke();
+    context.fillStyle = 'rgba(12, 15, 30, 0.92)';
+    context.beginPath(); context.moveTo(x + width * 0.6, y + 24); context.lineTo(x + width * 0.6 + 8, y + 32); context.lineTo(x + width * 0.6 + 12, y + 24); context.fill();
+    context.fillStyle = '#ffffff';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(bubble.text, x + width / 2, y + 12.5);
+    context.restore();
+  }
+
+  // 바다 날씨: 폭풍(비·번개), 해류(물살 화살표), 파도(큰 파도가 덮칠 때 물결이 솟음), 썰물(모래톱)
+  drawWeather(context, width, height, engine) {
+    const weather = engine.weather;
+    if (!weather || weather === 'calm') return;
+    const time = engine.gameTime;
+    context.save();
+    if (weather === 'storm') {
+      context.strokeStyle = 'rgba(160, 190, 255, 0.35)';
+      context.lineWidth = 1;
+      context.beginPath();
+      for (let drop = 0; drop < 70; drop++) {
+        const x = ((drop * 97.3 + time * 220) % (width + 60)) - 30;
+        const y = ((drop * 53.7 + time * 640) % height);
+        context.moveTo(x, y);
+        context.lineTo(x - 6, y + 14);
+      }
+      context.stroke();
+      const flash = (time % 7) < 0.12 || ((time + 0.25) % 7) < 0.06;
+      if (flash) {
+        context.fillStyle = 'rgba(220, 230, 255, 0.25)';
+        context.fillRect(0, 0, width, height);
+      }
+    } else if (weather === 'current') {
+      context.strokeStyle = 'rgba(120, 220, 255, 0.35)';
+      context.lineWidth = 2;
+      for (let row = 0; row < 3; row++) {
+        const y = this.waterY + 18 + row * 22;
+        for (let arrow = 0; arrow < 6; arrow++) {
+          const x = width - (((arrow * width) / 6 + time * 60 + row * 40) % (width + 40));
+          context.beginPath();
+          context.moveTo(x + 14, y);
+          context.lineTo(x, y);
+          context.lineTo(x + 5, y - 4);
+          context.moveTo(x, y);
+          context.lineTo(x + 5, y + 4);
+          context.stroke();
+        }
+      }
+    } else if (weather === 'waves') {
+      const surge = engine.gameTime < engine.waveUntil ? Math.sin(((engine.waveUntil - engine.gameTime) / WEATHERS.waves.seconds) * Math.PI) : 0;
+      const warn = Math.max(0, 1 - (engine.nextWaveAt - engine.gameTime) / 2);
+      if (surge > 0) {
+        context.fillStyle = `rgba(80, 140, 255, ${0.35 * surge})`;
+        context.beginPath();
+        context.moveTo(0, height);
+        for (let x = 0; x <= width; x += 12) context.lineTo(x, this.waterY - surge * 46 + Math.sin(x * 0.03 + time * 6) * 8);
+        context.lineTo(width, height);
+        context.fill();
+      } else if (warn > 0) {
+        context.fillStyle = `rgba(127, 167, 245, ${0.6 * warn})`;
+        context.font = canvasFont(13, 'ui', 700);
+        context.textAlign = 'center';
+        context.fillText('🌊 큰 파도가 와요!', width / 2, this.waterY - 24);
+      }
+    } else if (weather === 'ebb') {
+      context.fillStyle = 'rgba(210, 180, 120, 0.18)';
+      context.beginPath();
+      context.ellipse(width / 2, height - 6, width * 0.32, 16, 0, Math.PI, 0);
+      context.fill();
+    }
+    context.restore();
   }
 
   drawCellIcon(context, color) {
@@ -962,7 +1117,7 @@ export class BatteryRenderer {
     context.fillStyle = SIDE_STYLE.me.label;
     context.fillText(`${Math.round(ratio('me') * 100)}%`, 64, middle);
 
-    const rivalName = isPvp(engine) ? rivalLabel(engine).slice(0, 8) : drainBotFor(engine.level).name;
+    const rivalName = isPvp(engine) ? rivalLabel(engine).slice(0, 8) : engine.persona ? `${PERSONAS[engine.persona].icon} ${PERSONAS[engine.persona].name}` : drainBotFor(engine.level).name;
     this.drawGauge(context, width - 40, middle, ratio('rival'), SIDE_STYLE.rival.label, true);
     context.textAlign = 'right';
     context.fillStyle = SCENE.fog;
@@ -971,7 +1126,8 @@ export class BatteryRenderer {
     context.fillStyle = SIDE_STYLE.rival.label;
     context.fillText(percentText, width - 52 - context.measureText(rivalName).width, middle);
 
-    const center = isPvp(engine) ? `ROUND ${engine.round} · ${engine.wins.mine}:${engine.wins.theirs}` : `STAGE ${engine.stage}`;
+    const weather = WEATHERS[engine.weather];
+    const center = isPvp(engine) ? `ROUND ${engine.round} · ${engine.wins.mine}:${engine.wins.theirs}` : engine.persona ? `${weather?.icon ?? ''} ${weather?.name ?? ''}` : `STAGE ${engine.stage}`;
     context.textAlign = 'center';
     const pillWidth = context.measureText(center).width + 22;
     context.fillStyle = 'rgba(28, 34, 64, 0.95)';

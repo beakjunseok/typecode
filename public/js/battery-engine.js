@@ -7,13 +7,30 @@
 //  · 8칸(100%)에 닿으면 충전 드론이 구조 → 스테이지 클리어. 0칸이 되면 바다에 빠져 패배.
 import { SCORING, MAX_MULTIPLIER } from './engine.js';
 import { TargetGameEngine, ARCADE_RULES, randomBetween } from './target-game.js';
+import { PERSONAS, WEATHERS, DECK_SIZE, BASE_ITEM, mirrorProfile } from './battery-modes.js';
 
 export const BATTERY_ITEMS = Object.freeze({
   cell: Object.freeze({ label: '배터리 셀', effect: '+0.5칸', gain: 0.5, weight: 0.5, bounty: 5 }),
   powerbank: Object.freeze({ label: '보조배터리 드론', effect: '+1칸', gain: 1, weight: 0.15, bounty: 10 }),
   eco: Object.freeze({ label: '저전력 모드', effect: '내 방전 4초 감속', gain: 0, weight: 0.12, bounty: 10 }),
   heat: Object.freeze({ label: '발열 폭탄', effect: '상대 방전 4초 가속', gain: 0, weight: 0.12, bounty: 10 }),
-  blackout: Object.freeze({ label: '화면 꺼짐', effect: '상대 3초 정지', gain: 0, weight: 0.11, bounty: 10 })
+  blackout: Object.freeze({ label: '화면 꺼짐', effect: '상대 3초 정지', gain: 0, weight: 0.11, bounty: 10 }),
+  // ---------- 덱 전용 새 아이템(덱에 넣어야 나온다) ----------
+  reflect: Object.freeze({ label: '반사 방패', effect: '다음에 뺏기는 걸 되돌림', gain: 0, weight: 0.12, bounty: 10 }),
+  obfuscate: Object.freeze({ label: '난독화', effect: '상대 낱말 6초 길게', gain: 0, weight: 0.12, bounty: 10 }),
+  magnet: Object.freeze({ label: '셀 자석', effect: '3초간 지나가는 셀 자동 획득', gain: 0, weight: 0.1, bounty: 10 }),
+  overclock: Object.freeze({ label: '오버클럭', effect: '6초간 뺏는 양 2배', gain: 0, weight: 0.11, bounty: 10 }),
+  cleanse: Object.freeze({ label: '백신 패치', effect: '나쁜 효과 지우고 5초 면역', gain: 0, weight: 0.1, bounty: 10 }),
+  trap: Object.freeze({ label: '함정 셀', effect: '가짜 셀을 띄움(상대가 먹으면 -0.5칸)', gain: 0, weight: 0.11, bounty: 10 }),
+  lucky: Object.freeze({ label: '행운 낚시', effect: '8초간 아이템 2배로 자주', gain: 0, weight: 0.1, bounty: 10 })
+});
+// 원래 다섯 종(덱을 안 고르면, 그리고 대전 모드는 이것만)
+export const CLASSIC_ITEMS = Object.freeze(['cell', 'powerbank', 'eco', 'heat', 'blackout']);
+export const ITEM_EFFECTS = Object.freeze({
+  obfuscateSeconds: 6, obfuscateFactor: 1.6, obfuscateMinLength: 8,
+  magnetSeconds: 3, overclockSeconds: 6, overclockFactor: 2,
+  cleanseSeconds: 5, trapLoss: 0.5, trapFoolChance: 0.5,
+  luckySeconds: 8, luckyRate: 2
 });
 
 export const BATTERY_RULES = Object.freeze({
@@ -53,20 +70,30 @@ export const BATTERY_MAX_POINTS_PER_CHARACTER = SCORING.basePoints * MAX_MULTIPL
 
 const RIVAL_NAMES = Object.freeze({ 1: '꾸벅봇', 2: '방전봇', 3: '과열봇', 4: '블랙아웃봇' });
 
-function createSide() {
-  return { cells: BATTERY_RULES.startCells, ecoUntil: 0, heatUntil: 0 };
+function createSide(cells = BATTERY_RULES.startCells) {
+  return { cells, ecoUntil: 0, heatUntil: 0, reflect: 0, obfuscatedUntil: 0, magnetUntil: 0, overclockUntil: 0, immuneUntil: 0 };
 }
 
 export class BatteryEngine extends TargetGameEngine {
   constructor(options) {
     super({ ...options, mode: 'battery' });
+    // 혼자 하기 판 꾸미기(없으면 예전 그대로): persona = 방전봇 성격, deck = 셀 말고 나올 아이템, weather = 바다 날씨
+    this.persona = PERSONAS[options.persona] ? options.persona : null;
+    this.personaAi = this.persona ? PERSONAS[this.persona].ai : null;
+    this.mirror = this.personaAi?.mirror ? (options.mirrorProfile ?? mirrorProfile(null)) : null;
+    const deck = Array.isArray(options.deck) ? options.deck.filter(key => BATTERY_ITEMS[key] && key !== BASE_ITEM).slice(0, DECK_SIZE) : null;
+    this.itemPool = deck?.length ? [BASE_ITEM, ...deck] : [...CLASSIC_ITEMS];
+    this.weather = WEATHERS[options.weather] ? options.weather : 'calm';
+    this.nextWaveAt = this.weather === 'waves' ? WEATHERS.waves.every : Infinity;
+    this.waveUntil = 0;
+    this.luckyUntil = 0;
     this.lives = 1;
     this.stage = 1;
     this.stagesCleared = 0;
     this.stageStartKeystrokes = 0;
     this.pauseUntil = 0;
     this.me = createSide();
-    this.rival = createSide();
+    this.rival = createSide(this.personaAi?.startCells ?? BATTERY_RULES.startCells);
     this.items = [];
     this.nextItemAt = 0.6;
     this.rivalWord = { id: this.nextId++, kind: 'rival-cell', token: null };
@@ -75,7 +102,7 @@ export class BatteryEngine extends TargetGameEngine {
     this.myWord.token = this.drawWeightedToken();
     this.hiddenUntil = 0;
     this.ai = { targetId: null, progress: 0, thinkUntil: 1.2, pausedUntil: 0 };
-    this.collected = { cell: 0, powerbank: 0, eco: 0, heat: 0, blackout: 0 };
+    this.collected = Object.fromEntries(Object.keys(BATTERY_ITEMS).map(key => [key, 0]));
     this.drains = 0;
     this.stolen = 0;
     this.outcome = null;
@@ -107,11 +134,28 @@ export class BatteryEngine extends TargetGameEngine {
 
   // 혼자 하기 상대 이름: 레벨마다 다른 방전봇 캐릭터(battery-characters.js의 DRAIN_BOTS와 같은 이름)
   get rivalName() {
+    if (this.persona) return PERSONAS[this.persona].name;
     return RIVAL_NAMES[this.level] ?? RIVAL_NAMES[2];
   }
 
   sinkPerSecond() {
-    return BATTERY_RULES.baseSinkPerSecond * this.difficulty.speed * (1 + (this.stage - 1) * BATTERY_RULES.stageSinkStep);
+    const weather = this.weather === 'ebb' ? WEATHERS.ebb.sink : 1;
+    const wave = this.gameTime < this.waveUntil ? WEATHERS.waves.sink / WEATHERS.waves.seconds / BATTERY_RULES.baseSinkPerSecond : 0;
+    return BATTERY_RULES.baseSinkPerSecond * this.difficulty.speed * (1 + (this.stage - 1) * BATTERY_RULES.stageSinkStep) * weather
+      + BATTERY_RULES.baseSinkPerSecond * wave;
+  }
+
+  // 파도 날씨: every초마다 큰 파도(seconds초 동안 두 탑이 sink칸 더 가라앉음)
+  stepWeather() {
+    if (this.gameTime < this.nextWaveAt) return;
+    this.nextWaveAt = this.gameTime + WEATHERS.waves.every;
+    this.waveUntil = this.gameTime + WEATHERS.waves.seconds;
+    this.emit('big-wave', { seconds: WEATHERS.waves.seconds });
+  }
+
+  itemSpeed() {
+    const weather = WEATHERS[this.weather]?.itemSpeed ?? 1;
+    return BATTERY_RULES.itemSpeed * (1 + (this.stage - 1) * 0.05) * weather;
   }
 
   sideSinkFactor(side) {
@@ -123,7 +167,8 @@ export class BatteryEngine extends TargetGameEngine {
 
   aiCharactersPerSecond() {
     const mercy = this.me.cells <= BATTERY_RULES.mercyCells ? BATTERY_RULES.mercyFactor : 1;
-    return BATTERY_RULES.aiCharactersPerSecond[this.level] * (1 + (this.stage - 1) * BATTERY_RULES.aiStageSpeedStep) * mercy;
+    const base = this.mirror ? this.mirror.cps : BATTERY_RULES.aiCharactersPerSecond[this.level] * (this.personaAi?.speed ?? 1);
+    return base * (1 + (this.stage - 1) * BATTERY_RULES.aiStageSpeedStep) * mercy * (this.ai.burst ?? 1);
   }
 
   // ---------- 진행 ----------
@@ -133,6 +178,11 @@ export class BatteryEngine extends TargetGameEngine {
       return;
     }
     if (this.gameTime < this.pauseUntil) return;
+    if (!this.greeted && this.persona) {
+      this.greeted = true;
+      this.taunt('start');
+    }
+    this.stepWeather();
     this.drainTowers(frameSeconds);
     if (this.status !== 'running' || this.gameTime < this.pauseUntil) return;
     this.moveItems(frameSeconds);
@@ -171,6 +221,7 @@ export class BatteryEngine extends TargetGameEngine {
     this.score += Math.round(bonus);
     this.stagesCleared++;
     this.emit('stage-clear', { stage: this.stage, how, bonus: Math.round(bonus) });
+    this.taunt('lose');
     // 혼자 하기는 구조되거나 방전봇이 가라앉으면 그 판 승리로 끝난다. 클리어 연출을 잠깐 보여 준 뒤 finish
     this.outcome = how === 'charged' ? 'rescued' : 'rival-sunk';
     this.winAt = this.gameTime + BATTERY_RULES.stageClearPause;
@@ -179,6 +230,7 @@ export class BatteryEngine extends TargetGameEngine {
   }
 
   loseMatch(how) {
+    this.taunt('win');
     this.outcome = how;
     this.me.cells = Math.max(0, this.me.cells);
     this.clearBuffer();
@@ -188,7 +240,7 @@ export class BatteryEngine extends TargetGameEngine {
 
   // ---------- 아이템 ----------
   chooseItemType() {
-    const entries = Object.entries(BATTERY_ITEMS);
+    const entries = this.itemPool.map(key => [key, BATTERY_ITEMS[key]]);
     let roll = this.random() * entries.reduce((sum, [, item]) => sum + item.weight, 0);
     for (const [key, item] of entries) {
       roll -= item.weight;
@@ -209,17 +261,24 @@ export class BatteryEngine extends TargetGameEngine {
 
   spawnIfDue() {
     if (this.gameTime < this.nextItemAt) return;
-    this.nextItemAt = this.gameTime + randomBetween(this.random, BATTERY_RULES.itemInterval) / (1 + (this.stage - 1) * 0.08);
+    const rate = (WEATHERS[this.weather]?.itemRate ?? 1) * (this.gameTime < this.luckyUntil ? ITEM_EFFECTS.luckyRate : 1);
+    this.nextItemAt = this.gameTime + randomBetween(this.random, BATTERY_RULES.itemInterval) / (1 + (this.stage - 1) * 0.08) / rate;
     if (this.items.filter(item => !item.consumed).length >= BATTERY_RULES.maxItems) return;
     const y = this.chooseItemY();
     if (y !== null) this.spawnItem(this.chooseItemType(), y);
   }
 
-  spawnItem(itemType = 'cell', y = 0.4, direction = this.random() < 0.5 ? 1 : -1) {
+  spawnItem(itemType = 'cell', y = 0.4, direction = this.random() < 0.5 ? 1 : -1, trapOwner = null) {
+    if (WEATHERS[this.weather]?.direction) direction = WEATHERS[this.weather].direction;
     const item = {
       id: this.nextId++, kind: 'item', item: itemType, x: direction > 0 ? -0.08 : 1.08, y, direction,
       consumed: false, takenBy: null, spawnedAt: this.gameTime, token: null
     };
+    // 함정 셀: 겉보기엔 셀. 놓은 쪽이 아닌 쪽이 먹으면 손해. 방전봇은 내 함정에 반쯤 속는다
+    if (trapOwner) {
+      item.trapOwner = trapOwner;
+      item.aiFooled = this.random() < ITEM_EFFECTS.trapFoolChance;
+    }
     item.token = this.pickToken(item.id);
     this.items.push(item);
     this.emit('item-spawn', { item });
@@ -227,10 +286,11 @@ export class BatteryEngine extends TargetGameEngine {
   }
 
   moveItems(frameSeconds) {
-    const speed = BATTERY_RULES.itemSpeed * (1 + (this.stage - 1) * 0.05);
+    const speed = this.itemSpeed();
     for (const item of this.items) {
       if (item.consumed) continue;
       item.x += item.direction * speed * frameSeconds;
+      if (this.magnetPull(item)) continue;
       if (item.x < -0.12 || item.x > 1.12) {
         item.consumed = true;
         item.missed = true;
@@ -244,11 +304,99 @@ export class BatteryEngine extends TargetGameEngine {
       || (item.takenAt !== undefined && this.gameTime - item.takenAt < 0.6));
   }
 
+  // 셀 자석: 화면 안에 들어온 셀·보조배터리(함정 제외)를 자석을 켠 쪽이 바로 가져간다. 가져갔으면 true
+  magnetPull(item) {
+    if (item.trapOwner || !['cell', 'powerbank'].includes(item.item) || item.x < 0 || item.x > 1) return false;
+    const owner = this.gameTime < this.me.magnetUntil ? 'me' : this.gameTime < this.rival.magnetUntil ? 'rival' : null;
+    if (!owner) return false;
+    item.consumed = true;
+    item.takenBy = owner;
+    item.takenAt = this.gameTime;
+    this.releaseTargetIf(item.id, owner === 'me' ? 'magnet' : 'stolen');
+    if (this.ai.targetId === item.id) this.resetAiTarget(0.2);
+    if (owner === 'me') {
+      this.itemsCollected++;
+      this.collected[item.item]++;
+    }
+    this.applyItem(owner === 'me' ? this.me : this.rival, owner === 'me' ? this.rival : this.me, item);
+    this.emit('magnet-take', { item, owner });
+    this.checkOutcome();
+    return true;
+  }
+
+  // 아이템 효과: side = 가져간 쪽, opponent = 상대. 상대에게 거는 나쁜 효과는 면역(백신 패치) 중이면 막힌다
   applyItem(side, opponent, item) {
     const config = BATTERY_ITEMS[item.item];
+    const now = this.gameTime;
+    const sideKey = side === this.me ? 'me' : 'rival';
+    // 함정 셀: 놓은 쪽이 먹으면 아무 일 없고, 상대가 먹으면 손해
+    if (item.trapOwner) {
+      if (item.trapOwner !== sideKey) {
+        side.cells -= ITEM_EFFECTS.trapLoss;
+        this.emit('trap-sprung', { item, victim: sideKey });
+      }
+      return;
+    }
+    const opponentImmune = now < opponent.immuneUntil;
     if (config.gain) side.cells = Math.min(BATTERY_RULES.goalCells, side.cells + config.gain);
-    if (item.item === 'eco') side.ecoUntil = Math.max(side.ecoUntil, this.gameTime) + BATTERY_RULES.ecoSeconds;
-    if (item.item === 'heat') opponent.heatUntil = Math.max(opponent.heatUntil, this.gameTime) + BATTERY_RULES.heatSeconds;
+    if (item.item === 'eco') side.ecoUntil = Math.max(side.ecoUntil, now) + BATTERY_RULES.ecoSeconds;
+    if (item.item === 'heat' && !opponentImmune) opponent.heatUntil = Math.max(opponent.heatUntil, now) + BATTERY_RULES.heatSeconds;
+    if (item.item === 'reflect') side.reflect = 1;
+    if (item.item === 'obfuscate' && !opponentImmune) {
+      opponent.obfuscatedUntil = Math.max(opponent.obfuscatedUntil, now) + ITEM_EFFECTS.obfuscateSeconds;
+      // 내가 당했으면 상대 탑 낱말을 바로 긴 낱말로 바꾼다
+      if (opponent === this.me && this.targetId !== this.rivalWord.id) this.rivalWord.token = this.pickToken(this.rivalWord.id);
+    }
+    if (item.item === 'magnet') side.magnetUntil = now + ITEM_EFFECTS.magnetSeconds;
+    if (item.item === 'overclock') side.overclockUntil = now + ITEM_EFFECTS.overclockSeconds;
+    if (item.item === 'cleanse') {
+      side.heatUntil = 0;
+      side.obfuscatedUntil = 0;
+      side.immuneUntil = now + ITEM_EFFECTS.cleanseSeconds;
+    }
+    if (item.item === 'lucky') this.luckyUntil = now + ITEM_EFFECTS.luckySeconds;
+    if (item.item === 'trap') {
+      const y = this.chooseItemY();
+      if (y !== null) this.spawnItem('cell', y, sideKey === 'me' ? -1 : 1, sideKey);
+    }
+  }
+
+  // 뺏기: attacker가 victim의 셀을 가져온다(오버클럭이면 2배). victim에게 반사 방패가 있으면 거꾸로 attacker가 뺏긴다
+  steal(attacker, victim) {
+    const amount = BATTERY_RULES.stealCells * (this.gameTime < attacker.overclockUntil ? ITEM_EFFECTS.overclockFactor : 1);
+    if (victim.reflect > 0) {
+      victim.reflect = 0;
+      const taken = Math.min(amount, Math.max(0, attacker.cells));
+      attacker.cells -= amount;
+      victim.cells = Math.min(BATTERY_RULES.goalCells, victim.cells + taken);
+      this.emit('reflect', { attacker: attacker === this.me ? 'me' : 'rival', amount });
+      return { stolen: -taken, reflected: true };
+    }
+    const stolen = Math.min(amount, Math.max(0, victim.cells));
+    victim.cells -= amount;
+    attacker.cells = Math.min(BATTERY_RULES.goalCells, attacker.cells + stolen);
+    return { stolen, reflected: false };
+  }
+
+  // 난독화에 걸린 쪽이 칠 낱말은 길게: 첫 글자가 겹치지 않는 낱말 중 가장 긴 것(되도록 obfuscateMinLength 이상)
+  pickToken(excludeId = null) {
+    if (!(this.gameTime < this.me?.obfuscatedUntil)) return super.pickToken(excludeId);
+    const used = new Set(this.targetables().filter(entity => entity.id !== excludeId).map(entity => entity.token.text[0]));
+    let best = null;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const token = this.drawWeightedToken();
+      if (used.has(token.text[0])) continue;
+      if (!best || token.text.length > best.text.length) best = token;
+      if (best.text.length >= ITEM_EFFECTS.obfuscateMinLength) break;
+    }
+    return best ?? super.pickToken(excludeId);
+  }
+
+  // 상황별 도발 대사(성격이 있을 때만). chance 확률로만 말해 너무 수다스럽지 않게
+  taunt(kind, chance = 1) {
+    const lines = this.persona ? PERSONAS[this.persona].taunts[kind] : null;
+    if (!lines?.length || this.random() >= chance) return;
+    this.emit('taunt', { kind, text: lines[Math.floor(this.random() * lines.length)] });
   }
 
   // ---------- 상대 AI ----------
@@ -261,13 +409,24 @@ export class BatteryEngine extends TargetGameEngine {
   // 남은 시간 안에 칠 수 있는 아이템을 고르거나, 일정 확률로 내 탑을 공격한다.
   chooseAiTarget() {
     const cps = this.aiCharactersPerSecond();
-    const speed = BATTERY_RULES.itemSpeed;
+    const speed = this.itemSpeed();
     const reachable = this.items.filter(item => {
       if (item.consumed) return false;
+      // 자기 함정은 안 먹고, 내 함정은 반쯤 속는다
+      if (item.trapOwner === 'rival' || (item.trapOwner === 'me' && !item.aiFooled)) return false;
       const remaining = item.direction > 0 ? 1.1 - item.x : item.x + 0.1;
       return remaining / speed > item.token.text.length / cps + 0.2;
     });
-    const wantsAttack = this.random() < BATTERY_RULES.aiAttackChance || reachable.length === 0;
+    // 얌체: 내가 치던 아이템이 닿을 만하면 그걸 가로챈다
+    if (this.personaAi?.snipe) {
+      const mine = reachable.find(item => item.id === this.targetId);
+      if (mine) {
+        this.ai.sniping = true;
+        return mine.id;
+      }
+    }
+    const attackChance = this.mirror ? this.mirror.attack : this.personaAi?.attack ?? BATTERY_RULES.aiAttackChance;
+    const wantsAttack = this.random() < attackChance || reachable.length === 0;
     if (wantsAttack) return this.myWord.id;
     // 셀 높이가 낮을수록 셀을, 높으면 공격형 아이템을 선호
     reachable.sort((first, second) => BATTERY_ITEMS[second.item].gain - BATTERY_ITEMS[first.item].gain || first.token.text.length - second.token.text.length);
@@ -278,9 +437,17 @@ export class BatteryEngine extends TargetGameEngine {
     if (this.gameTime < this.ai.pausedUntil) return;
     if (this.ai.targetId === null) {
       if (this.gameTime < this.ai.thinkUntil) return;
+      this.ai.sniping = false;
+      this.ai.burst = 1;
       this.ai.targetId = this.chooseAiTarget();
       this.ai.progress = 0;
-      this.emit('rival-lock', { targetId: this.ai.targetId });
+      // 도박꾼: 가끔 이번 낱말만 아주 빠르게
+      const burst = this.personaAi?.burst;
+      if (burst && this.random() < burst.chance) {
+        this.ai.burst = burst.factor;
+        this.taunt('burst', 0.7);
+      }
+      this.emit('rival-lock', { targetId: this.ai.targetId, burst: this.ai.burst > 1, snipe: this.ai.sniping });
     }
     const target = this.findEntity(this.ai.targetId);
     if (!target || (target.kind === 'item' && target.consumed)) {
@@ -288,7 +455,9 @@ export class BatteryEngine extends TargetGameEngine {
       return;
     }
     this.ai.progress += this.aiCharactersPerSecond() * frameSeconds;
-    if (this.ai.progress < target.token.text.length) return;
+    // 난독화에 걸린 방전봇은 낱말이 길어진 셈(더 오래 쳐야 한다)
+    const obfuscated = this.gameTime < this.rival.obfuscatedUntil ? ITEM_EFFECTS.obfuscateFactor : 1;
+    if (this.ai.progress < target.token.text.length * obfuscated) return;
 
     if (target.kind === 'item') {
       target.consumed = true;
@@ -301,13 +470,14 @@ export class BatteryEngine extends TargetGameEngine {
         this.releaseTargetIf(target.id, 'stolen');
       }
       this.emit('rival-take', { item: target });
+      if (this.ai.sniping) this.taunt('steal', 0.8);
+      else this.taunt('take', 0.35);
     } else {
-      // 방전봇이 내 배터리를 뺏어간다
-      const stolen = Math.min(BATTERY_RULES.stealCells, Math.max(0, this.me.cells));
-      this.me.cells -= BATTERY_RULES.stealCells;
-      this.rival.cells = Math.min(BATTERY_RULES.goalCells, this.rival.cells + stolen);
+      // 방전봇이 내 배터리를 뺏어간다(반사 방패가 있으면 되돌아간다)
+      const { stolen, reflected } = this.steal(this.rival, this.me);
       this.myWord.token = this.drawWeightedToken();
-      this.emit('rival-attack', { cells: this.me.cells, stolen });
+      this.emit('rival-attack', { cells: this.me.cells, stolen, reflected });
+      if (!reflected) this.taunt('attack', 0.3);
     }
     this.resetAiTarget();
     this.checkOutcome();
@@ -333,13 +503,12 @@ export class BatteryEngine extends TargetGameEngine {
       if (entity.item === 'blackout') this.ai.pausedUntil = this.gameTime + BATTERY_RULES.blackoutSeconds;
       this.emit('item', { item: entity });
     } else if (entity.kind === 'rival-cell') {
-      // 방전봇의 배터리를 뺏어온다
-      const stolen = Math.min(BATTERY_RULES.stealCells, Math.max(0, this.rival.cells));
-      this.rival.cells -= BATTERY_RULES.stealCells;
-      this.me.cells = Math.min(BATTERY_RULES.goalCells, this.me.cells + stolen);
+      // 방전봇의 배터리를 뺏어온다(상대에게 반사 방패가 있으면 내가 뺏긴다)
+      const { stolen, reflected } = this.steal(this.me, this.rival);
       this.drains++;
-      this.score += BATTERY_RULES.drainBounty;
-      this.emit('drain', { cells: this.rival.cells, stolen });
+      if (!reflected) this.score += BATTERY_RULES.drainBounty;
+      this.emit('drain', { cells: this.rival.cells, stolen, reflected });
+      if (!reflected) this.taunt('hurt', 0.25);
     }
     this.checkOutcome();
   }
@@ -363,7 +532,9 @@ export class BatteryEngine extends TargetGameEngine {
       myCells: Math.max(0, this.me.cells),
       rivalCells: Math.max(0, this.rival.cells),
       powerRemaining: eco,
-      powerSeconds: BATTERY_RULES.ecoSeconds
+      powerSeconds: BATTERY_RULES.ecoSeconds,
+      persona: this.persona,
+      weather: this.weather
     };
   }
 
@@ -376,7 +547,10 @@ export class BatteryEngine extends TargetGameEngine {
       outcome: this.outcome,
       collected: { ...this.collected },
       drains: this.drains,
-      stolen: this.stolen
+      stolen: this.stolen,
+      persona: this.persona,
+      weather: this.weather,
+      deck: this.itemPool.filter(key => key !== BASE_ITEM)
     };
   }
 }

@@ -1294,3 +1294,28 @@ body.mobile-play .stats .value { margin-top: 1px; font-size: 16px; }
 body.mobile-play #arcadeStage { margin-top: 0; }
 
 .ai-badge.chord-badge { color: #0a0d16; background: #ffb547; }
+
+/* ---------- 배터리 구조: 판 시작 전 준비(상대·날씨·아이템 덱) ---------- */
+.battery-prep {
+  position: absolute; left: 10px; right: 10px; bottom: 54px; z-index: 6; display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px; border: 1px solid var(--rule-soft); border-radius: 12px;
+  background: rgba(9, 12, 24, 0.92); color: var(--paper); font: 500 13px/1.4 var(--font-ui); backdrop-filter: blur(3px);
+}
+.battery-prep[hidden] { display: none; }
+.prep-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 8px; }
+.prep-card { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); border-left: 3px solid var(--persona, #36e2ff); min-width: 0; }
+.prep-card .prep-icon { font-size: 24px; line-height: 1; }
+.prep-card b { display: block; font-size: 14px; }
+.prep-card small { display: block; color: var(--fog); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prep-title { margin: 0; font-size: 12px; color: var(--fog); }
+.prep-title b { color: var(--amber); }
+.prep-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.prep-chip {
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--rule-soft); background: rgba(255, 255, 255, 0.03); color: #c5cbe2; font: 600 12px/1.2 var(--font-ui);
+}
+.prep-chip:hover { border-color: var(--chip, #36e2ff); }
+.prep-chip[aria-pressed="true"] { color: #0b0f1c; background: var(--chip, #36e2ff); border-color: var(--chip, #36e2ff); }
+.prep-chip.full { animation: prep-shake 0.3s; }
+@keyframes prep-shake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+@media (max-width: 560px) { .prep-row { grid-template-columns: 1fr; } .battery-prep { bottom: 48px; } }

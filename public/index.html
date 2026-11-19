@@ -138,6 +138,16 @@
       <div class="song-detail" aria-live="polite"></div>
     </div>
     <div class="overlay" id="arcadeOverlay">여기를 클릭(탭)해서 시작 준비<br><span id="arcadeOverlayHint">첫 글자를 치면 게임이 시작됩니다</span></div>
+    <div class="battery-prep" id="batteryPrep" hidden>
+      <div class="prep-row">
+        <div class="prep-card" id="prepRival"></div>
+        <div class="prep-card" id="prepWeather"></div>
+      </div>
+      <div class="prep-deck">
+        <p class="prep-title">아이템 덱 <b id="prepDeckCount">0/4</b> <span>· 배터리 셀은 늘 나와요 · 고른 4종만 바다에 떠다녀요</span></p>
+        <div class="prep-chips" id="prepDeck" role="group" aria-label="아이템 덱"></div>
+      </div>
+    </div>
   </section>
 
   <section class="keyboard-section" id="keyboardSection" aria-label="화면 키보드"></section>
