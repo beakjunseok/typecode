@@ -328,7 +328,7 @@ export class DefenseEngine extends TargetGameEngine {
     const item = SHOP_ITEMS[itemKey];
     if (!item) return Infinity;
     const factor = DEFENSE_RULES.priceFactor[this.level] ?? 1;
-    if (item.kind === 'repair') return Math.round(item.price * factor);
+    if (item.kind === 'repair') return Math.round(item.price * factor * this.mods.repairPrice);
     if (this.canBuildNew()) return this.priceAt(item.tower, null);
     const upgradable = this.upgradableTowers(item.tower);
     return upgradable.length ? Math.min(...upgradable.map(tower => this.priceAt(item.tower, tower))) : Infinity;
@@ -374,7 +374,9 @@ export class DefenseEngine extends TargetGameEngine {
       this.phase = 'spawning';
       this.phaseUntil = Infinity;
       this.nextSpawnAt = this.gameTime;
-      this.emit('wave-start', { wave: this.wave, bpm: this.bpm() });
+      this.shutterUsed = 0;
+      this.freezeUntil = this.mods.waveFreeze > 0 ? this.gameTime + this.mods.waveFreeze : 0;
+      this.emit('wave-start', { wave: this.wave, bpm: this.bpm(), freeze: this.mods.waveFreeze });
     } else if (this.phase === 'break') {
       this.startWave(this.wave + 1);
     }
@@ -397,7 +399,7 @@ export class DefenseEngine extends TargetGameEngine {
 
   spawnInterval() {
     const { start, step, min } = DEFENSE_RULES.spawnInterval;
-    return Math.max(min, start - step * (this.wave - 1)) * this.difficulty.spawn;
+    return Math.max(min, start - step * (this.wave - 1)) * this.difficulty.spawn * this.mods.spawnInterval;
   }
 
   spawnIfDue() {
@@ -447,7 +449,7 @@ export class DefenseEngine extends TargetGameEngine {
       phase: 1, shieldUntil: 0, nextSummonAt: Infinity, nextLockAt: Infinity
     };
     bug.tier = type.boss ? 1 : enemyTier(this.wave);
-    bug.hp = bug.maxHp = type.boss ? bossHp(typeKey, this.wave) : Math.round((type.hp + Math.floor((this.wave - 1) / DEFENSE_RULES.hpEveryWaves)) * ENEMY_TIERS[bug.tier].hp);
+    bug.hp = bug.maxHp = type.boss ? bossHp(typeKey, this.wave) : Math.max(1, Math.round((type.hp + Math.floor((this.wave - 1) / DEFENSE_RULES.hpEveryWaves)) * ENEMY_TIERS[bug.tier].hp) - this.mods.enemyHpMinus);
     this.bugs.push(bug);
     this.waveSpawned++;
     this.emit('spawn', { bug });
@@ -639,7 +641,8 @@ export class DefenseEngine extends TargetGameEngine {
 
   // 지금 컴퓨터 레벨의 가디언 봇 능력치(범위·체력·공격·간격·속도). 봇이 없는 레벨이면 Lv.3 값
   guardianStats(level = this.computerLevel) {
-    return this.computerStats(Math.max(GUARDIAN_LEVEL, level)).guardian;
+    const base = this.computerStats(Math.max(GUARDIAN_LEVEL, level)).guardian;
+    return this.mods.guardianDamage === 1 ? base : { ...base, damage: base.damage * this.mods.guardianDamage };
   }
 
   // 지금 컴퓨터 레벨의 능력치
@@ -651,7 +654,7 @@ export class DefenseEngine extends TargetGameEngine {
   computerUpgradeInfo() {
     const maxed = this.computerLevel >= COMPUTER_LEVELS.length - 1;
     const next = maxed ? null : this.computerStats(this.computerLevel + 1);
-    const price = maxed ? null : Math.round(next.price * (DEFENSE_RULES.priceFactor[this.level] ?? 1) * this.mods.priceFactor);
+    const price = maxed ? null : Math.round(next.price * (DEFENSE_RULES.priceFactor[this.level] ?? 1) * this.mods.upgradePrice);
     return { level: this.computerLevel, maxed, price, affordable: !maxed && this.coins >= price, current: this.computerStats(), next };
   }
 
@@ -707,7 +710,7 @@ export class DefenseEngine extends TargetGameEngine {
   applyLingeringDamage(frameSeconds) {
     this.puddles = this.puddles.filter(puddle => this.gameTime < puddle.until);
     // 컴퓨터 자동 복구(Lv.3)
-    const regen = this.computerStats().regen;
+    const regen = this.computerStats().regen + this.mods.regen;
     if (regen > 0 && this.health > 0) this.health = Math.min(this.maxHealth, this.health + regen * frameSeconds);
     for (const bug of this.bugs) {
       if (bug.state !== 'alive') continue;
@@ -770,8 +773,8 @@ export class DefenseEngine extends TargetGameEngine {
       cooldown: base.cooldown * mods.towerCooldown,
       damage: base.damage * mods.towerDamage * typeDamage,
       shots: base.shots + (mods.typeShots[tower.type] ?? 0),
-      burn: base.burn ? { seconds: base.burn.seconds, dps: base.burn.dps * mods.burn * mods.towerDamage } : null,
-      puddle: base.puddle ? { ...base.puddle, seconds: base.puddle.seconds * mods.puddleSeconds, slow: base.puddle.slow * mods.puddleSlow } : null,
+      burn: base.burn ? { seconds: base.burn.seconds, dps: base.burn.dps * mods.burn * mods.towerDamage * typeDamage } : null,
+      puddle: base.puddle ? { ...base.puddle, seconds: base.puddle.seconds * mods.puddleSeconds } : null,
       splash: base.splash * mods.splash
     };
   }
@@ -793,7 +796,7 @@ export class DefenseEngine extends TargetGameEngine {
       if (queued.has(bug.id)) continue;
       const type = BUG_TYPES[bug.type];
       const rage = bug.phase === 2 ? type.phaseTwo.speedFactor : 1;
-      const stunned = this.gameTime < bug.shieldUntil ? 0 : 1;
+      const stunned = this.gameTime < bug.shieldUntil || this.gameTime < (this.freezeUntil ?? 0) ? 0 : 1;
       const distance = bug.air ? Math.max(0.2, Math.hypot(DEFENSE_COMPUTER.x - bug.origin.x, DEFENSE_COMPUTER.y - bug.origin.y)) : 1;
       const tierSpeed = ENEMY_TIERS[bug.tier ?? 1].speed;
       bug.progress += type.speed * tierSpeed * this.mods.enemySpeed * this.difficulty.speed * this.slowFactor(bug) * rage * stunned * frameSeconds / distance * (bug.air ? 0.9 : 1);
@@ -813,12 +816,29 @@ export class DefenseEngine extends TargetGameEngine {
     bug.state = 'breached';
     bug.resolvedAt = this.gameTime;
     this.waveKilled++;
+    // 방화 셔터: 웨이브마다 첫 공격(들)은 막는다
+    if ((this.shutterUsed ?? 0) < this.mods.shutters) {
+      this.shutterUsed = (this.shutterUsed ?? 0) + 1;
+      this.emit('shutter-block', { bug });
+      return;
+    }
     this.waveTookDamage = true;
     const wasDanger = this.isDanger();
     this.health = Math.max(0, this.health - damage);
-    if (this.combo >= 5) this.emit('combo-lost', { combo: this.combo });
-    this.combo = 0;
+    if (!this.mods.comboShield) {
+      if (this.combo >= 5) this.emit('combo-lost', { combo: this.combo });
+      this.combo = 0;
+    }
     this.emit('damage', { bug, damage, health: this.health, lives: this.health > 0 ? 1 : 0 });
+    // 역해킹: 컴퓨터를 친 순간 가까운 적 둘에게 되갚는다
+    if (this.mods.counterHack > 0 && this.health > 0) {
+      const targets = this.bugs.filter(other => other.state === 'alive' && other.hp > 0)
+        .sort((a, b) => Math.hypot(a.x - DEFENSE_COMPUTER.x, a.y - DEFENSE_COMPUTER.y) - Math.hypot(b.x - DEFENSE_COMPUTER.x, b.y - DEFENSE_COMPUTER.y))
+        .slice(0, 2);
+      this.emit('counter-hack', { targets });
+      for (const target of targets) this.damageBug(target, 'counter', 2 * this.mods.counterHack);
+      if (this.status !== 'running') return;
+    }
     if (!wasDanger && this.isDanger()) this.emit('danger', { health: this.health });
     if (this.health <= 0 && this.mods.backups > 0) {
       // 백업 서버 카드: 한 번 절반 체력으로 되살아난다
@@ -898,8 +918,14 @@ export class DefenseEngine extends TargetGameEngine {
       return;
     }
     if (BUG_TYPES[bug.type].boss) amount *= this.mods.bossDamage;
+    if (bug.air && source !== 'dot') amount *= this.mods.airDamage;
     bug.hp -= amount;
     if (bug.hp < 1e-6) bug.hp = 0;
+    // 가비지 컬렉터: 체력이 기준 아래로 떨어진 졸개는 바로 처치
+    if (bug.hp > 0 && this.mods.executeBelow > 0 && !BUG_TYPES[bug.type].boss && bug.hp <= bug.maxHp * this.mods.executeBelow) {
+      bug.hp = 0;
+      this.emit('execute', { bug });
+    }
     const phaseTwo = BUG_TYPES[bug.type].phaseTwo;
     if (phaseTwo && bug.phase === 1 && bug.hp > 0 && bug.hp <= bug.maxHp * phaseTwo.at) {
       bug.phase = 2;
@@ -918,9 +944,40 @@ export class DefenseEngine extends TargetGameEngine {
     bug.resolvedAt = this.gameTime;
     this.kills[bug.type]++;
     this.waveKilled++;
-    this.score += type.bounty;
+    this.score += Math.round(type.bounty * this.mods.scoreBonus);
     this.gainCoins(type.towerCoins * ENEMY_TIERS[bug.tier ?? 1].coins * this.mods.killCoins, 'tower');
     this.emit('bug-kill', { bug, source, combo: this.combo });
+    this.onKillCards(bug);
+  }
+
+  // 처치 때 터지는 카드 효과: 연쇄 폭발(주변 지상 적 피해), 화상 전염(가장 가까운 적에게 불), 냉각 파동(주변 감속).
+  // 연쇄 폭발이 또 처치를 부르면 거기서도 터지지만, 한 번에 한 겹만(재귀 깊이 1)
+  onKillCards(bug) {
+    const near = radius => this.bugs.filter(other => other.state === 'alive' && other !== bug && !other.air && Math.hypot((other.x - bug.x) / 0.6, other.y - bug.y) <= radius);
+    if (this.mods.burnSpread && this.gameTime < (bug.burnUntil ?? 0)) {
+      const next = near(0.12).sort((a, b) => Math.hypot(a.x - bug.x, a.y - bug.y) - Math.hypot(b.x - bug.x, b.y - bug.y))[0];
+      if (next) {
+        next.burnDps = Math.max(next.burnDps ?? 0, bug.burnDps ?? 0);
+        next.burnUntil = Math.max(next.burnUntil ?? 0, bug.burnUntil);
+        this.emit('burn-spread', { from: bug, to: next });
+      }
+    }
+    if (this.mods.killChill > 0) {
+      for (const other of near(0.09)) {
+        other.jamUntil = this.gameTime + 1.5 * this.mods.killChill;
+        other.jamSlow = Math.min(other.jamSlow ?? 1, 0.6);
+      }
+    }
+    if (this.mods.killBlast > 0 && !bug.air && !this.blasting) {
+      const targets = near(0.07);
+      this.emit('kill-blast', { bug, x: bug.x, y: bug.y, hits: targets.length });
+      this.blasting = true;
+      for (const other of targets) {
+        this.damageBug(other, 'blast', this.mods.killBlast);
+        if (this.status !== 'running') break;
+      }
+      this.blasting = false;
+    }
   }
 
   // 2페이즈 보스 기술: 졸개 소환(웨이브 수에 더한다), 가장 가까운 타워를 잠깐 잠금(암호화)
@@ -931,8 +988,9 @@ export class DefenseEngine extends TargetGameEngine {
       if (this.gameTime >= bug.nextSummonAt) {
         bug.nextSummonAt = this.gameTime + skill.every;
         const minions = [];
-        for (let index = 0; index < skill.summonCount; index++) {
-          const offset = (index - (skill.summonCount - 1) / 2) * 0.06;
+        const summonCount = Math.max(1, Math.round(skill.summonCount * this.mods.summonFactor));
+        for (let index = 0; index < summonCount; index++) {
+          const offset = (index - (summonCount - 1) / 2) * 0.06;
           const minion = this.spawnBug(skill.summon, BUG_TYPES[skill.summon].air
             ? { x: Math.max(0.05, Math.min(0.95, bug.x + offset)), y: Math.max(0, bug.y - 0.05) }
             : { progress: bug.progress - 0.02 * (index + 1) });
@@ -942,7 +1000,7 @@ export class DefenseEngine extends TargetGameEngine {
         this.waveTotal += minions.length;
         this.emit('boss-summon', { bug, minions });
       }
-      if (this.gameTime >= bug.nextLockAt && this.towers.length) {
+      if (this.gameTime >= bug.nextLockAt && this.towers.length && !this.mods.lockImmune) {
         bug.nextLockAt = this.gameTime + skill.lockEvery;
         const tower = this.towers
           .filter(entry => this.gameTime >= (entry.lockedUntil ?? 0))
@@ -972,7 +1030,7 @@ export class DefenseEngine extends TargetGameEngine {
     if (!this.waveTookDamage) this.noDamageWaves++;
     const bonus = this.gainCoins(waveBonusCoins(this.wave, this.waveTookDamage) * this.mods.waveBonus, 'wave');
     if (this.mods.interest > 0) this.gainCoins(Math.min(80, this.coins * this.mods.interest), 'interest');
-    this.score += DEFENSE_RULES.waveScore * this.wave;
+    this.score += Math.round(DEFENSE_RULES.waveScore * this.wave * this.mods.scoreBonus);
     this.emit('wave-clear', { wave: this.wave, bonus, perfect: !this.waveTookDamage });
     if (this.wave >= DEFENSE_RULES.waves) {
       this.outcome = 'cleared';
@@ -987,16 +1045,16 @@ export class DefenseEngine extends TargetGameEngine {
       return;
     }
     this.phase = 'break';
-    this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds;
+    this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds + this.mods.extraBreak;
   }
 
   // ---------- 강화 카드 ----------
   // 카드 고르기 시작: 웨이브 사이에 멈추고 3장을 보여 준다(고를 때까지 다음 웨이브 안 옴, 낱말 수입도 멈춤)
   openDraft() {
-    const hand = drawCards(this.cards, this.random);
+    const hand = drawCards(this.cards, this.random, CARD_RULES.choices + this.mods.extraChoices, this.mods.luck);
     if (!hand.length) {
       this.phase = 'break';
-      this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds;
+      this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds + this.mods.extraBreak;
       return;
     }
     if (this.buildMode) this.cancelBuild('draft', { silent: true });
@@ -1017,8 +1075,8 @@ export class DefenseEngine extends TargetGameEngine {
     this.cards.push(card.id);
     this.draft = null;
     this.phase = 'break';
-    this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds;
-    this.emit('card-picked', { card: card.id, cards: [...this.cards] });
+    this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds + this.mods.extraBreak;
+    this.emit('card-picked', { card: card.id, rarity: card.rarity, index, cards: [...this.cards] });
     return true;
   }
 
@@ -1029,6 +1087,37 @@ export class DefenseEngine extends TargetGameEngine {
   raiseMaxHealth(amount) {
     this.maxHealth += Math.max(0, amount);
     this.healComputer(amount);
+  }
+
+  maxTowers() {
+    return DEFENSE_RULES.maxTowers + this.mods.extraTowers;
+  }
+
+  // 조기 출동 카드: 컴퓨터 레벨과 상관없이 가디언 봇을 지금 보낸다(능력치는 첫 출동 단계)
+  deployGuardianEarly() {
+    if (!this.guardian) this.spawnGuardian();
+  }
+
+  // 루트 권한 카드: 컴퓨터 강화 1단계 공짜(이미 최고면 코인 300)
+  freeComputerUpgrade() {
+    const info = this.computerUpgradeInfo();
+    if (info.maxed) return this.gainCoins(300, 'card');
+    this.coins += info.price;
+    return this.upgradeComputer();
+  }
+
+  // 전체 핫픽스 카드: 최고 레벨이 아닌 타워를 모두 한 단계 공짜로
+  upgradeAllTowers() {
+    let count = 0;
+    for (const tower of this.towers) {
+      if (tower.level >= DEFENSE_RULES.maxTowerLevel) continue;
+      tower.level += 1;
+      tower.upgradedAt = this.gameTime;
+      count++;
+      this.emit('tower-upgraded', { tower, price: 0, stats: this.statsOf(tower), perk: tower.level >= DEFENSE_RULES.maxTowerLevel ? TOWER_MAX_PERKS[tower.type] : null });
+    }
+    if (!count) this.gainCoins(200, 'card');
+    return count;
   }
 
   // ---------- 낱말 줄(수입) ----------
@@ -1045,7 +1134,9 @@ export class DefenseEngine extends TargetGameEngine {
   // 낱말 하나를 다 치면: 투사체 없이 코인(콤보·웨이브 배율), 다음 낱말이 올라온다
   onFire(target, projectile) {
     this.projectiles = this.projectiles.filter(entry => entry !== projectile);
-    const coins = this.gainCoins(wordCoins(target.token.text.length, this.wave, this.combo) * this.mods.wordCoins, 'word');
+    const jackpot = this.mods.jackpot > 0 && this.random() < this.mods.jackpot;
+    const coins = this.gainCoins(wordCoins(target.token.text.length, this.wave, Math.floor(this.combo * this.mods.comboBoost)) * this.mods.wordCoins * (jackpot ? 5 : 1), 'word');
+    if (jackpot) this.emit('jackpot', { coins });
     this.wordsTyped++;
     this.stream = this.stream.filter(word => word.id !== target.id);
     this.refillStream();
@@ -1107,7 +1198,7 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   canBuildNew() {
-    return this.towers.length < DEFENSE_RULES.maxTowers && this.path.candidates.some(point => !this.placementProblem(point));
+    return this.towers.length < this.maxTowers() && this.path.candidates.some(point => !this.placementProblem(point));
   }
 
   upgradableTowers(towerKey) {
@@ -1116,7 +1207,7 @@ export class DefenseEngine extends TargetGameEngine {
 
   // 키보드 추천 자리: 길을 많이 덮는 후보부터, 서로 떨어지게 최대 suggestions개. O(후보 × 추천 수)
   suggestedSpots() {
-    if (this.towers.length >= DEFENSE_RULES.maxTowers) return [];
+    if (this.towers.length >= this.maxTowers()) return [];
     const chosen = [];
     for (const point of this.path.candidates) {
       if (chosen.length >= DEFENSE_RULES.suggestions) break;
@@ -1130,7 +1221,9 @@ export class DefenseEngine extends TargetGameEngine {
   // 새 타워면 기본가, 업그레이드면 기본가 × 1.5^레벨, 난이도 배율. tower가 null이면 새 타워
   priceAt(towerKey, tower) {
     const factor = DEFENSE_RULES.priceFactor[this.level] ?? 1;
-    return Math.round(TOWER_TYPES[towerKey].price * factor * this.mods.priceFactor * 1.5 ** (tower ? tower.level : 0));
+    if (!tower && this.mods.freeBuilds > 0) return 0;
+    const cardFactor = tower ? this.mods.upgradePrice : this.mods.buildPrice;
+    return Math.round(TOWER_TYPES[towerKey].price * factor * cardFactor * 1.5 ** (tower ? tower.level : 0));
   }
 
   // 상점 낱말: 패치는 바로 수리, 타워는 설치 모드(추천 자리·같은 타워 위에 짧은 낱말, 화면을 눌러도 됨). 같은 타워를 다시 치면 취소
@@ -1188,12 +1281,13 @@ export class DefenseEngine extends TargetGameEngine {
     const touched = this.towers.find(tower => Math.hypot((tower.x - point.x) / PLACEMENT.towerGap.x, (tower.y - point.y) / PLACEMENT.towerGap.y) < 0.6) ?? null;
     // 같은 종류 타워를 누르면 강화, 다른 종류면 그 옆 빈자리로 밀어서 새로 짓는다
     if (touched?.type === mode.tower) return this.upgradeTower(touched);
-    if (this.towers.length >= DEFENSE_RULES.maxTowers) return this.denyPlace('max-towers', point);
+    if (this.towers.length >= this.maxTowers()) return this.denyPlace('max-towers', point);
     const placement = this.resolvePlacement(point);
     if (!placement.point) return this.denyPlace(placement.problem, point);
     const price = this.priceAt(mode.tower, null);
     if (this.coins < price) return this.denyPlace('coins', point, price);
     this.coins -= price;
+    if (price === 0 && this.mods.freeBuilds > 0) this.mods.freeBuilds--;
     this.cancelBuild('placed', { silent: true });
     const spot = placement.point;
     const tower = { id: this.nextId++, type: mode.tower, x: spot.x, y: spot.y, level: 1, readyAt: this.gameTime + 0.5, builtAt: this.gameTime, builtWave: this.wave, spent: price };
@@ -1233,7 +1327,7 @@ export class DefenseEngine extends TargetGameEngine {
   // 판매 환급액: 쓴 코인(설치 + 강화)의 70%, 이번 웨이브에 지은 타워는 100%(실수 되돌리기)
   sellValue(tower) {
     if (!tower) return 0;
-    const ratio = tower.builtWave === this.wave ? 1 : PLACEMENT.sellRefund;
+    const ratio = tower.builtWave === this.wave ? 1 : Math.min(1, PLACEMENT.sellRefund + this.mods.sellRefund);
     return Math.floor((tower.spent ?? 0) * ratio);
   }
 

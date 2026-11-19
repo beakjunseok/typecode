@@ -436,7 +436,7 @@ function comboFrequency(combo) {
 // 같은 소리를 다시 울리기까지 최소 간격(초). 타워가 많을 때 한 프레임에 수십 번 겹치지 않게
 const THROTTLED_SOUNDS = Object.freeze({
   empCharge: 0.08, empBlast: 0.07, zap: 0.06, honeyLob: 0.08, honeySplat: 0.08, honeyStep: 0.05,
-  ignite: 0.07, missileLaunch: 0.06, missileBoom: 0.06, laserShot: 0.05, towerLand: 0.05, bossLaserCharge: 0.3, bossLaser: 0.2
+  ignite: 0.07, missileLaunch: 0.06, missileBoom: 0.06, laserShot: 0.05, towerLand: 0.05, bossLaserCharge: 0.3, bossLaser: 0.2, cardHover: 0.05
 });
 
 const SOUNDS = {
@@ -849,6 +849,36 @@ const SOUNDS = {
   // 결과를 고를 때·버튼 피드백: 짧은 '틱'
   gachaTick(engine, context, time) {
     engine.tone(context, { frequency: 1600, startTime: time, peak: 0.03, decay: 0.03, waveform: 'square', filter: { type: 'lowpass', frequency: 4000 } });
+  },
+  // ---------- 디펜스 강화 카드 ----------
+  // 카드가 깔릴 때: 종이 미끄러지는 '샥'(대역 잡음이 위로 쓸림) + 짧은 나무 '톡'
+  cardDeal(engine, context, time) {
+    engine.noise(context, { startTime: time, peak: 0.05, decay: 0.09, filterType: 'bandpass', frequency: 1800, sweepTo: 5200, q: 1.4 });
+    engine.tone(context, { frequency: 420, sweepTo: 300, startTime: time + 0.06, peak: 0.03, decay: 0.05, waveform: 'triangle' });
+  },
+  // 카드가 뒤집혀 등급이 보일 때: 등급만큼 높고 길게. rarity 0 일반 ~ 3 전설
+  cardReveal(engine, context, time, { rarity = 0 } = {}) {
+    const notes = [[659.25], [783.99, 987.77], [880, 1108.73, 1318.51], [1046.5, 1318.51, 1567.98, 2093]][Math.max(0, Math.min(3, rarity))];
+    notes.forEach((frequency, index) => engine.tone(context, { frequency, startTime: time + index * 0.05, peak: 0.04, decay: 0.16 + rarity * 0.08, waveform: 'triangle' }));
+    if (rarity >= 2) engine.bell(context, { frequency: notes.at(-1), startTime: time + notes.length * 0.05, peak: 0.022 + rarity * 0.006, length: 0.5 + rarity * 0.25 });
+  },
+  // 전설 카드 등장: 아래로 떨어지는 '쿵' + 위로 솟는 반짝임 + 오래 남는 금빛 화음
+  cardLegend(engine, context, time) {
+    engine.tone(context, { frequency: 90, sweepTo: 40, startTime: time, peak: 0.14, decay: 0.7 });
+    engine.noise(context, { startTime: time, peak: 0.06, attack: 0.25, decay: 0.4, filterType: 'bandpass', frequency: 600, sweepTo: 7000, q: 2 });
+    for (let index = 0; index < 10; index++) engine.tone(context, { frequency: 1568 * (1 + (index % 5) * 0.2), startTime: time + 0.2 + index * 0.045, peak: 0.016, decay: 0.12 });
+    for (const step of [1, 1.26, 1.5, 2]) engine.tone(context, { frequency: 523.25 * step, startTime: time + 0.25, peak: 0.03, attack: 0.04, decay: 1.6, waveform: 'triangle' });
+  },
+  // 카드를 골랐을 때: '착' 하는 확정음 + 등급만큼 올라가는 아르페지오
+  cardPick(engine, context, time, { rarity = 0 } = {}) {
+    engine.noise(context, { startTime: time, peak: 0.07, decay: 0.06, filterType: 'highpass', frequency: 2600 });
+    engine.tone(context, { frequency: 180, sweepTo: 90, startTime: time, peak: 0.08, decay: 0.12 });
+    const steps = [1, 1.26, 1.5, 2, 2.52, 3].slice(0, 3 + rarity);
+    steps.forEach((step, index) => engine.tone(context, { frequency: 523.25 * step, startTime: time + 0.05 + index * 0.06, peak: 0.045, decay: index === steps.length - 1 ? 0.5 + rarity * 0.2 : 0.09, waveform: 'triangle' }));
+  },
+  // 카드 위로 마우스가 올라갈 때: 아주 짧은 '틱'
+  cardHover(engine, context, time) {
+    engine.tone(context, { frequency: 2200, startTime: time, peak: 0.015, decay: 0.025, waveform: 'square', filter: { type: 'lowpass', frequency: 5000 } });
   },
   finish(engine, context, time) {
     [523.25, 659.25, 783.99, 1046.5].forEach((frequency, index) => {

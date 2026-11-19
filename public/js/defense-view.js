@@ -28,7 +28,9 @@ const SCENE = Object.freeze({
   ink: '#e9edf8', fog: '#8a93b8', coin: '#ffd166', danger: '#ff4d6d', amber: '#ffb547'
 });
 // 강화 카드 등급 색
-const CARD_COLORS = Object.freeze({ common: '#9fb3c8', rare: '#36e2ff', epic: '#c77dff' });
+const CARD_COLORS = Object.freeze({ common: '#9fb3c8', rare: '#36e2ff', epic: '#c77dff', legendary: '#ffc94d' });
+// 카드 연출 시간(초): 한 장씩 깔리는 간격, 날아오는 시간, 뒤집히는 시간, 고른 뒤 연출
+const CARD_TIMING = Object.freeze({ stagger: 0.14, deal: 0.32, flipAt: 0.22, flip: 0.24, pick: 0.95 });
 // 공격 모양: 패킷 = 빨간 마름모, 스팸 = 성난 봉투, 악성 파일 = 성난 문서, 랜섬웨어 = 큰 자물쇠 괴물
 const BUG_STYLE = Object.freeze({
   packet: { body: '#ff5d73', dark: '#7a1530', size: 12 },
@@ -200,7 +202,11 @@ export class DefenseRenderer {
       this.wordFlights.push({ text: payload.word.token.text, coins: payload.coins, at: now });
       this.streamShift.value = 1;
     }
-    if (type === 'draft') this.draftOpenedAt = null;
+    if (type === 'draft') {
+      this.draftOpenedAt = null;
+      this.cardPick = null;
+    }
+    if (type === 'card-picked') this.cardPick = { at: wallSeconds(), index: payload.index ?? Math.max(0, this.lastDraft?.hand.indexOf(payload.card) ?? 0) };
     if (type === 'start') {
       this.selectTower(null);
       this.motions.clear();
@@ -441,78 +447,245 @@ export class DefenseRenderer {
     this.drawDraft(context, width, height, engine);
   }
 
-  // 강화 카드 고르기: 화면을 어둡게 하고 3장을 가운데에. 카드 자리는 draftRects에 남겨 눌렀을 때 찾는다
+  // 강화 카드 고르기: 화면을 어둡게 하고 카드를 한 장씩 아래에서 날려 깐 뒤 뒤집는다(뒷면 → 앞면).
+  // 등급별로 테두리 빛이 다르고, 영웅은 맥박처럼 빛나며, 전설은 뒤에서 금빛 광선이 돌고 반짝이가 맴돈다.
+  // 고르고 나면 그 카드가 가운데로 커졌다가 위(상태 줄)로 빨려 들어가고 나머지는 흩어진다. 카드 자리는 draftRects에 남긴다
   drawDraft(context, width, height, engine) {
     this.draftRects = [];
-    const draft = engine.draft;
-    if (!draft || engine.phase !== 'draft') return;
+    const draft = engine.phase === 'draft' ? engine.draft : null;
     const time = wallSeconds();
+    if (!draft) {
+      this.drawCardPick(context, width, height, time);
+      return;
+    }
     this.draftOpenedAt ??= time;
-    const appear = easeOutBack(Math.min(1, (time - this.draftOpenedAt) / 0.35));
+    const age = time - this.draftOpenedAt;
+    const layout = this.draftLayout(width, height, draft.hand.length);
+    this.lastDraft = { hand: [...draft.hand], layout };
     context.save();
-    context.fillStyle = 'rgba(5, 7, 16, 0.78)';
+    context.fillStyle = `rgba(5, 7, 16, ${Math.min(0.8, age * 3)})`;
     context.fillRect(0, 0, width, height);
     context.textAlign = 'center';
     context.textBaseline = 'middle';
+    context.globalAlpha = Math.min(1, age * 4);
     context.fillStyle = SCENE.ink;
     context.font = canvasFont(width < 520 ? 16 : 20, 'ui', 700);
-    context.fillText(`WAVE ${draft.wave} 돌파 · 강화 카드를 고르세요`, width / 2, height * 0.16);
+    context.fillText(`WAVE ${draft.wave} 돌파 · 강화 카드를 고르세요`, width / 2, layout.titleY);
     context.fillStyle = SCENE.fog;
     context.font = canvasFont(12, 'ui', 600);
-    context.fillText('숫자 키 1·2·3 또는 카드를 눌러요 · 이번 판에만 적용', width / 2, height * 0.16 + 24);
-    const count = draft.hand.length;
-    const gap = 12;
-    const cardWidth = Math.min(190, (width - 24 - gap * (count - 1)) / count);
-    const cardHeight = Math.min(230, height * 0.52);
-    const totalWidth = cardWidth * count + gap * (count - 1);
-    const top = height * 0.24 + 20;
+    context.fillText(`숫자 키 1~${draft.hand.length} 또는 카드를 눌러요 · 이번 판에만 적용`, width / 2, layout.titleY + 24);
+    context.globalAlpha = 1;
     draft.hand.forEach((id, index) => {
       const card = cardById(id);
       if (!card) return;
-      const x = (width - totalWidth) / 2 + index * (cardWidth + gap);
-      const rect = { x, y: top, width: cardWidth, height: cardHeight, index };
-      this.draftRects.push(rect);
-      const color = CARD_COLORS[card.rarity] ?? SCENE.ink;
-      const hover = this.pointer && this.pointer.x >= x && this.pointer.x <= x + cardWidth && this.pointer.y >= top && this.pointer.y <= top + cardHeight;
-      const lift = hover ? -6 : Math.sin(time * 2 + index) * 2;
+      const rect = layout.rects[index];
+      this.draftRects.push({ ...rect, index });
+      const start = index * CARD_TIMING.stagger;
+      const dealt = Math.max(0, Math.min(1, (age - start) / CARD_TIMING.deal));
+      if (dealt <= 0) return;
+      const flip = Math.max(0, Math.min(1, (age - start - CARD_TIMING.flipAt) / CARD_TIMING.flip));
+      const hover = flip >= 1 && this.pointer && this.pointer.x >= rect.x && this.pointer.x <= rect.x + rect.width && this.pointer.y >= rect.y && this.pointer.y <= rect.y + rect.height;
+      const rise = (1 - easeOutBack(dealt)) * (height - rect.y);
+      const lift = hover ? -8 : Math.sin(time * 2 + index) * 2;
+      // 뒤집기: 가로 폭이 1 → 0(뒷면) → 1(앞면)
+      const turn = Math.abs(Math.cos(flip * Math.PI));
+      const faceUp = flip >= 0.5;
       context.save();
-      context.translate(x + cardWidth / 2, top + cardHeight / 2 + lift);
-      context.scale(appear, appear);
-      context.translate(-cardWidth / 2, -cardHeight / 2);
-      context.shadowColor = color;
-      context.shadowBlur = hover ? 26 : 14;
-      context.fillStyle = 'rgba(16, 20, 38, 0.97)';
-      roundedRect(context, 0, 0, cardWidth, cardHeight, 14);
-      context.fill();
-      context.shadowBlur = 0;
-      context.lineWidth = hover ? 2.5 : 1.5;
-      context.strokeStyle = color;
-      roundedRect(context, 0, 0, cardWidth, cardHeight, 14);
-      context.stroke();
-      context.fillStyle = color;
-      context.font = canvasFont(11, 'ui', 700);
-      context.fillText(`${index + 1} · ${CARD_RARITY_LABELS[card.rarity] ?? ''}`, cardWidth / 2, 18);
-      context.font = canvasFont(Math.min(40, cardWidth * 0.24), 'ui', 700);
-      context.fillText(card.icon, cardWidth / 2, cardHeight * 0.32);
-      context.fillStyle = SCENE.ink;
-      context.font = canvasFont(cardWidth < 130 ? 13 : 15, 'ui', 700);
-      context.fillText(card.name, cardWidth / 2, cardHeight * 0.55);
-      context.fillStyle = SCENE.fog;
-      context.font = canvasFont(cardWidth < 130 ? 10 : 12, 'ui', 600);
-      this.wrapText(context, card.text, cardWidth - 18).forEach((line, lineIndex) => context.fillText(line, cardWidth / 2, cardHeight * 0.68 + lineIndex * 16));
-      const owned = engine.cards.filter(entry => entry === card.id).length;
-      if (owned) {
-        context.fillStyle = color;
-        context.font = canvasFont(10, 'ui', 700);
-        context.fillText(`보유 ${owned}/${card.max}`, cardWidth / 2, cardHeight - 14);
-      }
+      context.translate(rect.x + rect.width / 2, rect.y + rect.height / 2 + lift + rise);
+      context.rotate((1 - dealt) * (index - (draft.hand.length - 1) / 2) * 0.25);
+      if (faceUp && card.rarity === 'legendary') this.drawLegendRays(context, rect, time);
+      context.scale(Math.max(0.02, turn) * (hover ? 1.04 : 1), hover ? 1.04 : 1);
+      context.translate(-rect.width / 2, -rect.height / 2);
+      if (faceUp) this.drawCardFace(context, card, rect, time, hover, engine);
+      else this.drawCardBack(context, rect);
       context.restore();
+      if (faceUp && (card.rarity === 'legendary' || card.rarity === 'epic')) this.drawCardSparkles(context, rect, time, card.rarity, index);
     });
     context.restore();
   }
 
-  // 글을 폭에 맞춰 줄바꿈(띄어쓰기 기준, 한 낱말이 넘치면 글자 단위). 최대 3줄
-  wrapText(context, text, maxWidth) {
+  // 카드 칸 배치: 가로로 나란히, 화면이 좁으면 카드가 좁아진다
+  draftLayout(width, height, count) {
+    const gap = count > 3 ? 8 : 12;
+    const cardWidth = Math.min(190, (width - 24 - gap * (count - 1)) / count);
+    const cardHeight = Math.min(230, height * 0.52);
+    const totalWidth = cardWidth * count + gap * (count - 1);
+    const titleY = height * 0.16;
+    const top = height * 0.24 + 20;
+    const rects = Array.from({ length: count }, (_, index) => ({ x: (width - totalWidth) / 2 + index * (cardWidth + gap), y: top, width: cardWidth, height: cardHeight }));
+    return { rects, titleY };
+  }
+
+  // 카드 뒷면: 남색 바탕에 '{ }' 무늬
+  drawCardBack(context, rect) {
+    context.fillStyle = '#101634';
+    roundedRect(context, 0, 0, rect.width, rect.height, 14);
+    context.fill();
+    context.strokeStyle = 'rgba(54, 226, 255, 0.5)';
+    context.lineWidth = 1.5;
+    roundedRect(context, 0, 0, rect.width, rect.height, 14);
+    context.stroke();
+    context.fillStyle = 'rgba(54, 226, 255, 0.35)';
+    context.font = canvasFont(Math.min(36, rect.width * 0.22), 'code', 700);
+    context.fillText('{ }', rect.width / 2, rect.height / 2);
+  }
+
+  // 카드 앞면: 등급 띠·아이콘·이름·설명·보유 수. 전설은 금빛 그라데이션 테두리가 흐른다
+  drawCardFace(context, card, rect, time, hover, engine) {
+    const color = CARD_COLORS[card.rarity] ?? SCENE.ink;
+    const { width: cardWidth, height: cardHeight } = rect;
+    const legendary = card.rarity === 'legendary';
+    const pulse = card.rarity === 'epic' ? 0.5 + 0.5 * Math.sin(time * 4) : 0;
+    context.shadowColor = color;
+    context.shadowBlur = (hover ? 28 : 14) + pulse * 12 + (legendary ? 14 : 0);
+    const background = context.createLinearGradient(0, 0, 0, cardHeight);
+    background.addColorStop(0, legendary ? 'rgba(48, 36, 10, 0.98)' : 'rgba(18, 23, 44, 0.98)');
+    background.addColorStop(1, 'rgba(12, 15, 30, 0.98)');
+    context.fillStyle = background;
+    roundedRect(context, 0, 0, cardWidth, cardHeight, 14);
+    context.fill();
+    context.shadowBlur = 0;
+    if (legendary) {
+      const shift = (time * 0.6) % 1;
+      const border = context.createLinearGradient(0, 0, cardWidth, cardHeight);
+      ['#fff1b8', '#ffc94d', '#ff9f1c', '#fff1b8', '#ffc94d'].forEach((stop, index, list) => border.addColorStop(((index / (list.length - 1)) + shift) % 1, stop));
+      context.strokeStyle = border;
+      context.lineWidth = 3;
+    } else {
+      context.strokeStyle = color;
+      context.lineWidth = hover ? 2.5 : 1.5;
+    }
+    roundedRect(context, 0, 0, cardWidth, cardHeight, 14);
+    context.stroke();
+    // 등급 띠
+    context.fillStyle = color;
+    context.globalAlpha = 0.18;
+    roundedRect(context, 8, 8, cardWidth - 16, 22, 8);
+    context.fill();
+    context.globalAlpha = 1;
+    context.font = canvasFont(11, 'ui', 700);
+    const index = this.lastDraft?.hand.indexOf(card.id) ?? -1;
+    context.fillText(`${index >= 0 ? `${index + 1} · ` : ''}${CARD_RARITY_LABELS[card.rarity] ?? ''}`, cardWidth / 2, 19);
+    context.font = canvasFont(Math.min(40, cardWidth * 0.24), 'ui', 700);
+    context.fillText(card.icon, cardWidth / 2, cardHeight * 0.33 + Math.sin(time * 3) * 2);
+    context.fillStyle = legendary ? '#fff1b8' : SCENE.ink;
+    context.font = canvasFont(cardWidth < 130 ? 13 : 15, 'ui', 700);
+    context.fillText(card.name, cardWidth / 2, cardHeight * 0.55);
+    context.fillStyle = SCENE.fog;
+    context.font = canvasFont(cardWidth < 130 ? 10 : 12, 'ui', 600);
+    const lineHeight = cardWidth < 130 ? 13 : 16;
+    this.wrapText(context, card.text, cardWidth - 14, 4).forEach((line, lineIndex) => context.fillText(line, cardWidth / 2, cardHeight * 0.66 + lineIndex * lineHeight));
+    const owned = engine.cards.filter(entry => entry === card.id).length;
+    if (owned) {
+      context.fillStyle = color;
+      context.font = canvasFont(10, 'ui', 700);
+      context.fillText(`보유 ${owned}/${card.max}`, cardWidth / 2, cardHeight - 14);
+    }
+  }
+
+  // 전설 카드 뒤에서 도는 금빛 광선(카드 중심 기준 좌표계에서 그린다)
+  drawLegendRays(context, rect, time) {
+    context.save();
+    context.rotate(time * 0.8);
+    const reach = Math.max(rect.width, rect.height) * 0.95;
+    for (let ray = 0; ray < 12; ray++) {
+      context.rotate(Math.PI / 6);
+      const gradient = context.createLinearGradient(0, 0, reach, 0);
+      gradient.addColorStop(0, 'rgba(255, 201, 77, 0.35)');
+      gradient.addColorStop(1, 'rgba(255, 201, 77, 0)');
+      context.fillStyle = gradient;
+      context.beginPath();
+      context.moveTo(0, 0);
+      context.lineTo(reach, -reach * 0.07);
+      context.lineTo(reach, reach * 0.07);
+      context.closePath();
+      context.fill();
+    }
+    context.restore();
+  }
+
+  // 영웅·전설 카드 둘레를 맴도는 반짝이(시간으로만 정해지는 궤도라 따로 상태가 없다)
+  drawCardSparkles(context, rect, time, rarity, seed) {
+    const count = rarity === 'legendary' ? 14 : 6;
+    const color = CARD_COLORS[rarity];
+    const centerX = rect.x + rect.width / 2, centerY = rect.y + rect.height / 2;
+    context.save();
+    context.fillStyle = color;
+    for (let index = 0; index < count; index++) {
+      const angle = time * (0.6 + (index % 3) * 0.2) + index * (Math.PI * 2 / count) + seed;
+      const radiusX = rect.width * (0.58 + 0.06 * Math.sin(time * 2 + index));
+      const radiusY = rect.height * (0.56 + 0.05 * Math.cos(time * 2 + index));
+      const size = 1.5 + 1.5 * (0.5 + 0.5 * Math.sin(time * 6 + index * 1.7));
+      context.globalAlpha = 0.5 + 0.5 * Math.sin(time * 5 + index);
+      context.beginPath();
+      context.arc(centerX + Math.cos(angle) * radiusX, centerY + Math.sin(angle) * radiusY, size, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.restore();
+  }
+
+  // 고른 뒤 연출: 고른 카드가 가운데로 커지며 빛나고(0~45%), 상태 줄의 🃏 쪽으로 작아지며 날아간다. 나머지 카드는 아래로 흩어진다
+  drawCardPick(context, width, height, time) {
+    const pick = this.cardPick;
+    if (!pick || !this.lastDraft) return;
+    const age = time - pick.at;
+    if (age > CARD_TIMING.pick) {
+      this.cardPick = null;
+      return;
+    }
+    const progress = age / CARD_TIMING.pick;
+    const { hand, layout } = this.lastDraft;
+    context.save();
+    context.fillStyle = `rgba(5, 7, 16, ${0.8 * (1 - progress)})`;
+    context.fillRect(0, 0, width, height);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    hand.forEach((id, index) => {
+      if (index === pick.index) return;
+      const rect = layout.rects[index];
+      context.save();
+      context.globalAlpha = Math.max(0, 1 - progress * 2.5);
+      context.translate(rect.x + rect.width / 2, rect.y + rect.height / 2 + progress * height * 0.6);
+      context.rotate((index < pick.index ? -1 : 1) * progress * 0.8);
+      context.translate(-rect.width / 2, -rect.height / 2);
+      this.drawCardBack(context, rect);
+      context.restore();
+    });
+    const card = cardById(hand[pick.index]);
+    const rect = layout.rects[pick.index];
+    if (card && rect) {
+      const grow = Math.min(1, progress / 0.45);
+      const fly = Math.max(0, (progress - 0.45) / 0.55);
+      const startX = rect.x + rect.width / 2, startY = rect.y + rect.height / 2;
+      const centerX = width / 2, centerY = height * 0.45;
+      const targetX = 240, targetY = HUD_HEIGHT / 2;
+      const x = fly > 0 ? centerX + (targetX - centerX) * fly * fly : startX + (centerX - startX) * easeOutBack(grow);
+      const y = fly > 0 ? centerY + (targetY - centerY) * fly * fly : startY + (centerY - startY) * easeOutBack(grow);
+      const scale = fly > 0 ? 1.18 * (1 - fly) + 0.08 : 1 + 0.18 * grow;
+      // 고르는 순간 퍼지는 빛 고리
+      if (progress < 0.5) {
+        context.save();
+        context.strokeStyle = CARD_COLORS[card.rarity];
+        context.globalAlpha = 1 - progress * 2;
+        context.lineWidth = 4;
+        context.beginPath();
+        context.arc(x, y, 40 + progress * 2 * Math.max(rect.width, rect.height), 0, Math.PI * 2);
+        context.stroke();
+        context.restore();
+      }
+      context.save();
+      context.translate(x, y);
+      if (card.rarity === 'legendary' && fly === 0) this.drawLegendRays(context, rect, time);
+      context.scale(scale, scale);
+      context.translate(-rect.width / 2, -rect.height / 2);
+      this.drawCardFace(context, card, rect, time, true, { cards: [] });
+      context.restore();
+    }
+    context.restore();
+  }
+
+  // 글을 폭에 맞춰 줄바꿈(띄어쓰기 기준). 최대 maxLines줄
+  wrapText(context, text, maxWidth, maxLines = 3) {
     const lines = [];
     let line = '';
     for (const word of String(text).split(' ')) {
@@ -522,7 +695,7 @@ export class DefenseRenderer {
       line = word;
     }
     if (line) lines.push(line);
-    return lines.slice(0, 3);
+    return lines.slice(0, maxLines);
   }
 
   // 누른 점이 강화 카드면 그 번호(0부터), 아니면 -1

@@ -24,7 +24,7 @@ import { loadSkinOverrides } from './skin-overrides.js';
 import { createKeyboardCollection } from './gacha-view.js';
 import { EARNING } from './gacha.js';
 import { DefenseEngine, DEFENSE_RULES, TOWER_TYPES, ATTACK_TYPES } from './defense-engine.js';
-import { cardById } from './defense-cards.js';
+import { cardById, CARD_RARITIES as CARD_RARITY_ORDER } from './defense-cards.js';
 import { DefenseRenderer } from './defense-view.js';
 import { rewardBreakdown, describeReward } from './rewards.js';
 import { requestSession, submitScore, fetchBoard, localBoard, preferences } from './api.js';
@@ -689,7 +689,14 @@ function bindDefensePointer(canvas) {
   const activeRenderer = () => (settings.mode === 'defense' && (run.engine?.buildMode || run.engine?.phase === 'draft') && run.engine.status === 'running' ? renderers.defense : null);
   canvas.addEventListener('pointermove', event => {
     const renderer = activeRenderer();
-    renderers.defense?.setPointer(renderer ? localPoint(event) : null);
+    const point = renderer ? localPoint(event) : null;
+    renderers.defense?.setPointer(point);
+    // 카드 위에 올라가면 '틱'
+    if (point && run.engine?.phase === 'draft') {
+      const index = renderers.defense.draftCardAt(point.x, point.y);
+      if (index >= 0 && index !== run.hoveredCard) sound.play('cardHover');
+      run.hoveredCard = index;
+    }
   });
   canvas.addEventListener('pointerleave', () => renderers.defense?.setPointer(null));
   canvas.addEventListener('pointerdown', event => {
@@ -808,17 +815,39 @@ function handleDefenseEvent(type, payload) {
     case 'boss-summon':
       sound.play('spawnRobot', { type: 'basic' });
       return true;
-    case 'draft':
-      sound.play('milestone');
-      ui.log('info', `🃏 WAVE ${payload.wave} 돌파 — 강화 카드 3장 중 1장을 고르세요 (1·2·3)`);
+    case 'draft': {
+      // 카드가 한 장씩 깔리는 '샥' → 뒤집힐 때 등급음, 전설이 있으면 등장음까지(화면 연출 시간과 맞춘다)
+      payload.hand.forEach((id, index) => {
+        const rarity = CARD_RARITY_ORDER.indexOf(cardById(id)?.rarity);
+        sound.play('cardDeal', { delay: index * 0.14 });
+        sound.play('cardReveal', { delay: index * 0.14 + 0.34, rarity: Math.max(0, rarity) });
+        if (rarity === 3) sound.play('cardLegend', { delay: index * 0.14 + 0.34 });
+      });
+      ui.log('info', `🃏 WAVE ${payload.wave} 돌파 — 강화 카드 ${payload.hand.length}장 중 1장을 고르세요`);
       return true;
+    }
     case 'card-picked': {
       const card = cardById(payload.card);
-      sound.play('tierUp', { tier: 3 });
-      emitSparks(ui.elements.arcadeStage, { color: '#36e2ff' });
+      sound.play('cardPick', { rarity: Math.max(0, CARD_RARITY_ORDER.indexOf(payload.rarity)) });
+      emitSparks(ui.elements.arcadeStage, { color: { common: '#9fb3c8', rare: '#36e2ff', epic: '#c77dff', legendary: '#ffc94d' }[payload.rarity] ?? '#36e2ff', count: payload.rarity === 'legendary' ? 28 : 12 });
+      if (payload.rarity === 'legendary') pulseClass(ui.elements.arcadeStage, 'tier-flash', 700);
       if (card) ui.log('info', `${card.icon} ${card.name}: ${card.text}`);
       return true;
     }
+    case 'jackpot':
+      sound.play('gachaReveal', { rarity: 3 });
+      ui.log('info', `🎰 잭팟! 코인 +${payload.coins}`);
+      return true;
+    case 'shutter-block':
+      sound.play('lock');
+      ui.log('info', '🚪 방화 셔터가 공격을 막았어요');
+      return true;
+    case 'counter-hack':
+      sound.play('zap');
+      return true;
+    case 'kill-blast':
+      sound.play('missileBoom');
+      return true;
     case 'backup-restore':
       sound.play('tierUp', { tier: 4 });
       pulseClass(ui.elements.arcadeStage, 'tier-flash', 600);
