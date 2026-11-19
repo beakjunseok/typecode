@@ -4,7 +4,7 @@
 import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
 import { drawDeskSetup, drawDeveloper, throwPose, chargePose, THROW_TIMING, SKIN, PHONE_HELD_SCALE } from './developer-view.js';
-import { THROW_RULES, BOSS_RULES } from './throw-engine.js';
+import { THROW_RULES, BOSS_RULES, ROBOT_TYPES, BOSS_SKILLS, FORMATIONS } from './throw-engine.js';
 import { qualityFor,
   setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont,
   loadArt, drawCoverArt, Juice } from './game-view.js';
@@ -18,8 +18,19 @@ const ROBOT_STYLE = {
   slow: { name: '달팽봇', body: '#3f6b3a', bodyLight: '#6fae5c', trim: '#c9f29b', eye: '#b6ff6b', shell: '#c7834a', shellLight: '#f0b878', width: 54, height: 44, stride: 3 },
   // 보스는 로컬 좌표(발 y=0, 왕관 끝 y=-168, 팔 끝까지 너비 약 340)로 그리고 bossScale로 화면에 맞춘다
   boss: { name: '보스 서버봇', body: '#3a1020', bodyLight: '#9a2c46', trim: '#ffcf5a', eye: '#ff3355', metal: '#2a2f3d', metalLight: '#4a5266', width: 340, height: 168, stride: 1.4 },
-  tank: { name: '헤비봇', body: '#353d49', bodyLight: '#566273', trim: '#8a98aa', eye: '#ff4d6d', width: 60, height: 56, stride: 4 }
+  tank: { name: '헤비봇', body: '#353d49', bodyLight: '#566273', trim: '#8a98aa', eye: '#ff4d6d', width: 60, height: 56, stride: 4 },
+  // 특수 로봇: 기존 몸체(버그봇·헤비봇)를 다른 색으로 쓰고 장식을 얹는다
+  shield: { name: '방패봇', body: '#24435f', bodyLight: '#3f6f96', trim: '#9fd3ff', eye: '#7fe3ff', width: 60, height: 56, stride: 3.5 },
+  twin: { name: '쌍둥이봇', body: '#7a2a63', bodyLight: '#c04d9c', trim: '#ffb3e6', eye: '#ffd1f3', width: 40, height: 46, stride: 7 },
+  chameleon: { name: '카멜레온봇', body: '#2f6b4a', bodyLight: '#4fb07a', trim: '#c4ffd9', eye: '#e8ff7a', width: 40, height: 46, stride: 6 },
+  splitter: { name: '분열봇', body: '#4b2a7a', bodyLight: '#7c4dc0', trim: '#d6b8ff', eye: '#ff9df5', width: 60, height: 56, stride: 3.5 },
+  mini: { name: '꼬마봇', body: '#7c4dc0', bodyLight: '#a982e8', trim: '#ead9ff', eye: '#ff9df5', width: 40, height: 46, stride: 11 },
+  mirror: { name: '거울봇', body: '#5d6b7a', bodyLight: '#c9d6e3', trim: '#ffffff', eye: '#9ff0ff', width: 40, height: 46, stride: 7 },
+  // 보스 2종(서버봇과 같은 로컬 좌표·크기)
+  printer: { name: '보스 프린터봇', body: '#2d2f3a', bodyLight: '#e6e9f0', trim: '#ffb547', eye: '#ff3355', metal: '#2a2f3d', metalLight: '#4a5266', width: 340, height: 168, stride: 1.2 },
+  hacker: { name: '보스 해커봇', body: '#0d1a12', bodyLight: '#1f3a2a', trim: '#39ff88', eye: '#39ff88', metal: '#1a1f2a', metalLight: '#3a4458', width: 340, height: 168, stride: 1.6 }
 };
+const isBossType = type => Boolean(ROBOT_TYPES[type]?.boss);
 // 난이도 레벨마다 일반 로봇의 색과 표정을 바꾼다(보스는 그대로).
 //  1 입문: 파스텔빛, 웃는 눈(^ ^)과 발그레한 볼  2 보통: 기본
 //  3 숙련: 주황빛으로 달아오르고 화난 눈썹       4 장애 대응: 검붉게 오염, 붉은 눈, 가끔 지직
@@ -42,7 +53,7 @@ const levelStyleCache = new Map();
 function levelStyle(type, level) {
   const look = LEVEL_LOOKS[level] ?? LEVEL_LOOKS[2];
   const base = ROBOT_STYLE[type];
-  if (type === 'boss' || !look.tint) return base;
+  if (isBossType(type) || !look.tint) return base;
   const key = `${type}:${level}`;
   if (!levelStyleCache.has(key)) {
     const tinted = { ...base, eye: look.eye ?? base.eye };
@@ -180,7 +191,7 @@ export class ThrowRenderer {
         this.particles.burst(x, y, { color: style.eye, count: 14, speed: 160, life: 0.5, size: 2.5 });
         this.particles.burst(x, y, { color: '#ffffff', count: 8, speed: 90, life: 0.25, size: 5 });
       } else {
-        this.juice.shake(robot.type === 'boss' ? 0.4 : payload.weapon === 'laptop' ? 0.3 : 0.18);
+        this.juice.shake(isBossType(robot.type) ? 0.4 : payload.weapon === 'laptop' ? 0.3 : 0.18);
         this.juice.ring(x, y, { color: '#ffcb6b', radius: 40 * scale, life: 0.25, width: 3 });
         if (robot.hp > 0) this.juice.popup(x + 22 * scale, y - 10, `HP ${robot.hp}`, { color: '#ffcb6b', size: 15, rise: 28, life: 0.6 });
         this.particles.burst(x, y + 10, { color: '#ffcb6b', count: 10, speed: 150, life: 0.35, size: 2.5 });
@@ -217,7 +228,8 @@ export class ThrowRenderer {
       this.particles.burst(x, y - 40, { color: '#ffcf5a', count: 36, speed: 380, life: 0.7, size: 4, gravity: 500 });
     } else if (type === 'boss-charge') {
       const cannon = this.bossCannonPoint(payload.boss);
-      this.juice.popup(cannon.x, cannon.y - 96 * this.bossScale(), '⚡ 대포 충전!', { color: '#36e2ff', size: 20, life: 1 });
+      const skill = BOSS_SKILLS[payload.skill] ?? BOSS_SKILLS.cannon;
+      this.juice.popup(cannon.x, cannon.y - 96 * this.bossScale(), `${skill.icon} ${skill.label}!`, { color: '#36e2ff', size: 20, life: 1 });
       this.juice.shake(0.12);
     } else if (type === 'boss-fire') {
       const cannon = this.bossCannonPoint(payload.boss);
@@ -226,6 +238,31 @@ export class ThrowRenderer {
       this.juice.ring(cannon.x, cannon.y, { color: '#36e2ff', radius: 90, life: 0.35, width: 7 });
       this.particles.burst(cannon.x, cannon.y, { color: '#9aa6b8', count: 22, speed: 180, life: 0.7, size: 4, gravity: -60 });
       this.particles.burst(cannon.x, cannon.y, { color: '#36e2ff', count: 16, speed: 300, life: 0.35 });
+    } else if (type === 'boss-mask') {
+      this.juice.flash('#39ff88', 0.25, 0.3);
+      this.juice.shake(0.3);
+      this.juice.popup(this.surface.width / 2, this.surface.height * 0.4, '🕶 화면 해킹! 글자가 가려져요', { color: '#39ff88', size: 20, life: 1.4 });
+    } else if (type === 'boss-decoy') {
+      this.juice.popup(this.surface.width / 2, HUD_HEIGHT + 60, `🤖 봇 ${payload.minions.length}대 소환`, { color: '#ff9df5', size: 18, life: 1.1 });
+    } else if (type === 'boss-dash') {
+      this.juice.shake(0.6);
+      this.juice.popup(this.surface.width / 2, this.dangerY - 90, '💨 돌진!', { color: '#ff5d73', size: 22, life: 0.8 });
+    } else if (type === 'formation') {
+      const label = FORMATIONS[payload.formation]?.label ?? '';
+      if (label) this.juice.popup(this.surface.width / 2, HUD_HEIGHT + 46, `⚠ ${label}`, { color: '#9fd3ff', size: 16, rise: 10, life: 1.2 });
+    } else if (type === 'morph') {
+      const robot = payload.robot;
+      const x = this.columnX(robot.lane), y = this.toY(robot.x) - 24 * this.depthScale(robot.x);
+      this.juice.ring(x, y, { color: '#e8ff7a', radius: 50 * this.depthScale(robot.x), life: 0.35, width: 3 });
+      this.particles.burst(x, y, { color: '#4fb07a', count: 10, speed: 120, life: 0.4 });
+    } else if (type === 'split') {
+      const robot = payload.robot;
+      const x = this.columnX(robot.lane), y = this.toY(robot.x) - 24 * this.depthScale(robot.x);
+      this.juice.popup(x, y - 30, '분열!', { color: '#d6b8ff', size: 18, life: 0.8 });
+      this.particles.burst(x, y, { color: '#d6b8ff', count: 24, speed: 220, life: 0.6, gravity: 300 });
+    } else if (type === 'twin-hit') {
+      const x = (this.columnX(payload.robot.lane) + this.columnX(payload.twin.lane)) / 2;
+      this.juice.popup(x, this.toY(payload.robot.x) - 60, '♊ 동시 격파!', { color: '#ffb3e6', size: 18, life: 0.9 });
     } else if (type === 'pad-blocked') {
       const x = this.columnX(payload.pad.lane);
       const y = this.toY(payload.pad.x) - 30;
@@ -281,9 +318,11 @@ export class ThrowRenderer {
     // 먼 것(위)부터 그려 가까운 로봇이 앞을 가리게 한다
     const sorted = [...engine.robots].sort((first, second) => second.x - first.x);
     for (const item of engine.items) if (!item.consumed || engine.projectiles.some(projectile => projectile.targetId === item.id)) this.drawItem(context, item, engine);
+    this.drawTwinLinks(context, engine);
     const hidden = this.hiddenRobotIds(engine.robots, engine.targetId);
     for (const robot of sorted) this.drawRobot(context, robot, engine, hidden.has(robot.id));
     for (const pad of engine.pads) if (!pad.consumed || engine.projectiles.some(projectile => projectile.targetId === pad.id)) this.drawPad(context, pad, engine);
+    if (engine.isMasked?.()) this.drawMaskStatic(context, width, height, engine);
     this.drawDangerLine(context, width, engine);
     this.drawPlayer(context, engine);
     for (const projectile of engine.projectiles) this.drawProjectile(context, projectile, engine);
@@ -492,10 +531,11 @@ export class ThrowRenderer {
     const style = levelStyle(robot.type, engine.level);
     const visual = this.visuals.get(robot.id);
     // 보스가 아닌 로봇의 표정 분위기(레벨): drawEyes가 읽는다
-    this.robotMood = robot.type === 'boss' ? 'boss' : (this.levelLook?.mood ?? 'normal');
+    const boss = isBossType(robot.type);
+    this.robotMood = boss ? 'boss' : (this.levelLook?.mood ?? 'normal');
     const age = engine.gameTime - robot.spawnedAt;
     const sinceState = engine.gameTime - robot.stateAt;
-    let scale = easeOutBack(Math.min(1, age / 0.35)) * (robot.type === 'boss' ? this.bossScale() : this.depthScale(robot.x));
+    let scale = easeOutBack(Math.min(1, age / 0.35)) * (boss ? this.bossScale() : this.depthScale(robot.x));
     let rotation = 0;
     let alpha = Math.min(1, age / 0.2);
     // 몸 움직임(보스 제외): offsetX/offsetY는 화면 픽셀, tilt는 기울기, stretch는 세로로 늘어나는 정도
@@ -532,8 +572,8 @@ export class ThrowRenderer {
 
     const walkPhase = (engine.gameTime + robot.id * 0.37) * style.stride;
     let bob = robot.state === 'walking' ? Math.abs(Math.sin(walkPhase)) * (robot.type === 'tank' ? 1.5 : 3) : 0;
-    if (robot.state === 'walking' && robot.type !== 'boss') {
-      if (robot.type === 'basic') {
+    if (robot.state === 'walking' && !boss) {
+      if (robot.type === 'basic' || robot.type === 'twin' || robot.type === 'mirror' || robot.type === 'chameleon' || robot.type === 'mini') {
         // 뒤뚱뒤뚱: 걸음마다 좌우로 기울고, 가끔 폴짝 뛴다
         tilt = Math.sin(walkPhase) * 0.09;
         const hop = (time * 0.7 + robot.id * 0.31) % 1;
@@ -544,7 +584,7 @@ export class ThrowRenderer {
         offsetX = Math.sin(weave) * 7 * scale;
         tilt = Math.cos(weave) * 0.2;
         stretch = 0.07;
-      } else if (robot.type === 'tank') {
+      } else if (robot.type === 'tank' || robot.type === 'shield' || robot.type === 'splitter') {
         // 쿵, 쿵: 천천히 들렸다가 뚝 떨어지고, 떨어질 때 납작해지며 먼지가 난다
         const stomp = Math.abs(Math.sin(walkPhase));
         bob = stomp ** 0.5 * 4;
@@ -570,11 +610,19 @@ export class ThrowRenderer {
     // 낱말 발판(원작: 로봇이 단어를 타고 온다) — 로봇 발밑에 먼저 그린다
     if (robot.state === 'walking' && !robot.doomed && !labelHidden) {
       const pop = visual.labelPop.value * 0.4;
+      const guarded = engine.isGuarded?.(robot);
       context.save();
       context.globalAlpha = Math.min(1, age / 0.3);
-      drawTokenLabel(context, this.columnX(robot.lane), footY + 26 - pop, robot, engine.getCharacterStates(robot), {
-        active: robot.id === engine.targetId, accent: this.accent, compact: this.surface.width < 520
+      const [shown, states] = this.labelView(robot, engine.getCharacterStates(robot), engine);
+      drawTokenLabel(context, this.columnX(robot.lane), footY + 26 - pop, shown, states, {
+        active: robot.id === engine.targetId, accent: this.accent, compact: this.surface.width < 520, dimmed: guarded
       });
+      if (guarded) {
+        context.font = canvasFont(14, 'ui', 700);
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText('🔒', this.columnX(robot.lane), footY + 14 - pop);
+      }
       context.restore();
     }
     // 그림자
@@ -596,6 +644,24 @@ export class ThrowRenderer {
     else if (robot.type === 'fast') this.drawSpeedBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
     else if (robot.type === 'slow') this.drawSnailBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
     else if (robot.type === 'boss') this.drawBossBot(context, style, walkPhase, engine, robot, hitFlash, stunned, this.bossSpread());
+    else if (robot.type === 'printer') this.drawPrinterBoss(context, style, walkPhase, engine, robot, hitFlash);
+    else if (robot.type === 'hacker') this.drawHackerBoss(context, style, walkPhase, engine, robot, hitFlash);
+    else if (robot.type === 'shield') {
+      this.drawHeavyBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
+      this.drawShieldPlate(context, style, engine, robot, hitFlash);
+    } else if (robot.type === 'splitter') {
+      this.drawHeavyBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
+      this.drawSplitSeam(context, style, engine, robot);
+    } else if (robot.type === 'mini') {
+      context.scale(0.7, 0.7);
+      this.drawBugBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
+    } else if (robot.type === 'chameleon') {
+      this.drawBugBot(context, this.chameleonStyle(style, engine, robot), walkPhase, engine, robot, hitFlash, stunned, motion);
+    } else if (robot.type === 'twin' || robot.type === 'mirror') {
+      this.drawBugBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
+      if (robot.type === 'twin') this.drawTwinMark(context, style, engine, robot);
+      else this.drawMirrorSheen(context, style, engine, robot);
+    }
     else this.drawHeavyBot(context, style, walkPhase, engine, robot, hitFlash, stunned, motion);
     context.restore();
   }
@@ -1231,6 +1297,370 @@ export class ThrowRenderer {
     context.stroke();
   }
 
+  // ---------- 특수 로봇·보스 꾸밈 ----------
+  // 낱말 표시용 사본: 거울봇은 글자와 상태를 거꾸로, 해커봇의 화면 가리기 중에는 아직 안 친 글자 일부를 '?'로(첫 글자는 남겨 조준은 되게)
+  labelView(entity, states, engine) {
+    let text = entity.token.text;
+    let shownStates = states;
+    if (engine.isMasked?.()) {
+      text = [...text].map((character, index) => (index > 0 && states[index] === 'pending' && (index + entity.id) % 2 === 0 ? '?' : character)).join('');
+    }
+    if (entity.mirror) {
+      text = [...text].reverse().join('');
+      shownStates = [...states].reverse();
+    }
+    if (text === entity.token.text && shownStates === states) return [entity, states];
+    return [{ ...entity, token: { ...entity.token, text } }, shownStates];
+  }
+
+  // 카멜레온봇: 몸 색이 천천히 무지개로 돌고, 낱말이 바뀐 직후 번쩍
+  chameleonStyle(style, engine, robot) {
+    const hue = (engine.gameTime * 60 + robot.id * 47) % 360;
+    const morphed = engine.gameTime - (robot.morphedAt ?? -Infinity) < 0.25;
+    return { ...style, body: `hsl(${hue} 45% ${morphed ? 70 : 32}%)`, bodyLight: `hsl(${(hue + 30) % 360} 60% ${morphed ? 85 : 52}%)`, trim: `hsl(${(hue + 180) % 360} 90% 75%)` };
+  }
+
+  // 방패봇: 몸 앞에 육각 방패(맞으면 금이 가고, 체력이 1이면 반쯤 깨진 모양)
+  drawShieldPlate(context, style, engine, robot, hitFlash) {
+    const { height } = style;
+    const cracked = robot.hp < robot.maxHp;
+    const glow = 0.5 + 0.5 * Math.sin(engine.gameTime * 4 + robot.id);
+    context.save();
+    context.translate(0, -height * 0.45);
+    context.beginPath();
+    for (let corner = 0; corner < 6; corner++) {
+      const angle = Math.PI / 6 + corner * Math.PI / 3;
+      context[corner ? 'lineTo' : 'moveTo'](Math.cos(angle) * 26, Math.sin(angle) * 30);
+    }
+    context.closePath();
+    context.fillStyle = hitFlash ? '#ffffff' : `rgba(127, 227, 255, ${0.22 + glow * 0.12})`;
+    context.fill();
+    context.lineWidth = 3;
+    context.strokeStyle = style.trim;
+    context.shadowColor = style.eye;
+    context.shadowBlur = 10;
+    context.stroke();
+    context.shadowBlur = 0;
+    if (cracked) {
+      context.strokeStyle = '#ffffff';
+      context.lineWidth = 1.6;
+      context.beginPath();
+      context.moveTo(-4, -22); context.lineTo(3, -6); context.lineTo(-6, 6); context.lineTo(5, 20);
+      context.moveTo(3, -6); context.lineTo(14, -2);
+      context.stroke();
+    }
+    context.restore();
+  }
+
+  // 분열봇: 몸 가운데로 갈라질 듯 빛나는 이음선(쓰러지면 둘로 나뉜다는 표시)
+  drawSplitSeam(context, style, engine, robot) {
+    const { height } = style;
+    const pulse = 0.5 + 0.5 * Math.sin(engine.gameTime * 6 + robot.id);
+    context.save();
+    context.strokeStyle = style.eye;
+    context.globalAlpha = 0.6 + pulse * 0.4;
+    context.lineWidth = 2.5;
+    context.setLineDash([4, 3]);
+    context.beginPath();
+    context.moveTo(0, -height - 2);
+    context.lineTo(0, -6);
+    context.stroke();
+    context.setLineDash([]);
+    context.restore();
+  }
+
+  // 쌍둥이봇: 머리 위 ♊ 표시
+  drawTwinMark(context, style, engine, robot) {
+    context.save();
+    context.fillStyle = style.trim;
+    context.font = canvasFont(13, 'ui', 700);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText('♊', 0, -style.height - 22 + Math.sin(engine.gameTime * 4 + robot.id) * 2);
+    context.restore();
+  }
+
+  // 거울봇: 얼굴 화면 위로 비스듬한 반사광이 지나간다
+  drawMirrorSheen(context, style, engine) {
+    const { width, height } = style;
+    const sweep = ((engine.gameTime * 0.8) % 1.6) - 0.3;
+    context.save();
+    roundedRect(context, -width / 2 + 5, -height + 3, width - 10, height * 0.48 - 10, 5);
+    context.clip();
+    context.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    context.beginPath();
+    const x = -width / 2 + sweep * width;
+    context.moveTo(x, -height); context.lineTo(x + 8, -height); context.lineTo(x - 4, -height * 0.4); context.lineTo(x - 12, -height * 0.4);
+    context.fill();
+    context.restore();
+  }
+
+  // 쌍둥이 둘을 잇는 분홍 점선(같은 낱말이라는 표시)
+  drawTwinLinks(context, engine) {
+    const drawn = new Set();
+    for (const robot of engine.robots) {
+      if (robot.twinId == null || robot.state !== 'walking' || drawn.has(robot.id)) continue;
+      const twin = engine.robots.find(other => other.id === robot.twinId && other.state === 'walking');
+      if (!twin) continue;
+      drawn.add(twin.id);
+      const from = { x: this.columnX(robot.lane), y: this.toY(robot.x) - 30 * this.depthScale(robot.x) };
+      const to = { x: this.columnX(twin.lane), y: this.toY(twin.x) - 30 * this.depthScale(twin.x) };
+      context.save();
+      context.strokeStyle = 'rgba(255, 179, 230, 0.7)';
+      context.lineWidth = 2;
+      context.setLineDash([6, 6]);
+      context.lineDashOffset = -engine.gameTime * 30;
+      context.beginPath();
+      context.moveTo(from.x, from.y);
+      context.lineTo(to.x, to.y);
+      context.stroke();
+      context.restore();
+    }
+  }
+
+  // 화면 가리기 중: 초록 잡음 줄이 화면을 훑고 가장자리가 어두워진다
+  drawMaskStatic(context, width, height, engine) {
+    context.save();
+    context.fillStyle = 'rgba(0, 20, 8, 0.18)';
+    context.fillRect(0, 0, width, height);
+    context.fillStyle = 'rgba(57, 255, 136, 0.08)';
+    for (let line = 0; line < 6; line++) {
+      const y = ((engine.gameTime * 140 + line * 97) % height);
+      context.fillRect(0, y, width, 2 + (line % 3));
+    }
+    context.restore();
+  }
+
+  // 프린터봇이 뱉은 종이: 팔랑이며 떨어지는 A4(두루마리는 길게 말린 종이)
+  drawPaperPad(context, pad, engine, x, y, scale) {
+    const age = engine.gameTime - pad.firedAt;
+    context.save();
+    context.translate(x + Math.sin(age * 5 + pad.id) * 6 * scale, y);
+    context.scale(scale, scale);
+    context.rotate(Math.sin(age * 4 + pad.id) * 0.35);
+    context.shadowColor = '#ffb547';
+    context.shadowBlur = 10;
+    if (pad.scroll) {
+      context.fillStyle = '#f4efe2';
+      roundedRect(context, -26, -10, 52, 20, 9);
+      context.fill();
+      context.shadowBlur = 0;
+      context.fillStyle = '#d9cfb8';
+      context.beginPath(); context.ellipse(-26, 0, 6, 10, 0, 0, Math.PI * 2); context.fill();
+      context.beginPath(); context.ellipse(26, 0, 6, 10, 0, 0, Math.PI * 2); context.fill();
+    } else {
+      context.fillStyle = '#fbfbf8';
+      context.beginPath();
+      context.moveTo(-14, -18); context.lineTo(8, -18); context.lineTo(14, -12); context.lineTo(14, 18); context.lineTo(-14, 18);
+      context.closePath();
+      context.fill();
+      context.shadowBlur = 0;
+      context.fillStyle = '#d6d6cf';
+      context.beginPath(); context.moveTo(8, -18); context.lineTo(8, -12); context.lineTo(14, -12); context.fill();
+      context.fillStyle = '#9aa0ac';
+      for (let row = 0; row < 5; row++) context.fillRect(-10, -10 + row * 5.5, row % 2 ? 16 : 20, 1.6);
+    }
+    context.restore();
+  }
+
+  // 보스 프린터봇(로컬 좌표: 발 y=0, 키 약 168): 큰 복합기 몸통, 위 스캐너 뚜껑 사이로 훑는 빛, 가운데 LCD 얼굴,
+  // 아래 배출구에서 종이가 혀처럼 나오고, 기술을 모으면 배출구가 붉게 달아오르며 종이가 떨린다
+  drawPrinterBoss(context, style, phase, engine, robot, hitFlash) {
+    const time = engine.gameTime;
+    const charge = robot.chargeUntil != null ? 1 - Math.max(0, robot.chargeUntil - time) / BOSS_RULES.cannonChargeSeconds : 0;
+    const paint = color => (hitFlash ? '#ffffff' : color);
+    const enraged = robot.hp <= 3;
+    const lean = robot.punchStartAt != null ? Math.min(1, (time - robot.punchStartAt) / BOSS_RULES.punchWindupSeconds) : 0;
+    const walk = Math.sin(phase);
+    context.save();
+    context.translate(0, -lean * 10);
+    // 다리 바퀴
+    context.fillStyle = '#1b1e27';
+    for (const side of [-1, 1]) {
+      roundedRect(context, side * 70 - 22, -26 + Math.max(0, side * walk) * 4, 44, 26, 10);
+      context.fill();
+      context.fillStyle = '#ffb547';
+      context.fillRect(side * 70 - 14, -8, 28, 3);
+      context.fillStyle = '#1b1e27';
+    }
+    // 몸통
+    const body = context.createLinearGradient(0, -150, 0, -24);
+    body.addColorStop(0, paint(style.bodyLight));
+    body.addColorStop(1, paint('#9aa0ac'));
+    context.fillStyle = body;
+    roundedRect(context, -120, -150, 240, 128, 16);
+    context.fill();
+    context.strokeStyle = style.body;
+    context.lineWidth = 4;
+    context.stroke();
+    // 스캐너 뚜껑(위)과 훑는 빛
+    context.fillStyle = paint(style.body);
+    roundedRect(context, -128, -168, 256, 24, 8);
+    context.fill();
+    const scanX = -110 + ((time * 0.9) % 1) * 220;
+    context.fillStyle = `rgba(120, 255, 210, ${0.5 + 0.3 * Math.sin(time * 10)})`;
+    context.fillRect(scanX, -146, 6, 8);
+    // LCD 얼굴
+    context.fillStyle = '#0b1420';
+    roundedRect(context, -64, -132, 128, 52, 8);
+    context.fill();
+    const eyeColor = enraged ? '#ff3355' : '#7fe3ff';
+    context.fillStyle = eyeColor;
+    context.shadowColor = eyeColor;
+    context.shadowBlur = 10;
+    const blink = Math.sin(time * 1.7 + 1) > 0.96;
+    for (const side of [-1, 1]) {
+      context.save();
+      context.translate(side * 26, -108);
+      context.rotate(side * (enraged ? 0.35 : 0.18));
+      context.fillRect(-14, blink ? -1 : -6, 28, blink ? 2 : 12);
+      context.restore();
+    }
+    context.shadowBlur = 0;
+    context.fillStyle = eyeColor;
+    context.font = canvasFont(10, 'code', 700);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(enraged ? 'PAPER JAM!!' : charge > 0 ? 'PRINTING…' : 'READY', 0, -88);
+    // 배출구 + 혀처럼 나온 종이
+    context.fillStyle = '#1b1e27';
+    roundedRect(context, -80, -72, 160, 16, 6);
+    context.fill();
+    if (charge > 0) {
+      context.fillStyle = `rgba(255, 90, 60, ${0.3 + charge * 0.6})`;
+      roundedRect(context, -80, -72, 160, 16, 6);
+      context.fill();
+    }
+    const tongue = 18 + Math.sin(time * 3) * 4 + charge * 26;
+    context.fillStyle = paint('#fbfbf8');
+    context.beginPath();
+    context.moveTo(-50, -60);
+    context.lineTo(50, -60);
+    context.lineTo(46 + Math.sin(time * 9) * charge * 4, -60 + tongue);
+    context.lineTo(-46 - Math.sin(time * 9) * charge * 4, -60 + tongue);
+    context.closePath();
+    context.fill();
+    context.fillStyle = '#b8bcc6';
+    for (let row = 0; row < 3; row++) context.fillRect(-36, -54 + row * 6, row === 1 ? 50 : 70, 2);
+    // 옆 용지함 팔(종이 뭉치를 쥔 집게)
+    for (const side of [-1, 1]) {
+      const swing = Math.sin(time * 2 + side) * 6 - charge * 10 * side;
+      context.strokeStyle = style.metal;
+      context.lineWidth = 12;
+      context.lineCap = 'round';
+      context.beginPath();
+      context.moveTo(side * 118, -110);
+      context.lineTo(side * 150, -80 + swing);
+      context.lineTo(side * 160, -46 + swing);
+      context.stroke();
+      context.fillStyle = paint('#fbfbf8');
+      context.save();
+      context.translate(side * 160, -40 + swing);
+      context.rotate(side * 0.2);
+      roundedRect(context, -14, -10, 28, 20, 3);
+      context.fill();
+      context.restore();
+    }
+    // 토너 램프
+    context.fillStyle = enraged ? (Math.sin(time * 12) > 0 ? '#ff3355' : '#5a1020') : '#4df0a6';
+    context.beginPath();
+    context.arc(96, -136, 5, 0, Math.PI * 2);
+    context.fill();
+    context.restore();
+  }
+
+  // 보스 해커봇(로컬 좌표): 후드 쓴 몸통, 얼굴은 초록 터미널 화면(눈은 '> <', 입은 흐르는 코드),
+  // 양옆에 떠 있는 홀로그램 키보드를 두드리고, 기술을 모으거나 맞으면 몸이 가로 줄무늬로 지직 어긋난다
+  drawHackerBoss(context, style, phase, engine, robot, hitFlash) {
+    const time = engine.gameTime;
+    const charge = robot.chargeUntil != null ? 1 - Math.max(0, robot.chargeUntil - time) / BOSS_RULES.cannonChargeSeconds : 0;
+    const glitch = charge > 0 || time - robot.hitAt < 0.3 || robot.hp <= 3;
+    const paint = color => (hitFlash ? '#ffffff' : color);
+    const bob = Math.sin(time * 2) * 4;
+    context.save();
+    context.translate(0, bob - 10);
+    // 그림자처럼 떠 있는 발 대신 아래로 흩어지는 코드 꼬리
+    context.fillStyle = 'rgba(57, 255, 136, 0.5)';
+    context.font = canvasFont(10, 'code', 700);
+    context.textAlign = 'center';
+    for (let column = -3; column <= 3; column++) {
+      const drop = (time * 60 + column * 23) % 40;
+      context.fillText(column % 2 ? '1' : '0', column * 16, -4 + drop * 0.6);
+    }
+    // 후드 몸통(사다리꼴)
+    const body = context.createLinearGradient(0, -168, 0, -10);
+    body.addColorStop(0, paint(style.bodyLight));
+    body.addColorStop(1, paint(style.body));
+    context.fillStyle = body;
+    context.beginPath();
+    context.moveTo(-60, -158);
+    context.quadraticCurveTo(0, -176, 60, -158);
+    context.lineTo(96, -20);
+    context.lineTo(-96, -20);
+    context.closePath();
+    context.fill();
+    context.strokeStyle = style.trim;
+    context.lineWidth = 2;
+    context.globalAlpha = 0.6;
+    context.stroke();
+    context.globalAlpha = 1;
+    // 얼굴 화면
+    context.fillStyle = '#020a05';
+    roundedRect(context, -44, -150, 88, 62, 10);
+    context.fill();
+    context.fillStyle = style.eye;
+    context.shadowColor = style.eye;
+    context.shadowBlur = 12;
+    context.font = canvasFont(20, 'code', 700);
+    context.textBaseline = 'middle';
+    context.fillText(robot.hp <= 3 ? '> <' : charge > 0 ? 'ಠ ಠ' : '^ ^', 0, -130);
+    context.shadowBlur = 0;
+    context.font = canvasFont(8, 'code', 700);
+    const code = 'sudo rm -rf /typing && echo pwned ';
+    const offset = Math.floor(time * 8) % code.length;
+    context.fillText((code + code).slice(offset, offset + 14), 0, -102);
+    // 가슴 해골 대신 자물쇠 깨진 아이콘
+    context.fillStyle = style.trim;
+    context.font = canvasFont(22, 'ui', 700);
+    context.fillText('🔓', 0, -58);
+    // 홀로그램 키보드 두 개(손이 두드린다)
+    for (const side of [-1, 1]) {
+      context.save();
+      context.translate(side * 130, -70 + Math.sin(time * 3 + side) * 5);
+      context.rotate(side * -0.25);
+      context.fillStyle = 'rgba(57, 255, 136, 0.15)';
+      context.strokeStyle = 'rgba(57, 255, 136, 0.8)';
+      context.lineWidth = 1.5;
+      roundedRect(context, -40, -14, 80, 28, 4);
+      context.fill();
+      context.stroke();
+      for (let key = 0; key < 12; key++) {
+        const lit = Math.sin(time * 14 + key * 2.3 + side) > 0.6;
+        context.fillStyle = lit ? '#39ff88' : 'rgba(57, 255, 136, 0.35)';
+        context.fillRect(-36 + (key % 6) * 12.5, -10 + Math.floor(key / 6) * 11, 10, 8);
+      }
+      context.restore();
+      context.strokeStyle = paint(style.metal);
+      context.lineWidth = 10;
+      context.lineCap = 'round';
+      context.beginPath();
+      context.moveTo(side * 70, -110);
+      context.lineTo(side * 108, -88 + Math.sin(time * 14 + side) * 4);
+      context.stroke();
+    }
+    context.restore();
+    // 지직: 몸을 가로띠로 잘라 옆으로 밀어 그린 것처럼(밝은 띠를 덧그린다)
+    if (glitch) {
+      context.save();
+      for (let band = 0; band < 4; band++) {
+        const y = -170 + ((time * 300 + band * 47) % 160);
+        context.fillStyle = band % 2 ? 'rgba(255, 51, 85, 0.35)' : 'rgba(57, 255, 136, 0.35)';
+        context.fillRect(-100 + Math.sin(time * 40 + band) * 14, y, 200, 4 + band);
+      }
+      context.restore();
+    }
+  }
+
   // 보스가 쏜 패드: 빙글 돌며 대포에서 곧장 날아오고, 뒤로 빛줄기가 남는다. 아래에 막을 낱말
   drawPad(context, pad, engine) {
     const x = this.columnX(pad.lane);
@@ -1249,6 +1679,14 @@ export class ThrowRenderer {
       context.moveTo(x, y);
       context.lineTo(x, Math.max(from.y, y - 120));
       context.stroke();
+    }
+    if (pad.paper) {
+      this.drawPaperPad(context, pad, engine, x, y, scale);
+      if (!pad.consumed) {
+        const [shown, states] = this.labelView(pad, engine.getCharacterStates(pad), engine);
+        drawTokenLabel(context, x, y + 34 * scale, shown, states, { active: pad.id === engine.targetId, accent: '#ffb547', compact: this.surface.width < 520 });
+      }
+      return;
     }
     context.save();
     context.translate(x, y);
@@ -1271,7 +1709,8 @@ export class ThrowRenderer {
     context.fill();
     context.restore();
     if (!pad.consumed) {
-      drawTokenLabel(context, x, y + 34 * scale, pad, engine.getCharacterStates(pad), {
+      const [shown, states] = this.labelView(pad, engine.getCharacterStates(pad), engine);
+      drawTokenLabel(context, x, y + 34 * scale, shown, states, {
         active: pad.id === engine.targetId, accent: '#ff5d73', compact: this.surface.width < 520
       });
     }
@@ -1291,7 +1730,8 @@ export class ThrowRenderer {
       context.textAlign = 'center';
       context.textBaseline = 'middle';
       context.fillStyle = blink ? '#ffe0e6' : '#ff8fa3';
-      context.fillText('⚠ WARNING · BOSS 접근 중', width / 2, bandY);
+      const kindName = ROBOT_STYLE[engine.bossKind]?.name?.replace('보스 ', '') ?? 'BOSS';
+      context.fillText(`⚠ WARNING · ${kindName} 접근 중`, width / 2, bandY);
       return;
     }
     const boss = engine.boss();
@@ -1318,7 +1758,7 @@ export class ThrowRenderer {
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     context.fillStyle = '#1a0610';
-    context.fillText(`👑 BOSS ${boss.hp}/${boss.maxHp}`, width / 2, barY + 5.5);
+    context.fillText(`👑 ${ROBOT_STYLE[boss.type]?.name?.replace('보스 ', '') ?? 'BOSS'} ${boss.hp}/${boss.maxHp}`, width / 2, barY + 5.5);
   }
 
   drawItem(context, item, engine) {
@@ -1345,7 +1785,8 @@ export class ThrowRenderer {
     else this.drawLaptopShape(context, 0, -3, 1, 0);
     context.restore();
     if (!item.consumed) {
-      drawTokenLabel(context, x, y + 32 * scale, item, engine.getCharacterStates(item), {
+      const [shown, states] = this.labelView(item, engine.getCharacterStates(item), engine);
+      drawTokenLabel(context, x, y + 32 * scale, shown, states, {
         active: item.id === engine.targetId, accent: style.color, compact: this.surface.width < 520
       });
     }
@@ -1576,7 +2017,7 @@ export class ThrowRenderer {
     }
     const start = this.projectileStarts.get(projectile);
     const endX = this.columnX(target.lane);
-    const endY = target.type === 'boss' ? this.toY(target.x) - 74 * this.bossScale()
+    const endY = isBossType(target.type) ? this.toY(target.x) - 74 * this.bossScale()
       : this.toY(target.x) - (target.kind === 'item' ? 18 : 30 * this.depthScale(target.x));
     const pointAt = progress => {
       const eased = easeOutCubic(progress);

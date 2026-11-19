@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ThrowEngine, ROBOT_TYPES, THROW_RULES, BOSS_RULES, MAX_POINTS_PER_CHARACTER, filterThrowTokens } from '../public/js/throw-engine.js';
+import { ThrowEngine, ROBOT_TYPES, THROW_RULES, BOSS_RULES, BOSS_KINDS, FORMATIONS, MAX_POINTS_PER_CHARACTER, filterThrowTokens } from '../public/js/throw-engine.js';
 import { ARCADE_RULES } from '../public/js/target-game.js';
 import { getTokenPool } from '../public/js/tokens.js';
 
@@ -41,7 +41,7 @@ function startWithRobot(engine, clock, typeKey = 'basic') {
 
 test('토큰 길이 필터와 점수 상한 상수', () => {
   assert.ok(filterThrowTokens([{ text: '?' }, { text: 'if' }]).every(token => token.text.length >= 2));
-  assert.equal(MAX_POINTS_PER_CHARACTER, 180);
+  assert.equal(MAX_POINTS_PER_CHARACTER, 330, '쌍둥이봇: 노트북 두 발 × 쌍둥이 둘');
   assert.throws(() => new ThrowEngine({ tokenPool: [{ text: 'a' }] }));
 });
 
@@ -460,4 +460,116 @@ test('노트북 두 개: 목표가 한 방이면 두 번째는 옆 로봇에게,
   assert.equal(engine.projectiles.length, 1, '옆 로봇이 없으면 하나만');
   advance(engine, clock, 0.5);
   assert.equal(engine.kills.basic, 3);
+});
+
+// ---------- 특수 로봇 편대·보스 3종 ----------
+function specialEngine(seed = 5) {
+  let state = seed;
+  const random = () => ((state = (state * 1664525 + 1013904223) % 4294967296) / 4294967296);
+  const pool = ['let', 'var', 'map', 'if', 'do', 'go', 'use', 'mut', 'xor', 'nil', 'new', 'try', 'int', 'out', 'end', 'async', 'await', 'return', 'struct', 'import', 'export', 'default', 'function', 'continue']
+    .map(text => ({ text, kind: 'keyword' }));
+  const events = [];
+  const engine = new ThrowEngine({ tokenPool: pool, random, specials: true, onEvent: (type, payload) => events.push({ type, payload }) });
+  engine.start(0);
+  return { engine, events };
+}
+const typeOut = (engine, text) => { for (const character of text) engine.input(character, 0); };
+
+test('방패 편대: 방패봇이 살아 있는 동안 뒤 로봇은 조준할 수 없고, 같은 속도로 걷는다', () => {
+  const { engine } = specialEngine();
+  const [shield, ...followers] = engine.spawnFormation('shieldWall');
+  assert.equal(shield.type, 'shield');
+  assert.equal(followers.length, 2);
+  for (const follower of followers) {
+    assert.equal(engine.robotSpeed(follower), engine.robotSpeed(shield));
+    assert.ok(!engine.targetables().includes(follower), '막혀 있음');
+  }
+  shield.state = 'dying';
+  assert.ok(followers.every(follower => engine.targetables().includes(follower)), '방패가 쓰러지면 열린다');
+});
+
+test('쌍둥이: 같은 낱말, 한 번 치면 둘 다 쓰러진다', () => {
+  const { engine, events } = specialEngine();
+  const [left, right] = engine.spawnFormation('twins');
+  assert.equal(left.token.text, right.token.text);
+  assert.notEqual(left.lane, right.lane);
+  typeOut(engine, left.token.text);
+  assert.ok(left.doomed && right.doomed);
+  assert.ok(events.some(event => event.type === 'twin-hit'));
+});
+
+test('카멜레온: 시간이 되면 낱말이 바뀌고, 치는 중에는 안 바뀐다', () => {
+  const { engine, events } = specialEngine();
+  const [robot] = engine.spawnFormation('chameleon');
+  engine.targetId = robot.id;
+  engine.gameTime = robot.nextMorphAt + 0.1;
+  engine.morphChameleons();
+  assert.ok(!events.some(event => event.type === 'morph'), '치는 중');
+  engine.targetId = null;
+  engine.morphChameleons();
+  assert.ok(events.some(event => event.type === 'morph'));
+});
+
+test('분열봇: 쓰러지면 꼬마봇 둘, 거울봇은 거울 표시', () => {
+  const { engine, events } = specialEngine();
+  const [splitter] = engine.spawnFormation('splitter');
+  engine.damageRobot(splitter, { damage: 2, weapon: 'phone' });
+  const split = events.find(event => event.type === 'split');
+  assert.equal(split.payload.minis.length, 2);
+  assert.ok(split.payload.minis.every(mini => mini.type === 'mini' && mini.state === 'walking'));
+  const [mirror] = engine.spawnFormation('mirror');
+  assert.equal(mirror.mirror, true);
+});
+
+test('편대는 열린 시간부터만, specials가 꺼져 있으면 안 나온다', () => {
+  const { engine } = specialEngine();
+  engine.gameTime = 0;
+  for (let index = 0; index < 50; index++) assert.equal(engine.trySpawnFormation(), null);
+  engine.gameTime = 100;
+  const kinds = new Set();
+  for (let index = 0; index < 200; index++) {
+    engine.robots = [];
+    const kind = engine.trySpawnFormation();
+    if (kind) kinds.add(kind);
+  }
+  assert.deepEqual([...kinds].sort(), Object.keys(FORMATIONS).sort());
+  const plain = new ThrowEngine({ tokenPool: Array.from({ length: 20 }, (_, index) => ({ text: `w${index}x`, kind: 'keyword' })) });
+  plain.gameTime = 100;
+  assert.equal(plain.trySpawnFormation(), null);
+});
+
+test('보스 3종: 셋 중 하나가 나오고, 기술은 그 보스 목록에서 같은 기술 연속 없이 무작위', () => {
+  const seen = new Set();
+  for (let seed = 1; seed < 40; seed++) {
+    const { engine } = specialEngine(seed);
+    engine.kills.basic = THROW_RULES.goalKills;
+    engine.checkGoal();
+    seen.add(engine.bossKind);
+  }
+  assert.deepEqual([...seen].sort(), Object.keys(BOSS_KINDS).sort());
+  for (const kind of Object.keys(BOSS_KINDS)) {
+    const { engine, events } = specialEngine(3);
+    engine.bossKind = kind;
+    engine.kills.basic = THROW_RULES.goalKills;
+    engine.checkGoal();
+    engine.gameTime = engine.bossAt;
+    engine.stepBossWave();
+    const boss = engine.boss();
+    assert.equal(boss.type, kind);
+    const used = [];
+    for (let round = 0; round < 12; round++) {
+      engine.pads = [];
+      engine.nextPadAt = engine.gameTime;
+      boss.x = 0.6;
+      engine.stepSkill(boss);
+      engine.gameTime = boss.chargeUntil;
+      engine.stepSkill(boss);
+      used.push(boss.lastSkill);
+    }
+    for (let index = 1; index < used.length; index++) assert.notEqual(used[index], used[index - 1], '같은 기술 연속 없음');
+    assert.ok(used.every(skill => BOSS_KINDS[kind].skills.includes(skill)));
+    assert.equal(new Set(used).size, BOSS_KINDS[kind].skills.length, `${kind} 기술 모두 등장`);
+    if (kind === 'printer') assert.ok(events.some(event => event.type === 'boss-fire' && event.payload.pad.paper));
+    if (kind === 'hacker') assert.ok(events.some(event => event.type === 'boss-mask') && events.some(event => event.type === 'boss-decoy'));
+  }
 });
