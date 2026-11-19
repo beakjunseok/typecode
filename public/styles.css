@@ -1383,7 +1383,11 @@ body.mobile-play #arcadeStage { margin-top: 0; }
   display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%;
   background: var(--amber); color: #11141f; font: 800 12px/1 var(--font-ui);
 }
-.guide-mark b { position: absolute; left: -10px; top: -10px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); }
+.guide-mark b { position: absolute; left: -14px; top: -14px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); }
+.guide-mark.inside b { left: 2px; top: 2px; }
+.guide-mark.wide b { left: calc(28% - 10px); top: calc(50% - 10px); }
+.guide-mark.badge-left b { left: -24px; top: calc(50% - 10px); }
+.guide-mark.badge-right b { left: auto; right: -24px; top: calc(50% - 10px); }
 .guide-mark.lit { background: rgba(255, 181, 71, 0.18); box-shadow: 0 0 0 3px rgba(255, 181, 71, 0.4), 0 0 22px rgba(255, 181, 71, 0.6); }
 .guide-legend { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 4px 14px; }
 .guide-legend li { display: flex; gap: 8px; align-items: flex-start; padding: 3px 6px; border-radius: 8px; font-size: 13px; line-height: 1.45; color: var(--paper); cursor: default; }

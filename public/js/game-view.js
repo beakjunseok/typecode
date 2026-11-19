@@ -160,6 +160,17 @@ export function roundedRect(context, x, y, width, height, radius) {
   context.closePath();
 }
 
+// 개발용 위치 기록: globalThis.__TYPECODE_RECT__ 배열이 있을 때만(게임 방법 캡처 스크립트) 그린 사각형의 화면 위치(CSS px)를 남긴다
+export function recordRect(context, key, left, top, width, height) {
+  const recorder = globalThis.__TYPECODE_RECT__;
+  if (!Array.isArray(recorder)) return;
+  const matrix = context.getTransform();
+  const scale = context.canvas.width / Math.max(1, context.canvas.clientWidth);
+  const point = (x, y) => ({ x: (matrix.a * x + matrix.c * y + matrix.e) / scale, y: (matrix.b * x + matrix.d * y + matrix.f) / scale });
+  const first = point(left, top), second = point(left + width, top + height);
+  recorder.push({ key, left: Math.min(first.x, second.x), top: Math.min(first.y, second.y), width: Math.abs(second.x - first.x), height: Math.abs(second.y - first.y) });
+}
+
 // 목표 머리 위 토큰 라벨: 조준 중이면 테두리 강조, 글자는 맞음(종류 색)/틀림(빨강)/다음(밑줄)/대기.
 export const LABEL_FONT_COMPACT = "600 12px 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace";
 
@@ -173,6 +184,7 @@ export function drawTokenLabel(context, centerX, bottomY, entity, states, { acti
   const left = Math.round(centerX - width / 2);
   const top = Math.round(bottomY - height);
 
+  recordRect(context, entity.id, left, top, width, height);
   context.globalAlpha = dimmed ? 0.45 : 1;
   roundedRect(context, left, top, width, height, 6);
   context.fillStyle = active ? 'rgba(16, 21, 28, 0.96)' : 'rgba(10, 13, 18, 0.82)';
