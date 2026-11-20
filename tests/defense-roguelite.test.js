@@ -121,9 +121,9 @@ test('카드 효과: 타워 능력치·코인·가격·체력·백업 서버', (
   const stats = engine.statsOf(tower);
   assert.ok(Math.abs(stats.range - (base.range + 0.022)) < 1e-9);
   assert.ok(Math.abs(stats.cooldown - base.cooldown * 0.88) < 1e-9);
-  assert.ok(Math.abs(stats.damage - base.damage * 1.6 * 1.35) < 1e-9);
+  assert.ok(Math.abs(stats.damage - base.damage * 1.9 * 1.5) < 1e-9);
   pick('bulk');
-  assert.equal(engine.priceAt('antivirus', null), Math.round(TOWER_TYPES.antivirus.price * (DEFENSE_RULES.priceFactor[engine.level] ?? 1) * 0.8));
+  assert.equal(engine.priceAt('antivirus', null), Math.round(TOWER_TYPES.antivirus.price * (DEFENSE_RULES.priceFactor[engine.level] ?? 1) * 0.88));
   const maxBefore = engine.maxHealth;
   pick('heatsink');
   assert.equal(engine.maxHealth, maxBefore + 10);

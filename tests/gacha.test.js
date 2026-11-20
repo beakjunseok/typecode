@@ -146,12 +146,12 @@ test('게임 포인트: 판 결과로 적립, 1회 100P·10회 900P, 10회는 �
   assert.equal(pointsForGame({ correctKeystrokes: 300, accuracy: 50, maxCombo: 0 }), 25, '정확도² 반영');
   assert.equal(pointsForGame({ correctKeystrokes: 99999, accuracy: 100, maxCombo: 999 }), EARNING.maxPerGame);
   assert.equal(pointsForGame(null), 0);
-  // 리듬(보통): 타자 포인트 두 배 + 진행 60(끝까지) + 클리어 30 + FC 40 / AP 80
+  // 리듬(보통, 곡 ≈ 2분): 타자 포인트 두 배 + 진행 24(끝까지) + 클리어 16 + FC 20 / AP 40, 첫 클리어 50(곡마다)
   const song = { mode: 'rhythm', correctKeystrokes: 300, accuracy: 100, maxCombo: 0 };
   assert.equal(pointsForGame({ ...song, outcome: 'failed', gaugeEnd: 0 }), 200);
-  assert.equal(pointsForGame({ ...song, outcome: 'cleared' }), 290);
-  assert.equal(pointsForGame({ ...song, outcome: 'cleared', clearMark: 'FC' }), 330);
-  assert.equal(pointsForGame({ ...song, outcome: 'cleared', clearMark: 'AP' }), 370);
+  assert.equal(pointsForGame({ ...song, outcome: 'cleared' }), 240);
+  assert.equal(pointsForGame({ ...song, outcome: 'cleared', clearMark: 'FC' }), 260);
+  assert.equal(pointsForGame({ ...song, outcome: 'cleared', clearMark: 'AP' }), 280);
 
   let state = addPoints(createGachaState(), 950);
   assert.equal(state.points, 950);
@@ -175,7 +175,7 @@ test('게임 포인트: 판 결과로 적립, 1회 100P·10회 900P, 10회는 �
 });
 
 // ---------- 난이도·진행도 보상(rewards.js) ----------
-import { rewardBreakdown, progressOf, DIFFICULTY_MULTIPLIERS, FIRST_CLEAR_BONUS, describeReward } from '../public/js/rewards.js';
+import { rewardBreakdown, progressOf, DIFFICULTY_MULTIPLIERS, FIRST_CLEAR_BONUS, describeReward, MODE_REWARDS, firstClearScale } from '../public/js/rewards.js';
 import { markFirstClear } from '../public/js/gacha.js';
 
 test('난이도 배율: 같은 판이라도 Lv.1 0.6배 · Lv.3 1.6배', () => {
@@ -193,15 +193,17 @@ test('진행 보상: 더 멀리 갈수록 볼록하게 늘고, 클리어하면 �
   assert.ok(at(10) < at(25) && at(25) < at(50));
   assert.ok(at(50) - at(25) > at(25) - at(0), '뒤로 갈수록 한 걸음의 가치가 크다');
   const clear = rewardBreakdown({ mode: 'throw', level: 2, correctKeystrokes: 300, accuracy: 100, maxCombo: 0, totalKills: 60, goalKills: 50, bossDefeated: true, outcome: 'cleared' });
-  assert.equal(clear.progressBonus, 100);
-  assert.equal(clear.clearBonus, 60);
+  // 던지기: 보통에서 끝까지 ≈ 4분 → 진행 12P×4, 클리어 8P×4
+  assert.equal(clear.progressBonus, 48);
+  assert.equal(clear.clearBonus, 32);
   assert.equal(progressOf({ mode: 'battery', outcome: 'sunk', peakCells: 4, goalCells: 8 }).progress, 0.45);
 });
 
 test('첫 클리어 보너스는 (모드·난이도)마다 한 번 · 어시스트·자동 연주는 없음', () => {
   const clear = { mode: 'battery', level: 3, correctKeystrokes: 200, accuracy: 100, maxCombo: 0, outcome: 'rescued' };
   const first = rewardBreakdown(clear);
-  assert.equal(first.firstClearBonus, FIRST_CLEAR_BONUS[2]);
+  // 배터리 한 판 ≈ 1.2분 → 첫 클리어 보너스 절반(판 길이 비례, 최소 0.5배)
+  assert.equal(first.firstClearBonus, FIRST_CLEAR_BONUS[2] * 0.5);
   assert.equal(first.firstClearKey, 'battery:3');
   assert.equal(rewardBreakdown(clear, { firstClears: ['battery:3'] }).firstClearBonus, 0);
   const song = { mode: 'rhythm', difficulty: 'hard', songId: 'canon', correctKeystrokes: 100, accuracy: 100, maxCombo: 0, outcome: 'cleared', clearLamp: 'CLEAR' };
@@ -211,4 +213,10 @@ test('첫 클리어 보너스는 (모드·난이도)마다 한 번 · 어시스�
   let state = createGachaState();
   state = markFirstClear(state, 'battery:3');
   assert.deepEqual(normalizeGachaState(JSON.parse(JSON.stringify(state))).firstClears, ['battery:3']);
+});
+
+test('플레이 시간 대비 공정: 보통 난이도에서 끝까지 깬 판은 모드가 달라도 분당 보너스가 같고, 긴 모드는 첫 클리어도 크다', () => {
+  const perMinute = mode => (MODE_REWARDS[mode].progress + MODE_REWARDS[mode].clear) / MODE_REWARDS[mode].minutes;
+  for (const mode of ['throw', 'battery', 'defense', 'rhythm']) assert.ok(Math.abs(perMinute(mode) - 20) < 1.5, mode);
+  assert.ok(firstClearScale('defense') > firstClearScale('throw') && firstClearScale('throw') > firstClearScale('battery'));
 });
