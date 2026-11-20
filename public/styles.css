@@ -1395,3 +1395,8 @@ body.mobile-play #arcadeStage { margin-top: 0; }
 .guide-legend li.lit { background: rgba(255, 181, 71, 0.12); }
 .guide-summary .guide-legend { padding-left: 0; }
 @media (max-width: 560px) { .guide-mark b { width: 16px; height: 16px; font-size: 10px; left: -7px; top: -7px; } }
+
+/* 밸런스 통계 동의 체크(결과창) */
+#resultModal .balance-consent { display: flex; gap: 8px; align-items: flex-start; justify-content: flex-start; margin: 10px 0 14px; font-size: 12.5px; font-weight: 400; color: var(--fog); line-height: 1.45; cursor: pointer; text-align: left; }
+#resultModal .balance-consent input { flex: none; width: auto; height: auto; margin: 2px 0 0; padding: 0; accent-color: var(--amber); }
+.balance-consent small { opacity: 0.75; }

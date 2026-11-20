@@ -29,7 +29,8 @@ import { DefenseEngine, DEFENSE_RULES, TOWER_TYPES, ATTACK_TYPES } from './defen
 import { cardById, CARD_RARITIES as CARD_RARITY_ORDER } from './defense-cards.js';
 import { DefenseRenderer } from './defense-view.js';
 import { rewardBreakdown, describeReward } from './rewards.js';
-import { requestSession, submitScore, fetchBoard, localBoard, preferences } from './api.js';
+import { requestSession, submitScore, submitBalanceReport, fetchBoard, localBoard, preferences } from './api.js';
+import { buildReport } from './balance-report.js';
 import { createUi, TIER_COLORS } from './ui.js';
 import { getWeekLabel } from './week.js';
 import { createGuide } from './guide.js';
@@ -599,9 +600,41 @@ function resultMood(summary) {
   return 'win';
 }
 
+// 밸런스 통계: 판이 끝나면 기록을 만들어 두었다가, 결과창을 닫거나 다음 판을 시작하거나 페이지를 떠날 때 보낸다.
+// 그 사이 결과창의 체크를 끄면 보내지 않는다(설정은 다음 판에도 유지)
+const balance = { pending: null };
+
+function queueBalanceReport(summary) {
+  balance.pending = null;
+  const consent = document.getElementById('balanceConsent');
+  const report = isPvp() || summary.autoPlay ? null : buildReport(summary);
+  if (consent) consent.hidden = !report;
+  if (!report) return;
+  const input = document.getElementById('balanceConsentInput');
+  if (input) input.checked = preferences.get('balanceStats', true) !== false;
+  balance.pending = { report, sessionPromise: run.sessionPromise };
+}
+
+async function flushBalanceReport() {
+  const pending = balance.pending;
+  balance.pending = null;
+  if (!pending || preferences.get('balanceStats', true) === false) return;
+  try {
+    const token = await pending.sessionPromise;
+    if (token) await submitBalanceReport(token, pending.report);
+  } catch (error) {
+    console.warn('[balance] 통계 보내기 실패', error);
+  }
+}
+
 function handleFinish(summary) {
   // 판이 끝나면 숨겼던 메뉴를 다시 보여 준다(결과창·랭킹)
   queueMicrotask(updateMobilePlay);
+  try {
+    queueBalanceReport(summary);
+  } catch (error) {
+    console.error(error);
+  }
   advanceBatteryPrep(summary);
   if (isPvp()) {
     pvp.phase = 'ended';
@@ -1221,6 +1254,7 @@ function createEngine() {
 }
 
 function resetGame() {
+  flushBalanceReport();
   stopTicking();
   cancelAnimationFrame(run.frameId);
   run.generation++;
@@ -2339,9 +2373,12 @@ function bindEvents() {
   const closeResult = () => {
     sound.play('uiClick');
     ui.hideResult();
+    flushBalanceReport();
     if (isPvp()) showPvpAfterMatch();
   };
   elements.resultClose.addEventListener('click', closeResult);
+  document.getElementById('balanceConsentInput')?.addEventListener('change', event => preferences.set('balanceStats', event.target.checked));
+  window.addEventListener('pagehide', () => flushBalanceReport());
   elements.resultModal.addEventListener('click', event => { if (event.target === elements.resultModal) closeResult(); });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape' || elements.resultModal.hidden) return;

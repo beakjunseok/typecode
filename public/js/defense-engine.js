@@ -263,6 +263,8 @@ export class DefenseEngine extends TargetGameEngine {
     this.cardsEnabled = Boolean(options.cards);
     this.mods = baseMods();
     this.cards = [];
+    // 밸런스 통계용: 카드 고르기마다 { 웨이브, 받은 패, 고른 카드 }
+    this.draftLog = [];
     this.draft = null;
     this.lives = 1;
     this.maxHealth = DEFENSE_RULES.maxHealth[this.level];
@@ -1107,6 +1109,7 @@ export class DefenseEngine extends TargetGameEngine {
     card.apply?.(this.mods);
     card.instant?.(this);
     this.statsCache?.clear();
+    this.draftLog.push({ wave: this.draft.wave ?? this.wave, hand: [...this.draft.hand], pick: card.id });
     this.cards.push(card.id);
     this.draft = null;
     this.phase = 'break';
@@ -1446,6 +1449,7 @@ export class DefenseEngine extends TargetGameEngine {
       healthLeft: this.health,
       noDamageWaves: this.noDamageWaves,
       cards: [...this.cards],
+      draftLog: this.draftLog.map(entry => ({ ...entry, hand: [...entry.hand] })),
       map: this.path.name,
       kills: { ...this.kills }
     };

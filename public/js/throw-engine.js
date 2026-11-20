@@ -154,6 +154,8 @@ export class ThrowEngine extends TargetGameEngine {
     this.laptopShots = WEAPONS.laptop.shots;
     this.laptopSpan = THROW_RULES.laptopSeconds;
     this.shields = 0;
+    // 밸런스 통계용: '아이템:등급' → 먹은 수
+    this.itemLog = {};
     this.nextSpawnAt = 0.4;
     this.nextItemAt = randomBetween(this.random, THROW_RULES.firstItemAt);
     this.nextBatteryAt = Infinity;
@@ -749,6 +751,7 @@ export class ThrowEngine extends TargetGameEngine {
   activateItem(item) {
     this.itemsCollected++;
     const rarity = isRarity(item.rarity) ? item.rarity : 'common';
+    this.itemLog[`${item.item}:${rarity}`] = (this.itemLog[`${item.item}:${rarity}`] ?? 0) + 1;
     if (item.item === 'battery') {
       const heal = tierValue(ITEM_TIERS.battery.heal, rarity);
       const missing = ARCADE_RULES.startLives - this.lives;
@@ -801,6 +804,6 @@ export class ThrowEngine extends TargetGameEngine {
     const boss = this.boss();
     const bossDefeated = this.bossPhase === 'defeated';
     const bossDamage = bossDefeated ? 1 : boss && boss.maxHp > 0 ? Math.max(0, Math.min(1, 1 - boss.hp / boss.maxHp)) : 0;
-    return { kills: { ...this.kills }, totalKills: this.totalKills(), goalKills: THROW_RULES.goalKills, bossDefeated, bossDamage, outcome: this.outcome ?? 'overrun' };
+    return { kills: { ...this.kills }, totalKills: this.totalKills(), goalKills: THROW_RULES.goalKills, bossDefeated, bossDamage, outcome: this.outcome ?? 'overrun', bossKind: this.bossKind ?? null, itemLog: { ...this.itemLog } };
   }
 }
