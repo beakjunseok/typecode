@@ -1,12 +1,18 @@
 // 판이 끝났을 때 주는 뽑기 포인트. 모든 모드가 같은 틀을 쓴다:
 //   (타자 기본 + 진행 보너스 + 클리어 보너스 + 램프 보너스) × 난이도 배율 × 어시스트 배율, 상한 maxPerGame
 //   + 처음 클리어한 (모드·난이도)마다 한 번 첫 클리어 보너스
+// 플레이 시간 대비 공정하게: '평균적인 사람' 봇(scripts/balance/pace-sim.mjs)으로 잰 모드별 판 길이·게임 속 타수에 맞춰
+//   · 타자 기본: 게임 속 타수가 연습보다 낮은 모드는 typingFactor로 보정(연습 ≈ 155타 기준)
+//   · 진행·클리어 보너스: 보통 난이도에서 끝까지 깨는 데 드는 시간(minutes) × 분당 보너스(진행 12P, 클리어 8P)
+//   → 어떤 모드든 보통 난이도에서 분당 ≈ 50~75P, 난이도 배율은 분당 기준으로 0.6/1/1.6/2.4배
 // 참고: 난이도 배율 0.6/1.0/1.6/2.4 = Bloons TD 6 메타 화폐 비율(75:125:200:300).
 //       진행 보너스 = 볼록 곡선 max × 진행도^1.5 (Tower Defense Simulator식: 지면 도달한 만큼, 뒤로 갈수록 더 크게).
 //       첫 클리어 보너스 = 반복 보상은 깎지 않고 처음 깼을 때만 크게(Plants vs. Zombies·Arknights식).
 // DOM·저장소를 모르는 순수 함수라 테스트로 검증한다.
 
-export const EARNING = Object.freeze({ charactersPerPoint: 3, comboStep: 10, comboPoints: 5, maxPerGame: 1500, minimumCharacters: 15 });
+export const EARNING = Object.freeze({ charactersPerPoint: 3, comboStep: 10, comboPoints: 5, maxPerGame: 5000, minimumCharacters: 15 });
+// 분당 보너스(보통 난이도): 진행 최대, 클리어
+export const BONUS_PER_MINUTE = Object.freeze({ progress: 12, clear: 8 });
 
 // 난이도 배율: 레벨(1~4)과 리듬 난이도 이름을 같은 4단으로 본다. 쉬운 난이도로 파밍하는 것보다 한 단계 위에 도전하는 편이 낫게
 export const DIFFICULTY_MULTIPLIERS = Object.freeze([0.6, 1, 1.6, 2.4]);
@@ -16,17 +22,23 @@ export const DIFFICULTY_NAMES = Object.freeze(['쉬움', '보통', '어려움', 
 // 진행 곡선 지수(1이면 직선). 1.5: 절반까지 가면 최대의 35%, 4/5까지 가면 72%
 export const PROGRESS_EXPONENT = 1.5;
 // 모드별 진행·클리어 보너스(보통 난이도 기준 P). 연습은 순수 연습이라 기본만
-export const MODE_REWARDS = Object.freeze({
-  practice: Object.freeze({ progress: 0, clear: 0, leveled: false }),
-  timeattack: Object.freeze({ progress: 80, clear: 0, leveled: false }),
-  throw: Object.freeze({ progress: 100, clear: 60, leveled: true }),
-  battery: Object.freeze({ progress: 80, clear: 50, leveled: true }),
-  'battery-pvp': Object.freeze({ progress: 60, clear: 40, leveled: false }),
-  rhythm: Object.freeze({ progress: 60, clear: 30, leveled: true, typingFactor: 2 }),
-  defense: Object.freeze({ progress: 100, clear: 60, leveled: true })
+// minutes: 보통 난이도에서 평균적인 사람이 끝까지 가는 시간(분). 진행·클리어 보너스와 첫 클리어 보너스가 이 길이에 비례한다
+const byMinutes = (minutes, extra = {}) => Object.freeze({
+  minutes, progress: Math.round(BONUS_PER_MINUTE.progress * minutes), clear: Math.round(BONUS_PER_MINUTE.clear * minutes), ...extra
 });
-// 리듬 클리어 램프 보너스(클리어 보너스에 더함)
-export const RHYTHM_LAMP_BONUS = Object.freeze({ HARD: 20, FC: 40, AP: 80 });
+export const MODE_REWARDS = Object.freeze({
+  practice: Object.freeze({ minutes: 1, progress: 0, clear: 0, leveled: false }),
+  timeattack: byMinutes(3, { clear: 0, leveled: false }),
+  throw: byMinutes(4, { leveled: true, typingFactor: 1.5 }),
+  battery: byMinutes(1.2, { leveled: true, typingFactor: 1.5 }),
+  'battery-pvp': byMinutes(3, { leveled: false, typingFactor: 1.5 }),
+  rhythm: byMinutes(2, { leveled: true, typingFactor: 2 }),
+  defense: byMinutes(19, { leveled: true, typingFactor: 1.7 })
+});
+// 리듬 클리어 램프 보너스(클리어 보너스에 더함). 곡 하나 ≈ 2분이라 작게
+export const RHYTHM_LAMP_BONUS = Object.freeze({ HARD: 10, FC: 20, AP: 40 });
+// 첫 클리어 보너스도 판 길이에 비례(4분짜리 = 1배, 0.5~4배)
+export const firstClearScale = mode => Math.max(0.5, Math.min(4, (MODE_REWARDS[mode]?.minutes ?? 4) / 4));
 // 시간 연장 모드: 이 시간을 버티면 진행도 100%
 export const TIME_ATTACK_FULL_SECONDS = 180;
 // 노페일(어시스트) 클리어는 절반
@@ -109,7 +121,9 @@ export function rewardBreakdown(summary, { firstClears = [] } = {}) {
   const multiplier = DIFFICULTY_MULTIPLIERS[index] * (summary.assist ? ASSIST_FACTOR : 1);
   const scaled = Math.min(EARNING.maxPerGame, Math.round((base + progressBonus + clearBonus) * multiplier));
   const key = firstClearKey(summary);
-  const firstClearBonus = key && !firstClears.includes(key) ? (summary.mode === 'rhythm' ? RHYTHM_FIRST_CLEAR_BONUS : FIRST_CLEAR_BONUS)[index] : 0;
+  const firstClearBonus = key && !firstClears.includes(key)
+    ? (summary.mode === 'rhythm' ? RHYTHM_FIRST_CLEAR_BONUS[index] : Math.round(FIRST_CLEAR_BONUS[index] * firstClearScale(summary.mode)))
+    : 0;
   return {
     total: scaled + firstClearBonus,
     base, progressBonus, clearBonus, progress, cleared, multiplier, difficultyIndex: index,

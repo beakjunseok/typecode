@@ -23,7 +23,7 @@ export const DEFENSE_RULES = Object.freeze({
   breakSeconds: 4,
   freezeTrigger: 0.45,
   freezesPerWave: 2,
-  frozenDamage: 1.5,
+  frozenDamage: 2,
   winPauseSeconds: 1.4,
   // 웨이브 n의 공격 수 = base + step × (n - 1) (+ 보스 웨이브면 보스 1)
   bugsPerWave: Object.freeze({ base: 6, step: 1.5 }),

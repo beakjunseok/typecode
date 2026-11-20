@@ -61,7 +61,11 @@ function traitsFor(person) {
 
 const SYMBOL = /[^a-z0-9]/;
 
-export function createHumanPlayer(engine, person, random) {
+// 디펜스가 아닌 게임(던지기·배터리 등)에서 칠 낱말 고르기: 엔진의 우선순위(가까운 것 먼저)대로
+export const pickByPriority = engine => engine.targetables().slice().sort((first, second) => engine.targetPriority(first) - engine.targetPriority(second))[0] ?? null;
+
+// options.pickTarget: 칠 대상 고르기(기본: 디펜스 낱말 줄 맨 앞), options.shop: 가게를 쓰는지(디펜스만)
+export function createHumanPlayer(engine, person, random, { pickTarget = current => current.stream?.[0] ?? null, shop: usesShop = true } = {}) {
   const traits = traitsFor(person);
   const buildTarget = 3 + Math.floor(random() * 3);
   const state = {
@@ -156,7 +160,7 @@ export function createHumanPlayer(engine, person, random) {
     while (state.plan.length && state.plan[0].at <= now) perform(state.plan.shift().action);
     if (now < state.busyUntil) return;
     const breakTime = engine.phase === 'break' && state.lastBreakChecked !== engine.wave;
-    if (breakTime || state.typedSinceCheck >= state.checkEvery) {
+    if (usesShop && (breakTime || state.typedSinceCheck >= state.checkEvery)) {
       if (breakTime) state.lastBreakChecked = engine.wave;
       state.typedSinceCheck = 0;
       shop(now);
@@ -167,9 +171,13 @@ export function createHumanPlayer(engine, person, random) {
     }
     while (now >= state.nextAt) {
       const at = state.nextAt;
-      const target = engine.stream?.[0];
-      if (!target) { state.nextAt = at + 0.2; break; }
-      if (state.word !== target.token.text) {
+      // 이미 치던 대상이 있으면 그대로, 아니면 새로 고른다
+      const locked = engine.targetId != null ? engine.findEntity(engine.targetId) : null;
+      const target = locked ?? (state.word && state.wordId != null ? engine.findEntity(state.wordId) : null) ?? pickTarget(engine);
+      if (!target || !target.token) { state.word = null; state.nextAt = at + 0.2; break; }
+      if (state.word !== target.token.text || state.wordId !== target.id) {
+        if (engine.typed.length) engine.clearInput(at * 1000);
+        state.wordId = target.id;
         // 새 낱말: 보고 첫 키까지
         state.word = target.token.text;
         state.index = 0;
@@ -197,7 +205,7 @@ export function createHumanPlayer(engine, person, random) {
       }
       state.index++;
       state.nextAt = at + keyDelay(character);
-      if (engine.stream?.[0]?.token.text !== state.word || (engine.typed.length === 0 && engine.wrongInBuffer === 0 && state.index >= state.word.length)) {
+      if (engine.typed.length === 0 && engine.wrongInBuffer === 0 && state.index >= 1) {
         state.word = null;
         state.typedSinceCheck++;
       }
