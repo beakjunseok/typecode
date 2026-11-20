@@ -145,6 +145,8 @@ export class BatteryEngine extends TargetGameEngine {
     this.hiddenUntil = 0;
     this.ai = { targetId: null, progress: 0, thinkUntil: 1.2, pausedUntil: 0 };
     this.collected = Object.fromEntries(Object.keys(BATTERY_ITEMS).map(key => [key, 0]));
+    // 밸런스 통계용: '아이템:등급' → [내가 먹은 수, 상대가 먹은 수]
+    this.itemLog = {};
     this.drains = 0;
     this.stolen = 0;
     this.outcome = null;
@@ -402,6 +404,9 @@ export class BatteryEngine extends TargetGameEngine {
     }
     const opponentImmune = now < opponent.immuneUntil;
     const rarity = item.rarity ?? 'common';
+    const logKey = `${item.item}:${rarity}`;
+    this.itemLog[logKey] ??= [0, 0];
+    this.itemLog[logKey][side === this.me ? 0 : 1]++;
     const seconds = itemTier(item.item, rarity, 'seconds');
     const lucky = item.item === BASE_ITEM && now < (side.luckyUntil ?? 0) ? ITEM_EFFECTS.luckyCellFactor : 1;
     const gain = (item.item === 'powerbank' ? itemTier('powerbank', rarity, 'gain') : config.gain) * lucky;
@@ -633,7 +638,8 @@ export class BatteryEngine extends TargetGameEngine {
       stolen: this.stolen,
       persona: this.persona,
       weather: this.weather,
-      deck: this.itemPool.filter(key => key !== BASE_ITEM)
+      deck: this.itemPool.filter(key => key !== BASE_ITEM),
+      itemLog: Object.fromEntries(Object.entries(this.itemLog).map(([key, counts]) => [key, [...counts]]))
     };
   }
 }

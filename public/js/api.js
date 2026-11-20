@@ -47,6 +47,16 @@ export async function requestSession({ mode = 'practice', language, durationSeco
   return result.token;
 }
 
+// 밸런스 통계 보내기: 페이지를 떠나는 중에도 끝까지 가도록 keepalive. 실패해도 게임엔 영향 없음
+export async function submitBalanceReport(token, report) {
+  try {
+    await fetch('/api/balance', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, report }) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function submitScore(payload) {
   return callApi('/api/scores', { method: 'POST', body: payload });
 }
