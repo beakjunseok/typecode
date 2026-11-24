@@ -13,7 +13,7 @@ const seeded = seed => { let state = seed >>> 0; return () => { state = (state *
 const ENGINES = {
   defense: (level, random) => new DefenseEngine({ tokenPool, level, random, randomMap: true, cards: true, maxTokenLength: 16 }),
   throw: (level, random) => new ThrowEngine({ tokenPool, level, random, specials: true }),
-  battery: (level, random) => new BatteryEngine({ tokenPool, level, random, persona: 'rusher', deck: ['powerbank', 'eco', 'heat', 'blackout'], weather: 'calm' })
+  battery: (level, random) => new BatteryEngine({ tokenPool, level, random, persona: 'rusher', weather: 'calm' })
 };
 
 function play(mode, level, seed) {
@@ -23,6 +23,7 @@ function play(mode, level, seed) {
   engine.start(0);
   for (let ms = 0; ms < 40 * 60 * 1000 && engine.status === 'running'; ms += 50) {
     engine.update(ms);
+    if (engine.phase === 'tower-pick') { engine.pickTower(engine.towerPickCandidates().sort((a, b) => b.level - a.level)[0]); continue; }
     if (engine.phase === 'draft') { engine.chooseCard(player.chooseCard(engine.draft.hand)); continue; }
     player.tick(engine.gameTime);
   }

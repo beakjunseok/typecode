@@ -6,7 +6,7 @@ globalThis.__dom = (root, el, label, pad = 4) => { const a = root.getBoundingCli
 await capture(page, 'battery-prep', () => { const root = document.getElementById('batteryPrep'); return [
   __dom(root, document.getElementById('prepRival'), '이번 상대 — 6명을 차례로 이기면 끝'),
   __dom(root, document.getElementById('prepWeather'), '이번 판 바다 날씨'),
-  __dom(root, document.getElementById('prepDeck'), '아이템 덱 — 눌러서 4개 고르기(다시 누르면 빼기)')]; }, { locator: '#batteryPrep' });
+  __dom(root, document.getElementById('prepItems'), '아이템 12종 — 무작위로 나와요(설명)')]; }, { locator: '#batteryPrep' });
 await startArcade(page);
 await page.evaluate(() => { const e = globalThis.__TYPECODE__.run.engine; e.ai.pausedUntil = Infinity; e.nextItemAt = Infinity; e.items = [];
   e.me.cells = 5; e.rival.cells = 4.5; e.weather = 'calm';

@@ -210,7 +210,7 @@ test('혼자 하기 상대 캐릭터: 레벨마다 다른 이름, 그림 쪽 이
   names.forEach((name, index) => assert.equal(name, DRAIN_BOTS[index + 1].name));
 });
 
-import { PERSONAS, PERSONA_ORDER, WEATHERS, WEATHER_ORDER, DEFAULT_DECK, DECK_SIZE, ITEM_LOOKS, pickWeather, mirrorProfile } from '../public/js/battery-modes.js';
+import { PERSONAS, PERSONA_ORDER, WEATHERS, WEATHER_ORDER, ITEM_LOOKS, pickWeather, mirrorProfile } from '../public/js/battery-modes.js';
 import { ITEM_EFFECTS } from '../public/js/battery-engine.js';
 
 function setupMode(options = {}, seed = 13) {
@@ -228,11 +228,22 @@ test('성격 6종: 모양·도발·아이템 모양이 모두 갖춰져 있다',
     assert.ok(persona.name && persona.icon && persona.look.glow, key);
     for (const kind of ['start', 'win', 'lose']) assert.ok(persona.taunts[kind]?.length, `${key}.${kind}`);
   }
-  for (const key of Object.keys(BATTERY_ITEMS)) assert.ok(ITEM_LOOKS[key], key);
-  assert.equal(DEFAULT_DECK.length, DECK_SIZE);
+  for (const key of Object.keys(BATTERY_ITEMS)) {
+    assert.ok(ITEM_LOOKS[key], key);
+    assert.ok(BATTERY_ITEMS[key].hint && BATTERY_ITEMS[key].about, `${key} 설명`);
+  }
 });
 
-test('덱: 셀 + 고른 4개만 나온다', () => {
+test('혼자 하기: 아이템 12종이 무작위로 나오고 셀은 절반쯤', () => {
+  const { engine } = setupMode({ persona: 'rusher' });
+  const rolls = Array.from({ length: 4000 }, () => engine.chooseItemType());
+  const seen = new Set(rolls);
+  assert.equal(seen.size, Object.keys(BATTERY_ITEMS).length);
+  const cellShare = rolls.filter(item => item === 'cell').length / rolls.length;
+  assert.ok(cellShare > 0.43 && cellShare < 0.57, `셀 비율 ${cellShare}`);
+});
+
+test('고정 목록(deck, 시험용): 셀 + 그 4개만 나온다', () => {
   const deck = ['reflect', 'magnet', 'trap', 'lucky'];
   const { engine } = setupMode({ deck, persona: 'rusher' });
   const seen = new Set(Array.from({ length: 400 }, () => engine.chooseItemType()));

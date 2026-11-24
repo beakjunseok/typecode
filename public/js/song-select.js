@@ -129,7 +129,7 @@ function renderDetail(detail, { songId, difficulty, focused, levelOf, bestOf, op
     record.textContent = '이 난이도는 아직 기록이 없어요';
   }
   const credit = element('p', 'song-source');
-  const sourceText = song.ai ? `AI로 만든 곡 · ${song.license}` : song.license ? `악보 출처 · ${song.license}` : '저작권이 끝난 선율을 직접 채보';
+  const sourceText = song.ai ? `AI로 만든 곡 · ${song.license}` : song.license ? `악보 출처 · ${song.license}` : song.died === null && /작곡/.test(song.source ?? '') ? 'TYPE//CODE 오리지널 · 이 프로젝트에서 직접 작곡' : '저작권이 끝난 선율을 직접 채보';
   if (/^https:\/\//.test(song.source ?? '')) {
     const link = element('a', '', sourceText);
     link.href = song.source;

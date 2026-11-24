@@ -31,10 +31,10 @@ await page.waitForTimeout(300);
 await capture(page, 'defense-air', () => { const [e, R, W, H] = __ctx(); const d = R.bugPosition(globalThis.__drone), t = R.towerPosition(globalThis.__ic); return [
   __box(W, H, d.x, d.y, 60, 60, '드론 — 길을 무시하고 날아와요'),
   __box(W, H, t.x, t.y, 64, 64, '요격포 — 드론을 맞히는 타워(EMP포도 가능)')]; });
-await page.evaluate(() => { const e = globalThis.__TYPECODE__.run.engine; e.bugs = []; e.wave = 3; e.phase = 'spawning'; e.waveTotal = 1; e.waveSpawned = 1; e.checkWaveClear(); });
+await page.evaluate(() => { const e = globalThis.__TYPECODE__.run.engine; e.bugs = []; e.wave = 5; e.phase = 'spawning'; e.waveTotal = 1; e.waveSpawned = 1; e.checkWaveClear(); });
 await page.waitForTimeout(1700);
 await capture(page, 'defense-draft', () => { const [e, R, W, H] = __ctx(); const rects = R.draftLayout(W, H, e.draft.hand.length).rects; const xs = rects.map(r => r.x ?? r.left), ys = rects.map(r => r.y ?? r.top);
   const r0 = rects[0]; const rw = r0.width ?? r0.w, rh = r0.height ?? r0.h;
   const left = Math.min(...xs), right = Math.max(...xs) + rw, top = Math.min(...ys);
-  return [__box(W, H, (left + right) / 2, top + rh / 2, right - left + 16, rh + 16, '3웨이브마다 카드 1장 — 클릭 또는 숫자 키')]; });
+  return [__box(W, H, (left + right) / 2, top + rh / 2, right - left + 16, rh + 16, '5웨이브마다 카드 1장 — 클릭 또는 숫자 키')]; });
 save('defense'); console.log(word, errors); await browser.close();

@@ -174,6 +174,92 @@ const BEAT_COMPILER = {
   chords: ['Am', 'F', 'C', 'G']
 };
 
+// ---------- TYPE//CODE 오리지널(이 프로젝트에서 직접 작곡, 외부 음원 없음) ----------
+// 각 파트는 8마디(32박). arrange가 'AABA…' 순서대로 이어 붙인다
+const arrange = (parts, order) => [...order].map(key => {
+  const part = parts[key];
+  if (!part) throw new Error(`missing part: ${key}`);
+  return part;
+});
+
+const HOT_RELOAD = {
+  A: {
+    melody: `A4:0.5 C5:0.5 E5:0.5 A5:0.5 G5:0.5 E5:0.5 C5 | F5:0.5 E5:0.5 C5:0.5 A4:0.5 C5 r:0.5 A4:0.5 | G4:0.5 C5:0.5 E5:0.5 G5:0.5 E5 D5 | D5:0.5 B4:0.5 G4 r:0.5 G4:0.5 B4:0.5 D5:0.5 |
+      A5:0.5 G5:0.5 E5:0.5 C5:0.5 E5:0.5 G5:0.5 A5 | C6:0.5 A5:0.5 F5:0.5 C5:0.5 F5 E5 | E5:0.5 G5:0.5 C6:0.5 G5:0.5 E5:0.5 C5:0.5 G4 | B4:0.5 D5:0.5 G5 r:0.5 D5:0.5 B4`,
+    chords: ['Am', 'F', 'C', 'G', 'Am', 'F', 'C', 'G']
+  },
+  B: {
+    melody: `A5 G5:0.5 F5:0.5 E5 C5 | D5:0.5 E5:0.5 D5:0.5 B4:0.5 G4 r | E5:0.25 E5:0.25 G5:0.5 B5 G5:0.5 E5:0.5 B4 | C5:0.5 E5:0.5 A5:0.5 E5:0.5 C5 A4 |
+      F5:0.5 A5:0.5 C6 A5:0.5 F5:0.5 C5 | D5:0.5 G5:0.5 B5 A5:0.5 G5:0.5 D5 | E5:0.5 A5:0.5 C6:0.5 B5:0.5 A5 E5 | A5:2 r:2`,
+    chords: ['F', 'G', 'Em', 'Am', 'F', 'G', 'Am', 'Am']
+  }
+};
+
+const KERNEL_PANIC = {
+  A: {
+    melody: `D5:0.25 F5:0.25 A5:0.25 F5:0.25 D5:0.5 A4:0.5 D5:0.25 F5:0.25 A5:0.25 D6:0.25 A5 | Bb4:0.5 D5:0.5 F5:0.5 D5:0.5 Bb5 A5 | C5:0.25 E5:0.25 G5:0.25 E5:0.25 C6:0.5 G5:0.5 E5 C5 | C#5:0.5 E5:0.5 A5:0.5 E5:0.5 C#5 A4 |
+      A5:0.5 F5:0.5 D5:0.5 F5:0.5 A5:0.5 D6:0.5 A5 | F5:0.5 D5:0.5 Bb4:0.5 D5:0.5 F5 Bb5 | G5:0.25 F5:0.25 E5:0.25 D5:0.25 C5:0.5 E5:0.5 G5 E5 | E5:0.5 C#5:0.5 A4 r:0.5 A4:0.5 C#5:0.5 E5:0.5`,
+    chords: ['Dm', 'Bb', 'C', 'A', 'Dm', 'Bb', 'C', 'A']
+  },
+  B: {
+    melody: `G5 Bb5:0.5 A5:0.5 G5 D5 | F5:0.5 E5:0.5 D5:0.5 E5:0.5 F5 A5 | E5:0.25 E5:0.25 E5:0.5 C#5:0.5 E5:0.5 A5 G5 | F5:0.5 E5:0.5 D5 r:2 |
+      Bb5:0.5 A5:0.5 G5:0.5 D5:0.5 G5 Bb5 | A5:0.5 F5:0.5 D5:0.5 F5:0.5 A5 D6 | C#6:0.5 A5:0.5 E5:0.5 C#5:0.5 E5:0.25 A5:0.25 C#6:0.5 E6 | D6:2 r:2`,
+    chords: ['Gm', 'Dm', 'A', 'Dm', 'Gm', 'Dm', 'A', 'Dm']
+  }
+};
+
+const ASYNC_AWAIT = {
+  A: {
+    melody: `E5:1.5 D5:0.5 C5 G4 | A4:0.5 C5:0.5 E5:1.5 D5:0.5 C5 | F5:1.5 E5:0.5 D5 A4 | B4:0.5 D5:0.5 G5:2 r |
+      G5:0.5 E5:0.5 C5:0.5 E5:0.5 G5:1.5 A5:0.5 | G5:0.5 E5:0.5 C5 A4:2 | D5:0.5 F5:0.5 A5:0.5 F5:0.5 E5 D5 | B4:1.5 C5:0.5 D5:2`,
+    chords: ['C', 'Am', 'Dm', 'G', 'C', 'Am', 'Dm', 'G']
+  },
+  B: {
+    melody: `A5:0.5 G5:0.5 F5 C5:0.5 F5:0.5 A5 | B5:0.5 A5:0.5 G5 D5:2 | G5:0.5 E5:0.5 B4 E5:0.5 G5:0.5 B5 | A5:3 r |
+      F5:0.5 G5:0.5 A5:0.5 C6:0.5 A5 F5 | G5:0.5 A5:0.5 B5:0.5 D6:0.5 B5 G5 | C6:0.5 G5:0.5 E5:0.5 C5:0.5 E5 G5 | C6:2 r:2`,
+    chords: ['F', 'G', 'Em', 'Am', 'F', 'G', 'C', 'C']
+  }
+};
+
+const MERGE_CONFLICT = {
+  A: {
+    melody: `E5:0.5 E5:0.5 G5:0.5 E5:0.5 B5 A5:0.5 G5:0.5 | E5:0.5 E5:0.5 G5:0.5 E5:0.5 C6 B5:0.5 G5:0.5 | D5:0.5 G5:0.5 B5:0.5 G5:0.5 D6 B5 | A5:0.5 F#5:0.5 D5:0.5 F#5:0.5 A5:2 |
+      B4:0.25 E5:0.25 G5:0.25 B5:0.25 G5:0.5 E5:0.5 B4 E5 | C5:0.25 E5:0.25 G5:0.25 C6:0.25 G5:0.5 E5:0.5 C5 E5 | D5:0.25 G5:0.25 B5:0.25 D6:0.25 B5:0.5 G5:0.5 D5 G5 | F#5:0.5 A5:0.5 D6 r:0.5 D5:0.5 F#5:0.5 A5:0.5`,
+    chords: ['Em', 'C', 'G', 'D', 'Em', 'C', 'G', 'D']
+  },
+  B: {
+    melody: `A5 C6:0.5 B5:0.5 A5 E5 | G5:0.5 F#5:0.5 E5:0.5 F#5:0.5 G5 B5 | D#5:0.5 F#5:0.5 B5:0.5 F#5:0.5 D#5 B4 | E5:2 G5:0.5 F#5:0.5 E5 |
+      E5:0.5 G5:0.5 C6:0.5 G5:0.5 E6 D6 | D6:0.5 C6:0.5 B5:0.5 A5:0.5 F#5 D5 | D#5:0.25 F#5:0.25 B5:0.5 A5:0.5 F#5:0.5 D#5 B4 | E5:2 r:2`,
+    chords: ['Am', 'Em', 'B', 'Em', 'C', 'D', 'B', 'Em']
+  }
+};
+
+const SEGFAULT_GROOVE = {
+  A: {
+    melody: `G4:0.5 r:0.5 B4:0.5 D5:0.5 r:0.5 F5:0.5 D5 | C5:0.5 r:0.5 F5:0.5 A5:0.5 r:0.5 G5:0.5 F5 | E5:0.5 G5:0.5 r:0.5 E5:0.5 C5:0.5 D5:0.5 E5 | D5:1.5 B4:0.5 G4 r |
+      B5:0.5 A5:0.5 G5:0.5 F5:0.5 D5:0.5 r:0.5 G5 | A5:0.5 G5:0.5 F5:0.5 C5:0.5 A4:0.5 r:0.5 F5 | G5:0.25 G5:0.25 E5:0.5 C5:0.5 E5:0.5 G5 C6 | B5:0.5 A5:0.5 G5:2 r`,
+    chords: ['G', 'F', 'C', 'G', 'G', 'F', 'C', 'G']
+  },
+  B: {
+    melody: `E5 G5:0.5 B5:0.5 A5 G5 | E5:0.5 G5:0.5 C6 B5:0.5 A5:0.5 G5 | F#5:0.5 A5:0.5 D6 C6:0.5 A5:0.5 F#5 | G5:3 r |
+      B5:0.5 G5:0.5 E5:0.5 G5:0.5 B5 E6 | E6:0.5 C6:0.5 G5:0.5 C6:0.5 E6 C6 | D6:0.5 A5:0.5 F#5:0.5 A5:0.5 D6:0.25 C6:0.25 B5:0.25 A5:0.25 G5 | G5:2 r:2`,
+    chords: ['Em', 'C', 'D', 'G', 'Em', 'C', 'D', 'G']
+  }
+};
+
+const CACHE_MISS = {
+  A: {
+    melody: `A5:0.5 E5:0.5 C5:0.5 E5:0.5 A5:0.5 B5:0.5 C6 | B5:0.5 G5:0.5 D5:0.5 G5:0.5 B5 D6 | C6:0.5 A5:0.5 F5:0.5 A5:0.5 C6:0.5 A5:0.5 F5 | G#5:0.5 E5:0.5 B4:0.5 E5:0.5 G#5:2 |
+      A5:0.25 G5:0.25 A5:0.5 E5:0.5 C5:0.5 A4 C5 | B4:0.5 D5:0.5 G5 F5:0.5 E5:0.5 D5 | C5:0.5 F5:0.5 A5 G5:0.5 F5:0.5 E5 | E5:2 r:2`,
+    chords: ['Am', 'G', 'F', 'E', 'Am', 'G', 'F', 'E']
+  },
+  B: {
+    melody: `D6 F5:0.5 A5:0.5 D6 A5 | C6:0.5 B5:0.5 A5 E5:2 | G#5:0.5 B5:0.5 E6 D6:0.5 B5:0.5 G#5 | A5:3 r |
+      F5:0.5 A5:0.5 D6:0.5 A5:0.5 F5 D5 | G5:0.5 B5:0.5 D6:0.5 B5:0.5 G5 D5 | E5:0.5 G5:0.5 C6:0.5 G5:0.5 E6 C6 | B5:0.5 G#5:0.5 E5 r:2`,
+    chords: ['Dm', 'Am', 'E', 'Am', 'Dm', 'G', 'C', 'E']
+  }
+};
+
 // MIDI 곡 데이터 → 곡 객체. [간격, 길이, 음높이] 반복(단위 1/steps박)을 펼친다. O(음 수)
 function decodeNotes(flat, steps) {
   const notes = [];
@@ -222,6 +308,7 @@ const midiSong = id => {
 
 // style: 반주 스타일(rhythm-music.js). bpm은 1박 기준(3/8 곡은 8분음표 = 1박)
 const TRANSCRIBED = '이 프로젝트에서 직접 채보';
+const ORIGINAL = '이 프로젝트에서 직접 작곡';
 export const RHYTHM_SONGS = Object.freeze([
   buildSong({ id: 'twinkle', title: '작은 별', composer: '프랑스 민요 · 모차르트 변주곡 K.265', died: 1791, bpm: 112, beatsPerBar: 4, style: 'gentle', source: TRANSCRIBED, sections: repeat(TWINKLE, 3, [0, 0, 5]) }),
   midiSong('brahms-lullaby'),
@@ -256,6 +343,12 @@ export const RHYTHM_SONGS = Object.freeze([
   midiSong('giuliani-allegro'),
   midiSong('toccata-fugue'),
   buildSong({ id: 'bumblebee', title: '왕벌의 비행', composer: '림스키코르사코프 · 살탄 황제 이야기', died: 1908, bpm: 116, beatsPerBar: 2, style: 'drive', source: TRANSCRIBED, sections: repeat(BUMBLEBEE, 4, [0, 0, 2, 0]) }),
+  buildSong({ id: 'async-await', title: 'async/await', composer: 'TYPE//CODE 오리지널', died: null, bpm: 100, beatsPerBar: 4, style: 'pop', source: ORIGINAL, sections: arrange(ASYNC_AWAIT, 'AABABBA') }),
+  buildSong({ id: 'segfault-groove', title: 'Segfault Groove', composer: 'TYPE//CODE 오리지널', died: null, bpm: 112, beatsPerBar: 4, style: 'pop', source: ORIGINAL, sections: arrange(SEGFAULT_GROOVE, 'AABABBA') }),
+  buildSong({ id: 'hot-reload', title: 'Hot Reload', composer: 'TYPE//CODE 오리지널', died: null, bpm: 128, beatsPerBar: 4, style: 'edm', source: ORIGINAL, sections: arrange(HOT_RELOAD, 'AABBAABA') }),
+  buildSong({ id: 'merge-conflict', title: 'Merge Conflict', composer: 'TYPE//CODE 오리지널', died: null, bpm: 140, beatsPerBar: 4, style: 'edm', source: ORIGINAL, sections: arrange(MERGE_CONFLICT, 'AABBAABA') }),
+  buildSong({ id: 'kernel-panic', title: 'Kernel Panic', composer: 'TYPE//CODE 오리지널', died: null, bpm: 150, beatsPerBar: 4, style: 'drive', source: ORIGINAL, sections: arrange(KERNEL_PANIC, 'AABBAABBA') }),
+  buildSong({ id: 'cache-miss', title: 'Cache Miss', composer: 'TYPE//CODE 오리지널', died: null, bpm: 174, beatsPerBar: 4, style: 'edm', source: ORIGINAL, sections: arrange(CACHE_MISS, 'AABBAABBAA') }),
   ...AUDIO_SONG_DATA.map(buildAudioSong)
 ]);
 
@@ -276,6 +369,5 @@ export const DIFFICULTY_ORDER = Object.freeze(Object.keys(RHYTHM_DIFFICULTIES));
 // 강세가 뚜렷한 곡(행진곡·캉캉·드롭이 센 AI 곡 등)은 반 마디마다 강박에도 나오고 확률이 1.4배
 export const CHORD_ACCENT_SONGS = Object.freeze(new Set([
   'can-can', 'william-tell', 'mountain-king', 'turkish-march', 'toccata-fugue', 'korobeiniki', 'entertainer', 'maple-leaf', 'beat-compiler',
-  'final-countdown', 'final-countdown-b', 'tap-riot', 'tap-riot-b', 'slap-on-the-two', 'slap-on-the-two-b',
-  'wobbling-supersaw', 'wobbling-supersaw-b', 'turbo-sprint', 'turbo-sprint-b', 'compile-rush', 'compile-rush-b'
+  'hot-reload', 'merge-conflict', 'kernel-panic', 'cache-miss', 'compile-rush', 'compile-rush-b'
 ]));

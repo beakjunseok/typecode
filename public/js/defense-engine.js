@@ -11,6 +11,9 @@ import { SCORING, MAX_MULTIPLIER } from './engine.js';
 import { createDefensePath, generatePathPoints, mapName } from './defense-map.js';
 import { CARD_RULES, baseMods, cardById, drawCards } from './defense-cards.js';
 
+// 집중 핫픽스로 고를 타워가 모자랄 때 한 개 몫 대신 주는 코인
+const TOWER_PICK_COMPENSATION = 200;
+
 export const DEFENSE_RULES = Object.freeze({
   waves: 25,
   // 보스가 나오는 웨이브(그 웨이브 졸개를 다 내보낸 뒤). 다시 나올 때마다 체력이 커진다(bossHpGrowth: 처음 나온 웨이브부터 웨이브당 +8%)
@@ -133,7 +136,9 @@ export const TOWER_TYPES = Object.freeze({
   honeypot: Object.freeze({ label: '허니팟', word: 'honeypot', price: 150, cooldown: 3.5, range: 0.3, slow: 1, targets: 'ground', damage: 0, puddle: Object.freeze({ radius: 0.07, seconds: 4, slow: 0.35, dps: 0.5, stepDamage: 0.5 }) }),
   antivirus: Object.freeze({ label: '백신', word: 'antivirus', price: 200, cooldown: 1.5, range: 0.32, slow: 1, targets: 'ground', damage: 1 }),
   emp: Object.freeze({ label: 'EMP포', word: 'emp', price: 250, cooldown: 2.4, range: 0.34, slow: 1, targets: 'all', damage: 1, splash: 0.085, airJam: Object.freeze({ seconds: 2.5, slow: 0.5, damageFactor: 0.5 }) }),
-  interceptor: Object.freeze({ label: '요격포', word: 'interceptor', price: 300, cooldown: 1.1, range: 0.44, slow: 1, targets: 'all', damage: 1 })
+  interceptor: Object.freeze({ label: '요격포', word: 'interceptor', price: 300, cooldown: 1.1, range: 0.44, slow: 1, targets: 'all', damage: 1 }),
+  // 관통 레이저: 표적 쪽으로 사거리 끝까지 곧게 뻗는 광선. 광선 폭(beam.width) 안의 지상 적을 모두 꿰뚫는다(줄 선 적에게 강함)
+  railgun: Object.freeze({ label: '관통 레이저', word: 'railgun', price: 220, cooldown: 2, range: 0.38, slow: 1, targets: 'ground', damage: 1, beam: Object.freeze({ width: 0.035 }) })
 });
 // 강화 단계(Lv.1~3): 사거리 더하기, 쏘는 간격 배율. Lv.3은 타워별 특수 능력(TOWER_MAX_PERKS)
 export const TOWER_LEVELS = Object.freeze([
@@ -142,13 +147,14 @@ export const TOWER_LEVELS = Object.freeze([
   Object.freeze({ range: 0.04, cooldown: 0.78 }),
   Object.freeze({ range: 0.08, cooldown: 0.6 })
 ]);
-// Lv.3 특수 능력: 방화벽 = 감속 0.45 · 허니팟 = 웅덩이 감속 0.3 · 백신 = 한 발에 2 피해 · 요격포 = 두 표적 동시 발사
+// Lv.3 특수 능력: 방화벽 = 감속 0.45 · 허니팟 = 웅덩이 감속 0.3 · 백신 = 한 발에 2 피해 · 요격포 = 두 표적 동시 발사 · 관통 레이저 = 피해 1.6·광선 1.5배 굵게
 export const TOWER_MAX_PERKS = Object.freeze({
   firewall: Object.freeze({ slow: 0.45, label: '강한 감속' }),
   honeypot: Object.freeze({ puddleSlow: 0.2, label: '초강력 끈끈이' }),
   antivirus: Object.freeze({ damage: 2, label: '2배 피해' }),
   emp: Object.freeze({ splashFactor: 1.5, label: '광역 EMP' }),
-  interceptor: Object.freeze({ shots: 2, label: '2발 동시 발사' })
+  interceptor: Object.freeze({ shots: 2, label: '2발 동시 발사' }),
+  railgun: Object.freeze({ damage: 1.6, beamFactor: 1.5, label: '굵은 관통 광선' })
 });
 
 // 이 레벨 타워의 능력치(사거리·간격·감속·피해·발사 수). O(1)
@@ -163,7 +169,8 @@ export function towerStats(type, level) {
     ? { radius: config.puddle.radius * (1 + 0.15 * (level - 1)), seconds: config.puddle.seconds + (level - 1), slow: perk.puddleSlow ?? config.puddle.slow, dps: config.puddle.dps * grow, stepDamage: config.puddle.stepDamage * grow }
     : null;
   const splash = config.splash ? config.splash * (1 + 0.1 * (level - 1)) * (perk.splashFactor ?? 1) : 0;
-  return { range: config.range + step.range, cooldown: config.cooldown * step.cooldown, slow, damage: perk.damage ?? config.damage ?? 1, shots: perk.shots ?? 1, burn, puddle, splash };
+  const beam = config.beam ? config.beam.width * (1 + 0.15 * (level - 1)) * (perk.beamFactor ?? 1) : 0;
+  return { range: config.range + step.range, cooldown: config.cooldown * step.cooldown, slow, damage: perk.damage ?? config.damage ?? 1, shots: perk.shots ?? 1, burn, puddle, splash, beam };
 }
 
 export const SHOP_ITEMS = Object.freeze({
@@ -172,6 +179,7 @@ export const SHOP_ITEMS = Object.freeze({
   antivirus: Object.freeze({ kind: 'tower', tower: 'antivirus', word: 'antivirus' }),
   emp: Object.freeze({ kind: 'tower', tower: 'emp', word: 'emp' }),
   interceptor: Object.freeze({ kind: 'tower', tower: 'interceptor', word: 'interceptor' }),
+  railgun: Object.freeze({ kind: 'tower', tower: 'railgun', word: 'railgun' }),
   patch: Object.freeze({ kind: 'repair', word: 'patch', price: 80 })
 });
 
@@ -259,13 +267,15 @@ export class DefenseEngine extends TargetGameEngine {
     super({ ...options, mode: 'defense' });
     // 길: 직접 준 길 → 판마다 다른 길(randomMap) → 기본 길
     this.path = options.path ?? (options.randomMap ? createRandomPath(this.random) : DEFAULT_PATH);
-    // 강화 카드: cardsEnabled면 CARD_RULES.every 웨이브마다 3장 중 1장
+    // 강화 카드: cardsEnabled면 CARD_RULES.every 웨이브마다 CARD_RULES.choices장(4) 중 1장
     this.cardsEnabled = Boolean(options.cards);
     this.mods = baseMods();
     this.cards = [];
     // 밸런스 통계용: 카드 고르기마다 { 웨이브, 받은 패, 고른 카드 }
     this.draftLog = [];
     this.draft = null;
+    // 집중 핫픽스 카드로 타워를 고르는 중이면 { remaining, levels, picked }
+    this.towerPick = null;
     this.lives = 1;
     this.maxHealth = DEFENSE_RULES.maxHealth[this.level];
     this.health = this.maxHealth;
@@ -899,7 +909,12 @@ export class DefenseEngine extends TargetGameEngine {
       if (!targets.length) continue;
       tower.readyAt = this.gameTime + stats.cooldown;
       for (const [index, target] of targets.entries()) {
-        this.towerShots.push({ towerId: tower.id, fromX: tower.x, fromY: tower.y, bugId: target.id, x: target.x, y: target.y, at: this.gameTime, type: tower.type, level: tower.level, barrel: index });
+        if (!(stats.beam > 0)) this.towerShots.push({ towerId: tower.id, fromX: tower.x, fromY: tower.y, bugId: target.id, x: target.x, y: target.y, at: this.gameTime, type: tower.type, level: tower.level, barrel: index });
+        if (stats.beam > 0) {
+          this.fireBeam(tower, target, stats);
+          if (this.status !== 'running') return;
+          continue;
+        }
         this.emit('tower-shot', { tower, bug: target });
         if (stats.puddle) {
           // 허니팟: 표적 발밑(길 위)에 끈끈이를 던진다. 0.35초 날아가 떨어진 뒤부터 효과
@@ -940,6 +955,32 @@ export class DefenseEngine extends TargetGameEngine {
         if (stats.damage > 0) this.damageBug(target, 'tower', this.critical(stats.damage));
         if (this.status !== 'running') return;
       }
+    }
+  }
+
+  // 관통 레이저: 타워에서 표적 쪽으로 사거리 끝까지 선분을 긋고, 선분까지 거리가 광선 폭 안인 지상 적을 모두 맞힌다.
+  // 표적은 늘 맞는다. O(적 수)
+  fireBeam(tower, target, stats) {
+    const deltaX = target.x - tower.x;
+    const deltaY = target.y - tower.y;
+    const length = Math.hypot(deltaX, deltaY) || 1;
+    const directionX = deltaX / length;
+    const directionY = deltaY / length;
+    const end = { x: tower.x + directionX * stats.range, y: tower.y + directionY * stats.range };
+    const hits = this.bugs.filter(bug => {
+      if (bug.state !== 'alive' || bug.hp <= 0 || !this.canTarget(tower, bug)) return false;
+      if (bug === target) return true;
+      const along = (bug.x - tower.x) * directionX + (bug.y - tower.y) * directionY;
+      if (along < 0 || along > stats.range) return false;
+      const across = Math.abs((bug.x - tower.x) * directionY - (bug.y - tower.y) * directionX);
+      return across <= stats.beam;
+    });
+    this.towerShots.push({ towerId: tower.id, fromX: tower.x, fromY: tower.y, x: end.x, y: end.y, at: this.gameTime, type: tower.type, level: tower.level, barrel: 0, beam: stats.beam, hits: hits.length });
+    this.emit('tower-shot', { tower, bug: target });
+    this.emit('pierce', { tower, hits: hits.length, from: { x: tower.x, y: tower.y }, to: end });
+    for (const bug of hits) {
+      this.damageBug(bug, 'tower', this.critical(stats.damage));
+      if (this.status !== 'running') return;
     }
   }
 
@@ -1085,7 +1126,7 @@ export class DefenseEngine extends TargetGameEngine {
   }
 
   // ---------- 강화 카드 ----------
-  // 카드 고르기 시작: 웨이브 사이에 멈추고 3장을 보여 준다(고를 때까지 다음 웨이브 안 옴, 낱말 수입도 멈춤)
+  // 카드 고르기 시작: 웨이브 사이에 멈추고 CARD_RULES.choices장을 보여 준다(고를 때까지 다음 웨이브 안 옴, 낱말 수입도 멈춤)
   openDraft() {
     const hand = drawCards(this.cards, this.random, CARD_RULES.choices + this.mods.extraChoices, this.mods.luck);
     if (!hand.length) {
@@ -1107,7 +1148,6 @@ export class DefenseEngine extends TargetGameEngine {
     const card = cardById(this.draft.hand[index]);
     if (!card) return false;
     card.apply?.(this.mods);
-    card.instant?.(this);
     this.statsCache?.clear();
     this.draftLog.push({ wave: this.draft.wave ?? this.wave, hand: [...this.draft.hand], pick: card.id });
     this.cards.push(card.id);
@@ -1115,7 +1155,62 @@ export class DefenseEngine extends TargetGameEngine {
     this.phase = 'break';
     this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds + this.mods.extraBreak;
     this.emit('card-picked', { card: card.id, rarity: card.rarity, index, cards: [...this.cards] });
+    // 즉시 효과는 쉬는 시간으로 넘긴 뒤에: 타워 고르기 카드(집중 핫픽스)는 여기서 phase를 'tower-pick'으로 바꾼다
+    card.instant?.(this);
+    this.statsCache?.clear();
     return true;
+  }
+
+  // ---------- 집중 핫픽스: 타워 고르기 ----------
+  // 강화할 수 있는(최고 레벨이 아닌, 이번에 아직 안 고른) 타워들. 화면 번호(1~9)도 이 순서. O(타워 수)
+  towerPickCandidates() {
+    const picked = this.towerPick?.picked ?? [];
+    return this.towers.filter(tower => tower.level < DEFENSE_RULES.maxTowerLevel && !picked.includes(tower.id));
+  }
+
+  // 고르기 시작: picks개를 고를 때까지 다음 웨이브가 오지 않고 낱말 입력도 멈춘다.
+  // 고를 타워가 모자라면 모자란 수만큼 코인 200으로 바꿔 준다(타워가 하나도 없으면 바로 코인)
+  beginTowerPick({ picks = 2, levels = 2 } = {}) {
+    const safePicks = Math.max(1, Math.floor(picks) || 1);
+    const available = this.towerPickCandidates().length;
+    const missing = Math.max(0, safePicks - available);
+    if (missing) this.gainCoins(TOWER_PICK_COMPENSATION * missing, 'card');
+    if (!available) return false;
+    if (this.buildMode) this.cancelBuild('draft', { silent: true });
+    this.clearBuffer();
+    this.towerPick = { remaining: safePicks - missing, levels: Math.max(1, Math.floor(levels) || 1), picked: [] };
+    this.phase = 'tower-pick';
+    this.phaseUntil = Infinity;
+    this.emit('tower-pick', { remaining: this.towerPick.remaining, levels: this.towerPick.levels });
+    return true;
+  }
+
+  // 타워 하나 고르기: levels단계 공짜 강화(최고 레벨에서 멈춘다). 다 고르면 쉬는 시간으로
+  pickTower(tower) {
+    const pick = this.towerPick;
+    if (this.phase !== 'tower-pick' || !pick) return false;
+    if (!tower || !this.towerPickCandidates().includes(tower)) {
+      this.emit('tower-pick-denied', { tower: tower ?? null });
+      return false;
+    }
+    tower.level = Math.min(DEFENSE_RULES.maxTowerLevel, tower.level + pick.levels);
+    tower.upgradedAt = this.gameTime;
+    pick.picked.push(tower.id);
+    pick.remaining--;
+    this.statsCache?.clear();
+    this.emit('tower-upgraded', { tower, price: 0, stats: this.statsOf(tower), perk: tower.level >= DEFENSE_RULES.maxTowerLevel ? TOWER_MAX_PERKS[tower.type] : null, hotfix: true });
+    if (pick.remaining <= 0 || !this.towerPickCandidates().length) this.finishTowerPick();
+    return true;
+  }
+
+  // 고르기 끝(남은 몫이 있으면 코인으로): 쉬는 시간으로 넘어간다
+  finishTowerPick() {
+    const left = Math.max(0, this.towerPick?.remaining ?? 0);
+    if (left) this.gainCoins(TOWER_PICK_COMPENSATION * left, 'card');
+    this.towerPick = null;
+    this.phase = 'break';
+    this.phaseUntil = this.gameTime + DEFENSE_RULES.breakSeconds + this.mods.extraBreak;
+    this.emit('tower-pick-done', {});
   }
 
   healComputer(amount) {
@@ -1142,20 +1237,6 @@ export class DefenseEngine extends TargetGameEngine {
     if (info.maxed) return this.gainCoins(300, 'card');
     this.coins += info.price;
     return this.upgradeComputer();
-  }
-
-  // 전체 핫픽스 카드: 최고 레벨이 아닌 타워를 모두 한 단계 공짜로
-  upgradeAllTowers() {
-    let count = 0;
-    for (const tower of this.towers) {
-      if (tower.level >= DEFENSE_RULES.maxTowerLevel) continue;
-      tower.level += 1;
-      tower.upgradedAt = this.gameTime;
-      count++;
-      this.emit('tower-upgraded', { tower, price: 0, stats: this.statsOf(tower), perk: tower.level >= DEFENSE_RULES.maxTowerLevel ? TOWER_MAX_PERKS[tower.type] : null });
-    }
-    if (!count) this.gainCoins(200, 'card');
-    return count;
   }
 
   // ---------- 낱말 줄(수입) ----------
@@ -1190,6 +1271,7 @@ export class DefenseEngine extends TargetGameEngine {
     }
     if (!/^[1-9]$/.test(key)) return false;
     if (this.phase === 'draft') return this.chooseCard(Number(key) - 1);
+    if (this.phase === 'tower-pick') return this.pickTower(this.towerPickCandidates()[Number(key) - 1]);
     if (this.buildMode) {
       const spot = this.spots[Number(key) - 1];
       if (spot) this.placeAtSpot(spot);
@@ -1410,7 +1492,7 @@ export class DefenseEngine extends TargetGameEngine {
   // 승리 연출 중에는 입력을 받지 않는다
   input(character, nowMs) {
     if (this.winAt != null) return { accepted: false, reason: 'finished' };
-    if (this.phase === 'draft') return { accepted: false, reason: 'draft' };
+    if (this.phase === 'draft' || this.phase === 'tower-pick') return { accepted: false, reason: this.phase };
     return super.input(character, nowMs);
   }
 
@@ -1432,6 +1514,7 @@ export class DefenseEngine extends TargetGameEngine {
       boss: this.bugs.find(bug => bug.state === 'alive' && BUG_TYPES[bug.type].boss) ?? null,
       buildMode: this.buildMode ? { ...this.buildMode } : null,
       draft: this.draft ? { ...this.draft, hand: [...this.draft.hand] } : null,
+      towerPick: this.towerPick ? { ...this.towerPick, picked: [...this.towerPick.picked] } : null,
       cards: [...this.cards],
       map: this.path.name
     };

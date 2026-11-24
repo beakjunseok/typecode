@@ -1,4 +1,4 @@
-// 배터리 구조 SOS 판 꾸미기: 방전봇 성격(상대 라인업), 아이템 덱, 바다 날씨.
+// 배터리 구조 SOS 판 꾸미기: 방전봇 성격(상대 라인업), 아이템 모양, 바다 날씨.
 // 엔진(battery-engine.js)은 여기 값만 읽어 쓰고, 화면은 얼굴·색·대사를 읽어 그린다
 
 // ---------- 방전봇 성격 6종 ----------
@@ -56,11 +56,11 @@ export function mirrorProfile(summary) {
   return { cps: Math.max(1, Math.min(6, cps * 0.85)), attack: Math.max(0.1, Math.min(0.9, attack)) };
 }
 
-// ---------- 아이템 덱 ----------
-// 배터리 셀은 늘 나오고(기본), 나머지 11종 중 DECK_SIZE종을 골라 그 판에만 나오게 한다
+// ---------- 아이템 ----------
+// 배터리 셀은 기본 아이템. 혼자 하기는 12종 전부 무작위(battery-engine chooseItemType)
+// DECK_SIZE: 시험·재현용 고정 목록(options.deck)의 최대 크기
 export const DECK_SIZE = 4;
 export const BASE_ITEM = 'cell';
-export const DEFAULT_DECK = Object.freeze(['powerbank', 'eco', 'heat', 'blackout']);
 
 // ---------- 바다 날씨 5종 ----------
 export const WEATHERS = Object.freeze({
@@ -78,7 +78,7 @@ export function pickWeather(random = Math.random, previous = null) {
   return choices[Math.floor(random() * choices.length)] ?? 'calm';
 }
 
-// 아이템 아이콘·색(덱 고르기 칩과 화면 아이콘이 같이 쓴다)
+// 아이템 아이콘·색(준비 화면 목록과 바다 위 아이콘이 같이 쓴다)
 export const ITEM_LOOKS = Object.freeze({
   cell: Object.freeze({ icon: '🔋', color: '#4df0a6', tag: '+0.5' }),
   powerbank: Object.freeze({ icon: '🛸', color: '#36e2ff', tag: '+1' }),

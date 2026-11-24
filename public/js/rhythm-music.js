@@ -39,6 +39,8 @@ const STYLES = Object.freeze({
   waltz: { kick: ({ beat, half }) => half === 0 && beat === 0, snare: () => false, hat: () => false, bass: ({ beat, half }) => half === 0 && beat === 0, chord: ({ beat, half }) => half === 0 && beat > 0, chordLength: 0.6, kickLevel: 0.4 },
   // 행진·질주: 킥 매 박, 스네어 2·4, 베이스 8분 스타카토
   drive: { kick: ({ half }) => half === 0, snare: ({ beat, half }) => half === 0 && beat % 2 === 1, hat: ({ half }) => half === 1, bass: () => true, chord: ({ beat, half }) => beat % 2 === 1 && half === 1, chordLength: 0.3, kickLevel: 1 },
+  // 일렉트로닉(오리지널 곡): 4-on-the-floor 킥, 2·4 스네어, 엇박 하이햇, 8분 옥타브 베이스, 엇박 짧은 화음 스탭
+  edm: { kick: ({ half }) => half === 0, snare: ({ beat, half }) => half === 0 && beat % 2 === 1, hat: ({ half }) => half === 1, bass: () => true, bassOctaveOnOff: true, chord: ({ half }) => half === 1, chordLength: 0.22, kickLevel: 1.1, hatLevel: 0.8 },
   // 갤럽(2/4): 쿵(베이스)-짝(화음) 반복, 킥 매 박, 스네어 둘째 박
   // AI 음원 곡: 음원이 반주라 합성 반주는 없다(카운트만)
   audio: { kick: () => false, snare: () => false, hat: () => false, bass: () => false, chord: () => false },

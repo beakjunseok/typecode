@@ -82,13 +82,15 @@ test('카드 뽑기: 겹치지 않게 3장, 최대 횟수에 닿은 카드는 �
   assert.deepEqual(drawCards(DEFENSE_CARDS.flatMap(card => Array(card.max).fill(card.id)), seeded(1)), []);
 });
 
-test('카드 고르기: 3웨이브마다 멈추고(낱말 입력 막힘), 숫자 키로 고르면 적용되고 쉬는 시간으로', () => {
+test('카드 고르기: 5웨이브마다 멈추고(낱말 입력 막힘), 숫자 키로 고르면 적용되고 쉬는 시간으로', () => {
   const { engine, events } = setup({ cards: true });
-  clearWave(engine, 2);
-  assert.equal(engine.phase, 'break', '2웨이브 뒤에는 카드 없음');
   clearWave(engine, 3);
+  assert.equal(engine.phase, 'break', '3웨이브 뒤에는 카드 없음');
+  clearWave(engine, 4);
+  assert.equal(engine.phase, 'break', '4웨이브 뒤에도 카드 없음');
+  clearWave(engine, 5);
   assert.equal(engine.phase, 'draft');
-  assert.equal(engine.draft.hand.length, 3);
+  assert.equal(engine.draft.hand.length, CARD_RULES.choices);
   assert.ok(events.some(event => event.type === 'draft'));
   assert.equal(engine.input(engine.stream[0].token.text[0], 2000).accepted, false, '고르는 동안 타자 수입 없음');
   const chosen = engine.draft.hand[1];
@@ -99,9 +101,9 @@ test('카드 고르기: 3웨이브마다 멈추고(낱말 입력 막힘), 숫자
   assert.equal(engine.chooseCard(0), false, '이미 골랐으면 더 못 고른다');
 });
 
-test('카드 없는 엔진은 3웨이브 뒤에도 바로 쉬는 시간', () => {
+test('카드 없는 엔진은 5웨이브 뒤에도 바로 쉬는 시간', () => {
   const { engine } = setup();
-  clearWave(engine, 3);
+  clearWave(engine, 5);
   assert.equal(engine.phase, 'break');
 });
 
@@ -166,14 +168,13 @@ test('카드 기능은 서로 겹치지 않는다: 카드마다 다른 값 하�
   for (const rarity of ['common', 'rare', 'epic', 'legendary']) assert.ok(DEFENSE_CARDS.some(card => card.rarity === rarity), rarity);
 });
 
-test('행운 카드는 높은 등급 비중을 키운다, 선택지 확장은 4장', () => {
+test('행운 카드는 높은 등급 비중을 키운다, 선택지 확장은 한 장 더', () => {
   const plain = rarityWeights(0), lucky = rarityWeights(1);
   assert.ok(lucky.legendary / lucky.common > plain.legendary / plain.common * 3);
   const { engine } = setup({ cards: true });
   engine.mods.extraChoices = 1;
-  engine.wave = 3; engine.phase = 'spawning'; engine.waveTotal = 1; engine.waveSpawned = 1; engine.bugs = [];
-  engine.checkWaveClear();
-  assert.equal(engine.draft.hand.length, 4);
+  clearWave(engine, 5);
+  assert.equal(engine.draft.hand.length, CARD_RULES.choices + 1);
 });
 
 test('새 카드 동작: 셔터·콤보 보험·무료 설치·처형·연쇄 폭발·웨이브 멈춤·전설 즉시 효과', () => {
@@ -230,12 +231,47 @@ test('새 카드 동작: 셔터·콤보 보험·무료 설치·처형·연쇄 �
   const level = engine.computerLevel;
   engine.freeComputerUpgrade();
   assert.equal(engine.computerLevel, level + 1);
-  const tower = engine.towers[0];
-  const towerLevel = tower.level;
-  engine.upgradeAllTowers();
-  assert.equal(tower.level, towerLevel + 1);
+
   // 조기 출동
   engine.guardian = null;
   engine.deployGuardianEarly();
   assert.ok(engine.guardian);
+});
+
+test('집중 핫픽스: 고른 타워 2개만 +2(최고 레벨까지), 고르는 동안 입력·다음 웨이브 멈춤', () => {
+  const { engine, events } = setup({ cards: true });
+  engine.coins = 5000;
+  engine.buy('antivirus', 0);
+  engine.buy('firewall', 1);
+  engine.buy('emp', 2);
+  const [first, second, third] = engine.towers;
+  assert.equal(engine.towers.length, 3);
+  second.level = 2;
+  engine.phase = 'draft';
+  engine.draft = { wave: 5, hand: ['hotfix'] };
+  assert.equal(engine.chooseCard(0), true);
+  assert.equal(engine.phase, 'tower-pick');
+  assert.equal(engine.input(engine.stream[0].token.text[0], 1000).accepted, false, '고르는 동안 타자 수입 없음');
+  engine.update(60000);
+  assert.equal(engine.phase, 'tower-pick', '다 고를 때까지 다음 웨이브 안 옴');
+  const coins = engine.coins;
+  assert.equal(engine.hotkey('1'), true, '숫자 키 = 후보 순서');
+  assert.equal(first.level, 3);
+  assert.equal(engine.pickTower(first), false, '같은 타워 두 번은 안 됨');
+  assert.equal(engine.pickTower(second), true);
+  assert.equal(second.level, 3, '최고 레벨에서 멈춤');
+  assert.equal(third.level, 1, '안 고른 타워는 그대로');
+  assert.equal(engine.phase, 'break');
+  assert.equal(engine.coins, coins, '공짜');
+  assert.ok(events.some(event => event.type === 'tower-pick-done'));
+});
+
+test('집중 핫픽스: 타워가 모자라면 모자란 몫은 코인 200씩', () => {
+  const { engine } = setup({ cards: true });
+  const coins = engine.coins;
+  engine.phase = 'draft';
+  engine.draft = { wave: 5, hand: ['hotfix'] };
+  engine.chooseCard(0);
+  assert.equal(engine.phase, 'break', '타워가 없으면 바로 쉬는 시간');
+  assert.equal(engine.coins, coins + 400);
 });

@@ -1,5 +1,5 @@
 import {
-  BOARD_SIZE, HttpError, getWeekLabel, jsonResponse, loadWeeklyEntries, rankEntries, readJsonBody, resolveMode, resolveLevel, resolveLanguage, filterByLanguage,
+  BOARD_SIZE, HttpError, assertRankedSession, getWeekLabel, jsonResponse, loadWeeklyEntries, rankEntries, readJsonBody, resolveMode, resolveLevel, resolveLanguage, filterByLanguage,
   sanitizeName, sessionAlreadySubmitted, storeEntry, toPublicEntry, validateSubmission, verifySessionToken, withErrorHandling
 } from './_lib.js';
 
@@ -23,6 +23,7 @@ export const POST = withErrorHandling(async request => {
   const mode = resolveMode(session.mode);
   // 난이도는 서명된 세션 기준(예전 세션은 Lv.2)
   const level = resolveLevel(mode, session.level);
+  assertRankedSession(mode, session);
   const verified = validateSubmission(session, body);
   const week = getWeekLabel(session.startedAt);
 

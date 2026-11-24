@@ -436,7 +436,7 @@ function comboFrequency(combo) {
 // 같은 소리를 다시 울리기까지 최소 간격(초). 타워가 많을 때 한 프레임에 수십 번 겹치지 않게
 const THROTTLED_SOUNDS = Object.freeze({
   empCharge: 0.08, empBlast: 0.07, zap: 0.06, honeyLob: 0.08, honeySplat: 0.08, honeyStep: 0.05,
-  ignite: 0.07, missileLaunch: 0.06, missileBoom: 0.06, laserShot: 0.05, towerLand: 0.05, bossLaserCharge: 0.3, bossLaser: 0.2, cardHover: 0.05,
+  ignite: 0.07, missileLaunch: 0.06, missileBoom: 0.06, laserShot: 0.05, railShot: 0.08, towerLand: 0.05, bossLaserCharge: 0.3, bossLaser: 0.2, cardHover: 0.05,
   // 적이 한꺼번에 많을 때 같은 소리가 겹겹이 쌓이지 않게(소리마다 오디오 노드를 새로 만들어 비싸다)
   spawnRobot: 0.06, explode: 0.05, glassCrack: 0.1, lifeLost: 0.1
 });
@@ -495,6 +495,12 @@ const SOUNDS = {
   // 백신 레이저: 높은 '퓽'
   laserShot(engine, context, time) {
     engine.tone(context, { frequency: 1800, sweepTo: 600, startTime: time, peak: 0.035, decay: 0.09, waveform: 'square', filter: { type: 'lowpass', frequency: 3500 } });
+  },
+  // 관통 레이저: 낮게 '우웅' 모였다가 '치잉' 하고 길게 뻗는 소리
+  railShot(engine, context, time) {
+    engine.tone(context, { frequency: 180, sweepTo: 900, startTime: time, peak: 0.03, decay: 0.08, waveform: 'sawtooth', filter: { type: 'lowpass', frequency: 2200 } });
+    engine.tone(context, { frequency: 2400, sweepTo: 1200, startTime: time + 0.07, peak: 0.03, decay: 0.22, waveform: 'square', filter: { type: 'bandpass', frequency: 1800 } });
+    engine.noise(context, { startTime: time + 0.07, peak: 0.03, decay: 0.18, filterType: 'highpass', frequency: 2500, sweepTo: 1200 });
   },
   // 타워 착지: 무거운 '쿵' + 먼지 '푸스스'
   towerLand(engine, context, time) {

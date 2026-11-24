@@ -101,7 +101,7 @@ export function createHumanPlayer(engine, person, random, { pickTarget = current
     if (!engine.canBuildNew()) return null;
     // 짓기: 드론을 봤는데 공중 타워가 없으면 공중 타워 쪽으로 기운다. 나머지는 손에 익은 순서 + 무작위
     const hasAir = engine.towers.some(tower => tower.type === 'emp' || tower.type === 'interceptor');
-    const weights = { firewall: 1, antivirus: 1.4, emp: 1, interceptor: engine.wave >= 4 ? 1.2 : 0.3, honeypot: 0.8 };
+    const weights = { firewall: 1, antivirus: 1.4, emp: 1, interceptor: engine.wave >= 4 ? 1.2 : 0.3, honeypot: 0.8, railgun: 1 };
     if (state.sawDrone && !hasAir) { weights.emp *= 3; weights.interceptor *= 3; }
     const affordable = Object.keys(TOWER_TYPES).filter(type => usable >= engine.priceOf(type));
     if (!affordable.length) return null;

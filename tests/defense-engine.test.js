@@ -569,3 +569,28 @@ test('보상: 버틴 웨이브만큼 진행 보너스, 다 막으면 클리어 �
   assert.equal(cleared.cleared, true);
   assert.equal(cleared.firstClearKey, 'defense:2');
 });
+
+test('관통 레이저: 표적 쪽 일직선(광선 폭 안)의 지상 적을 모두 꿰뚫고, 뒤쪽·옆·공중은 안 맞는다', () => {
+  const { engine, events } = setup();
+  const tower = { id: 998, type: 'railgun', x: 0.2, y: 0.5, level: 1, readyAt: 0 };
+  engine.towers = [tower];
+  const bug = (x, y, extra = {}) => ({ id: engine.nextId++, type: 'malware', state: 'alive', hp: 5, maxHp: 5, x, y, progress: x, air: false, shieldUntil: 0, phase: 1, tier: 1, ...extra });
+  const front = bug(0.3, 0.5, { progress: 0.9 });
+  const lined = bug(0.45, 0.505);
+  const side = bug(0.35, 0.6);
+  const behind = bug(0.12, 0.5);
+  const drone = bug(0.4, 0.5, { air: true, type: 'drone' });
+  engine.bugs = [front, lined, side, behind, drone];
+  engine.fireTowers();
+  assert.equal(front.hp, 4, '표적');
+  assert.equal(lined.hp, 4, '같은 줄 뒤의 적도 관통');
+  assert.equal(side.hp, 5, '광선 밖');
+  assert.equal(behind.hp, 5, '타워 뒤쪽');
+  assert.equal(drone.hp, 5, '공중은 못 맞힘');
+  const pierce = events.find(event => event.type === 'pierce');
+  assert.equal(pierce.payload.hits, 2);
+  const maxed = towerStats('railgun', 3);
+  assert.ok(maxed.beam > towerStats('railgun', 1).beam * 1.5 && maxed.damage > 1, 'Lv.3 굵은 광선');
+  assert.ok(TOWER_TYPES.railgun.price > TOWER_TYPES.antivirus.price && TOWER_TYPES.railgun.price < TOWER_TYPES.interceptor.price);
+  assert.ok(1 / towerStats('railgun', 1).cooldown < 1 / towerStats('antivirus', 1).cooldown, '한 마리만 맞힐 땐 백신보다 느리다');
+});

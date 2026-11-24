@@ -41,8 +41,8 @@ async function callApi(path, { method = 'GET', body } = {}) {
   }
 }
 
-export async function requestSession({ mode = 'practice', language, durationSeconds, level }) {
-  const result = await callApi('/api/session', { method: 'POST', body: { mode, language, durationSeconds, level } });
+export async function requestSession({ mode = 'practice', language, durationSeconds, level, difficulty }) {
+  const result = await callApi('/api/session', { method: 'POST', body: { mode, language, durationSeconds, level, difficulty } });
   if (typeof result.token !== 'string') throw new ApiError('세션 응답 형식 오류', 0, 'bad_response');
   return result.token;
 }

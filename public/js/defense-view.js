@@ -40,9 +40,9 @@ const BUG_STYLE = Object.freeze({
   ransomware: { body: '#ff4d6d', dark: '#6a0f24', size: 28 },
   rootkit: { body: '#39ff88', dark: '#0b3d22', size: 34 }
 });
-const TOWER_STYLE = Object.freeze({ firewall: '#ff7a45', honeypot: '#f5b82e', antivirus: '#36e2ff', emp: '#b38cff', interceptor: '#c3ff4d' });
-const SHOP_LABELS = Object.freeze({ firewall: '방화벽', honeypot: '허니팟', antivirus: '백신', emp: 'EMP포', interceptor: '요격포', patch: '수리' });
-const SHOP_ICONS = Object.freeze({ firewall: '🧱', honeypot: '🍯', antivirus: '💊', emp: '⚡', interceptor: '🚀', patch: '🔧' });
+const TOWER_STYLE = Object.freeze({ firewall: '#ff7a45', honeypot: '#f5b82e', antivirus: '#36e2ff', emp: '#b38cff', interceptor: '#c3ff4d', railgun: '#ff4dd2' });
+const SHOP_LABELS = Object.freeze({ firewall: '방화벽', honeypot: '허니팟', antivirus: '백신', emp: 'EMP포', interceptor: '요격포', railgun: '관통', patch: '수리' });
+const SHOP_ICONS = Object.freeze({ firewall: '🧱', honeypot: '🍯', antivirus: '💊', emp: '⚡', interceptor: '🚀', railgun: '🔱', patch: '🔧' });
 // 보스 레이저 색: 랜섬웨어 = 자홍 암호화 빔, 루트킷 = 초록 루트 셸 빔
 const BOSS_LASER_COLORS = Object.freeze({
   ransomware: Object.freeze({ glow: '#ff4dd2', outer: 'rgba(255, 60, 140, 0.35)' }),
@@ -226,6 +226,11 @@ export class DefenseRenderer {
     } else if (type === 'card-picked') {
       const card = cardById(payload.card);
       if (card) this.banner = { text: `${card.icon} ${card.name}`, sub: card.text, at: now, color: CARD_COLORS[card.rarity] };
+    } else if (type === 'pierce' && payload.hits >= 2) {
+      const middle = this.toScreen({ x: (payload.from.x + payload.to.x) / 2, y: (payload.from.y + payload.to.y) / 2 });
+      juice.popup(middle.x, middle.y - 14, `관통 ×${payload.hits}`, { color: TOWER_STYLE.railgun, size: 15, life: 0.7 });
+    } else if (type === 'tower-pick-denied') {
+      this.banner = { text: '고를 수 없는 타워', sub: '이미 골랐거나 최고 레벨이에요', at: now, color: SCENE.danger };
     } else if (type === 'backup-restore') {
       this.banner = { text: '💾 백업 서버 가동!', sub: `체력 ${payload.health}으로 되살아났어요`, at: now, color: '#4df0a6' };
     } else if (type === 'goal') {
@@ -448,7 +453,217 @@ export class DefenseRenderer {
     this.drawUpgradeCard(context, engine);
     this.drawBuildHint(context, width, engine);
     this.drawBanner(context, width);
+    this.drawTowerPick(context, width, engine);
+    this.drawDeckButton(context, engine);
     this.drawDraft(context, width, height, engine);
+    this.drawDeckView(context, width, height, engine);
+  }
+
+  // ---------- 고른 카드 덱(오른쪽 위) ----------
+  // 들판 오른쪽 위 모서리의 카드 더미 버튼 자리. 그리기와 누르기가 같은 칸을 쓴다
+  deckButtonRect() {
+    const area = this.isWide() ? this.surface.width - this.panel().width : this.surface.width;
+    const width = 38, height = 48;
+    return { x: area - width - 14, y: HUD_HEIGHT + 8, width, height };
+  }
+
+  // 누른 점이 덱 버튼이면 true(고른 카드가 있을 때만 보인다)
+  deckButtonAt(screenX, screenY) {
+    const rect = this.deckRect;
+    return Boolean(rect) && screenX >= rect.x - 4 && screenX <= rect.x + rect.width + 4 && screenY >= rect.y - 4 && screenY <= rect.y + rect.height + 4;
+  }
+
+  // 덱 목록 열기·닫기. 열려 있는지 돌려준다
+  toggleDeck(open = !this.deckOpen) {
+    this.deckOpen = Boolean(open) && Boolean(this.deckRect);
+    this.deckOpenedAt = wallSeconds();
+    return this.deckOpen;
+  }
+
+  // 카드 더미 버튼: 뒷면 석 장을 살짝 비껴 쌓고, 맨 위에 장 수. 마우스를 올리면 들썩인다
+  drawDeckButton(context, engine) {
+    const count = engine.cards?.length ?? 0;
+    if (!count) {
+      this.deckRect = null;
+      this.deckOpen = false;
+      return;
+    }
+    const rect = this.deckButtonRect();
+    this.deckRect = rect;
+    const hover = this.pointerOver(rect) || this.deckOpen;
+    const time = wallSeconds();
+    const lastRarity = cardById(engine.cards.at(-1))?.rarity ?? 'common';
+    context.save();
+    context.translate(rect.x + rect.width / 2, rect.y + rect.height / 2 - (hover ? 2 : 0));
+    const layers = Math.min(3, count);
+    for (let layer = layers - 1; layer >= 0; layer--) {
+      context.save();
+      context.rotate((layer - (layers - 1) / 2) * 0.12 + (hover ? Math.sin(time * 6) * 0.02 : 0));
+      context.translate(layer * 2.5, layer * -1.5);
+      context.fillStyle = layer === 0 ? '#16204a' : '#0f1636';
+      roundedRect(context, -rect.width / 2, -rect.height / 2, rect.width, rect.height, 6);
+      context.fill();
+      context.strokeStyle = layer === 0 ? CARD_COLORS[lastRarity] : 'rgba(54, 226, 255, 0.35)';
+      context.lineWidth = layer === 0 ? 1.6 : 1;
+      context.stroke();
+      context.restore();
+    }
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = 'rgba(54, 226, 255, 0.55)';
+    context.font = canvasFont(11, 'code', 700);
+    context.fillText('{ }', 0, -9);
+    context.fillStyle = SCENE.ink;
+    context.font = canvasFont(15, 'ui', 800);
+    context.fillText(String(count), 0, 9);
+    context.restore();
+    context.save();
+    context.font = canvasFont(10, 'ui', 600);
+    context.textAlign = 'center';
+    context.textBaseline = 'top';
+    context.fillStyle = hover ? SCENE.ink : SCENE.fog;
+    context.fillText('내 카드', rect.x + rect.width / 2, rect.y + rect.height + 4);
+    context.restore();
+  }
+
+  pointerOver(rect) {
+    return Boolean(this.pointer) && this.pointer.x >= rect.x && this.pointer.x <= rect.x + rect.width && this.pointer.y >= rect.y && this.pointer.y <= rect.y + rect.height;
+  }
+
+  // 고른 카드 목록(덱 버튼을 누르면): 같은 카드는 한 줄로 묶어 ×장 수. 고른 순서대로, 등급 색 띠·아이콘·이름·효과
+  drawDeckView(context, width, height, engine) {
+    if (!this.deckOpen || !engine.cards?.length) return;
+    const groups = [];
+    for (const id of engine.cards) {
+      const existing = groups.find(group => group.id === id);
+      if (existing) existing.count++;
+      else if (cardById(id)) groups.push({ id, count: 1, card: cardById(id) });
+    }
+    const age = wallSeconds() - (this.deckOpenedAt ?? 0);
+    const appear = easeOutBack(Math.min(1, age / 0.22));
+    const panelWidth = Math.min(420, width - 32);
+    const rowHeight = 42;
+    const panelHeight = Math.min(height - HUD_HEIGHT - 24, 56 + groups.length * rowHeight + 14);
+    const rect = this.deckRect;
+    const left = Math.max(16, Math.min(width - panelWidth - 16, rect.x + rect.width - panelWidth));
+    const top = rect.y + rect.height + 18;
+    context.save();
+    context.fillStyle = `rgba(5, 7, 16, ${0.55 * Math.min(1, age * 5)})`;
+    context.fillRect(0, HUD_HEIGHT, width, height - HUD_HEIGHT);
+    context.translate(left + panelWidth, top);
+    context.scale(appear, appear);
+    context.translate(-panelWidth, 0);
+    context.fillStyle = 'rgba(14, 18, 36, 0.97)';
+    roundedRect(context, 0, 0, panelWidth, panelHeight, 12);
+    context.fill();
+    context.strokeStyle = 'rgba(54, 226, 255, 0.35)';
+    context.lineWidth = 1;
+    context.stroke();
+    context.textBaseline = 'middle';
+    context.textAlign = 'left';
+    context.fillStyle = SCENE.ink;
+    context.font = canvasFont(14, 'ui', 700);
+    context.fillText(`고른 강화 카드 ${engine.cards.length}장`, 16, 22);
+    context.textAlign = 'right';
+    context.fillStyle = SCENE.fog;
+    context.font = canvasFont(11, 'ui', 500);
+    context.fillText('다시 누르거나 Esc로 닫기', panelWidth - 16, 22);
+    context.beginPath();
+    context.rect(0, 40, panelWidth, panelHeight - 44);
+    context.clip();
+    groups.forEach((group, index) => {
+      const y = 46 + index * rowHeight;
+      const color = CARD_COLORS[group.card.rarity];
+      context.fillStyle = 'rgba(255, 255, 255, 0.04)';
+      roundedRect(context, 10, y, panelWidth - 20, rowHeight - 6, 8);
+      context.fill();
+      context.fillStyle = color;
+      roundedRect(context, 10, y, 4, rowHeight - 6, 2);
+      context.fill();
+      context.textAlign = 'center';
+      context.font = canvasFont(17, 'ui', 600);
+      context.fillStyle = SCENE.ink;
+      context.fillText(group.card.icon, 32, y + (rowHeight - 6) / 2);
+      context.textAlign = 'left';
+      context.font = canvasFont(12, 'ui', 700);
+      context.fillStyle = color;
+      const title = `${group.card.name}${group.count > 1 ? ` ×${group.count}` : ''}`;
+      context.fillText(title, 52, y + 11);
+      const titleWidth = context.measureText(title).width;
+      context.font = canvasFont(10, 'ui', 600);
+      context.fillStyle = SCENE.fog;
+      context.fillText(CARD_RARITY_LABELS[group.card.rarity] ?? '', 58 + titleWidth, y + 11);
+      context.font = canvasFont(11, 'ui', 500);
+      context.fillStyle = '#c5cbe2';
+      const [line] = this.wrapText(context, group.card.text, panelWidth - 70, 1);
+      context.fillText(line ?? '', 52, y + 26);
+    });
+    context.restore();
+  }
+
+  // ---------- 집중 핫픽스: 강화할 타워 고르기 ----------
+  // 위에 안내 띠, 고를 수 있는 타워마다 번호 배지와 맥박 고리, 이미 고른 타워엔 ✔
+  drawTowerPick(context, width, engine) {
+    const pick = engine.phase === 'tower-pick' ? engine.towerPick : null;
+    if (!pick) return;
+    const time = wallSeconds();
+    const candidates = engine.towerPickCandidates();
+    context.save();
+    context.fillStyle = 'rgba(5, 7, 16, 0.35)';
+    context.fillRect(0, HUD_HEIGHT, width, this.surface.height - HUD_HEIGHT);
+    candidates.forEach((tower, index) => {
+      const { x, y } = this.towerPosition(tower);
+      const unit = this.unit();
+      const pulse = 0.5 + 0.5 * Math.sin(time * 5 + index);
+      context.strokeStyle = CARD_COLORS.epic;
+      context.globalAlpha = 0.5 + pulse * 0.5;
+      context.lineWidth = 2.5;
+      context.beginPath();
+      context.ellipse(x, y + 4 * unit, (28 + pulse * 4) * unit, (16 + pulse * 2) * unit, 0, 0, Math.PI * 2);
+      context.stroke();
+      context.globalAlpha = 1;
+      if (index < 9) {
+        context.fillStyle = CARD_COLORS.epic;
+        context.beginPath();
+        context.arc(x + 20 * unit, y - 34 * unit, 10, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = '#0b0f1c';
+        context.font = canvasFont(12, 'ui', 800);
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(String(index + 1), x + 20 * unit, y - 34 * unit + 0.5);
+      }
+    });
+    for (const id of pick.picked) {
+      const tower = engine.towers.find(entry => entry.id === id);
+      if (!tower) continue;
+      const { x, y } = this.towerPosition(tower);
+      context.fillStyle = '#4df0a6';
+      context.font = canvasFont(16, 'ui', 800);
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText('✔', x + 20 * this.unit(), y - 34 * this.unit());
+    }
+    const text = `🛠 집중 핫픽스 · 강화(+${pick.levels})할 타워를 ${pick.remaining}개 더 고르세요`;
+    context.font = canvasFont(14, 'ui', 700);
+    const panelWidth = Math.min(width - 24, context.measureText(text).width + 40);
+    const area = this.isWide() ? width - this.panel().width : width;
+    const centerX = area / 2;
+    const top = HUD_HEIGHT + 10;
+    context.fillStyle = 'rgba(14, 18, 36, 0.95)';
+    roundedRect(context, centerX - panelWidth / 2, top, panelWidth, 50, 10);
+    context.fill();
+    context.strokeStyle = CARD_COLORS.epic;
+    context.lineWidth = 1.5;
+    context.stroke();
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = SCENE.ink;
+    context.fillText(text, centerX, top + 18);
+    context.font = canvasFont(11, 'ui', 500);
+    context.fillStyle = SCENE.fog;
+    context.fillText('타워를 누르거나 번호 키 · 최고 레벨 타워는 고를 수 없어요', centerX, top + 36);
+    context.restore();
   }
 
   // 강화 카드 고르기: 화면을 어둡게 하고 카드를 한 장씩 아래에서 날려 깐 뒤 뒤집는다(뒷면 → 앞면).
@@ -662,7 +877,8 @@ export class DefenseRenderer {
       const fly = Math.max(0, (progress - 0.45) / 0.55);
       const startX = rect.x + rect.width / 2, startY = rect.y + rect.height / 2;
       const centerX = width / 2, centerY = height * 0.45;
-      const targetX = 240, targetY = HUD_HEIGHT / 2;
+      const deck = this.deckButtonRect();
+      const targetX = deck.x + deck.width / 2, targetY = deck.y + deck.height / 2;
       const x = fly > 0 ? centerX + (targetX - centerX) * fly * fly : startX + (centerX - startX) * easeOutBack(grow);
       const y = fly > 0 ? centerY + (targetY - centerY) * fly * fly : startY + (centerY - startY) * easeOutBack(grow);
       const scale = fly > 0 ? 1.18 * (1 - fly) + 0.08 : 1 + 0.18 * grow;
@@ -1444,6 +1660,64 @@ export class DefenseRenderer {
     }
   }
 
+  // 관통 레이저: 긴 레일 두 줄 + 가운데 충전 코어. 충전이 찰수록 코어가 밝아지고, Lv.2부터 코일, Lv.3은 금색 레일
+  drawRailgun(context, tower, engine, fired) {
+    const color = TOWER_STYLE.railgun;
+    const level = tower.level ?? 1;
+    const angle = tower.viewAngle ?? -Math.PI / 2;
+    const time = wallSeconds();
+    const cooldown = tower.id != null && engine?.statsOf ? engine.statsOf(tower).cooldown : TOWER_TYPES.railgun.cooldown;
+    const charge = engine && tower.readyAt != null ? Math.max(0, Math.min(1, 1 - (tower.readyAt - engine.gameTime) / cooldown)) : 1;
+    // 받침
+    context.fillStyle = '#2b1530';
+    roundedRect(context, -11, -7, 22, 11, 4);
+    context.fill();
+    context.strokeStyle = level >= 3 ? '#ffd166' : color;
+    context.lineWidth = 1.2;
+    context.stroke();
+    context.save();
+    context.translate(0, -8);
+    context.rotate(angle);
+    const recoil = fired * 5;
+    const railLength = 24 + level * 3;
+    const railColor = level >= 3 ? '#ffd166' : '#c9b6d8';
+    // 레일 두 줄
+    context.fillStyle = railColor;
+    for (const offset of [-4.2, 2.2]) {
+      roundedRect(context, -6 - recoil, offset, railLength, 2, 1);
+      context.fill();
+    }
+    // 코일(Lv.2부터)
+    if (level >= 2) {
+      context.strokeStyle = level >= 3 ? '#ffe9a8' : 'rgba(255, 255, 255, 0.5)';
+      context.lineWidth = 1.1;
+      for (let coil = 0; coil < level; coil++) {
+        const coilX = 2 + coil * 6 - recoil;
+        context.beginPath();
+        context.moveTo(coilX, -5.5);
+        context.lineTo(coilX, 5.5);
+        context.stroke();
+      }
+    }
+    // 충전 코어
+    context.globalCompositeOperation = 'lighter';
+    const glow = 0.35 + 0.65 * charge + Math.sin(time * 10) * 0.05;
+    context.fillStyle = `rgba(255, 77, 210, ${Math.min(1, glow)})`;
+    context.shadowColor = color;
+    context.shadowBlur = 10 * charge;
+    roundedRect(context, -4 - recoil, -1.6, (railLength - 4) * charge, 3.2, 1.6);
+    context.fill();
+    context.shadowBlur = 0;
+    if (fired > 0) {
+      context.fillStyle = `rgba(255, 230, 250, ${fired})`;
+      context.beginPath();
+      context.arc(railLength - 6, 0, 7 * fired, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.globalCompositeOperation = 'source-over';
+    context.restore();
+  }
+
   // 타워 한 대. 움직임:
   // - 설치: 설계도 고리 + 빛기둥(0.2s) → 하늘에서 낙하(0.25s, 세로로 늘어남) → 쿵 착지(먼지·흔들림) 후 찌그러졌다 탄성 복원
   // - 업그레이드: 금빛 기둥 속에서 껑충 뛰었다 내려앉음
@@ -1502,6 +1776,7 @@ export class DefenseRenderer {
       else if (tower.type === 'honeypot') this.drawHoneypot(context, view, engine, fired);
       else if (tower.type === 'emp') this.drawEmp(context, view, engine, fired);
       else if (tower.type === 'interceptor') this.drawInterceptor(context, view, engine, fired);
+      else if (tower.type === 'railgun') this.drawRailgun(context, view, engine, fired);
       else this.drawAntivirus(context, view, engine, fired);
       if (shownLevel >= DEFENSE_RULES.maxTowerLevel) this.drawCrownHalo(context, color);
       // 변신 중: 아래에서 위로 지나가는 흰 스캔 줄 + 몸 전체 금빛
@@ -1776,6 +2051,7 @@ export class DefenseRenderer {
       else if (mode.tower === 'honeypot') this.drawHoneypot(context, { level: 1, id: 0 }, engine, 0);
       else if (mode.tower === 'emp') this.drawEmp(context, { level: 1, id: 0 }, engine, 0);
       else if (mode.tower === 'interceptor') this.drawInterceptor(context, { level: 1, viewAngle: -Math.PI / 2 }, engine, 0);
+      else if (mode.tower === 'railgun') this.drawRailgun(context, { level: 1, viewAngle: -Math.PI / 2 }, engine, 0);
       else this.drawAntivirus(context, { level: 1, viewAngle: -Math.PI / 2 }, engine, 0);
     } else {
       context.beginPath();
@@ -2988,6 +3264,30 @@ export class DefenseRenderer {
         context.arc(px, py, 9 * unit, 0, Math.PI * 2);
         context.fill();
       }
+    } else if (shot.type === 'railgun') {
+      // 관통 광선: 사거리 끝까지 곧은 분홍 빔(굵기 = 광선 폭), 바깥 번짐 → 하얀 심, 빠르게 사그라든다
+      const end = this.toScreen({ x: shot.x, y: shot.y });
+      const startY = from.y - 8 * this.unit();
+      const fade = 1 - age;
+      const thickness = Math.max(3, (shot.beam ?? 0.03) * this.field().height * 0.9) * (0.6 + 0.4 * fade);
+      context.lineCap = 'round';
+      context.globalAlpha = fade * 0.55;
+      context.strokeStyle = TOWER_STYLE.railgun;
+      context.shadowColor = TOWER_STYLE.railgun;
+      context.shadowBlur = 18;
+      context.lineWidth = thickness * 2;
+      context.beginPath();
+      context.moveTo(from.x, startY);
+      context.lineTo(end.x, end.y);
+      context.stroke();
+      context.globalAlpha = fade;
+      context.shadowBlur = 0;
+      context.strokeStyle = '#ffe6fa';
+      context.lineWidth = Math.max(1.5, thickness * 0.5);
+      context.beginPath();
+      context.moveTo(from.x, startY);
+      context.lineTo(end.x, end.y);
+      context.stroke();
     } else if (shot.type === 'honeypot') {
       // 꿀 덩어리: 포물선으로 날아가 길에 철퍽
       const unit = this.unit();
@@ -4201,10 +4501,6 @@ export class DefenseRenderer {
     context.fillText(`♩ ${engine.bpm()}`, 104, middle);
     context.fillStyle = SCENE.coin;
     context.fillText(`🪙 ${engine.coins}`, 160, middle);
-    if (engine.cards?.length && width >= 420) {
-      context.fillStyle = CARD_COLORS.rare;
-      context.fillText(`🃏 ${engine.cards.length}`, 236, middle);
-    }
     const barWidth = Math.min(160, width * 0.28);
     const left = width - barWidth - 12;
     const ratio = Math.max(0, this.displayHealth / engine.maxHealth);

@@ -1,4 +1,4 @@
-// 컴퓨터 디펜스 카드 가치 측정: 같은 시드로 여러 판을 돌려, 첫 카드(3웨이브 뒤)만 바꿔 끼우고
+// 컴퓨터 디펜스 카드 가치 측정: 같은 시드로 여러 판을 돌려, 첫 카드(5웨이브 뒤)만 바꿔 끼우고
 // 끝까지 버틴 정도(막은 웨이브 + 남은 체력 비율)를 '첫 카드 없음(효과 없는 카드)'과 비교한다.
 // 플레이어는 human-player.mjs의 '평균적인 사람' 봇(연구 자료 기반 타자 속도·오타·마우스 시간·운영 습관).
 // 두 번째 고르기부터는 봇이 사람처럼(등급·화려함에 끌리게) 고른다.
@@ -29,6 +29,8 @@ function play(seed, firstCard, { level, profile, tokenPool }) {
   let drafts = 0;
   for (let ms = 0; ms < 30 * 60 * 1000 && engine.status === 'running'; ms += 50) {
     engine.update(ms);
+    // 집중 핫픽스: 사람처럼 가장 비싼(레벨 높은) 타워부터 고른다
+    if (engine.phase === 'tower-pick') { engine.pickTower(engine.towerPickCandidates().sort((a, b) => b.level - a.level)[0]); continue; }
     if (engine.phase === 'draft') {
       drafts++;
       if (drafts === 1) engine.draft.hand = [firstCard];

@@ -2,7 +2,7 @@
 // 위: 충전 드론 + 100% 충전선 / 가운데: 가로로 지나가는 아이템 / 양옆: 배터리 셀 탑 + 캐릭터 / 아래: 바다.
 import { ARCADE_RULES } from './target-game.js';
 import { drawDrone } from './drone-view.js';
-import { BATTERY_RULES } from './battery-engine.js';
+import { BATTERY_RULES, BATTERY_ITEMS } from './battery-engine.js';
 import { PERSONAS, WEATHERS, ITEM_LOOKS } from './battery-modes.js';
 import { MASCOT_PALETTES, createRig, reactRig, updateRig, drawPhoneMascot, drawDrainBot, drainBotFor } from './battery-characters.js';
 import { qualityFor, setupCanvas, roundedRect, drawTokenLabel, ParticleSystem, easeOutCubic, easeOutBack, Spring, VisualStates, canvasFont, seededRandom, loadArt, isArtReady, Juice, recordRect, drawRarityTag } from './game-view.js';
@@ -841,6 +841,7 @@ export class BatteryRenderer {
       context.beginPath(); context.moveTo(-3, -8); context.lineTo(1, -2); context.lineTo(-2, 4); context.stroke();
     }
     context.restore();
+    if (!item.consumed && item.item !== 'cell') this.drawItemHint(context, x, y - (rarity ? 48 : 30) * scale, item.item, style.color);
     if (!item.consumed) {
       const pop = this.visuals.get(item.id).labelPop.value * 0.4;
       drawTokenLabel(context, x, y + 34 - pop, item, engine.getCharacterStates(item), {
@@ -850,7 +851,28 @@ export class BatteryRenderer {
     }
   }
 
-  // 새 아이템(덱 전용): 빛나는 동그라미 안에 아이콘
+  // 아이템 머리 위 짧은 설명(예: '상대 정지'). 셀은 숫자 태그로 충분해 건너뛴다(함정 셀도 셀처럼 보이게)
+  drawItemHint(context, x, y, itemKey, color) {
+    const hint = BATTERY_ITEMS[itemKey]?.hint;
+    if (!hint) return;
+    context.save();
+    context.font = canvasFont(11, 'ui', 700);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    const width = context.measureText(hint).width + 12;
+    context.globalAlpha *= 0.92;
+    context.fillStyle = 'rgba(8, 11, 22, 0.82)';
+    roundedRect(context, x - width / 2, y - 9, width, 18, 9);
+    context.fill();
+    context.strokeStyle = color;
+    context.lineWidth = 1;
+    context.stroke();
+    context.fillStyle = '#eef2ff';
+    context.fillText(hint, x, y + 0.5);
+    context.restore();
+  }
+
+  // 특수 아이템: 빛나는 동그라미 안에 아이콘
   drawEmojiItem(context, style, engine, item) {
     const pulse = 0.5 + 0.5 * Math.sin(engine.gameTime * 4 + item.id);
     context.fillStyle = 'rgba(10, 14, 30, 0.85)';

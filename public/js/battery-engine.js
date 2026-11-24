@@ -11,22 +11,25 @@ import { PERSONAS, WEATHERS, DECK_SIZE, BASE_ITEM, mirrorProfile } from './batte
 import { ITEM_RARITIES, rollRarity, tierValue, isRarity } from './item-rarity.js';
 
 export const BATTERY_ITEMS = Object.freeze({
-  cell: Object.freeze({ label: '배터리 셀', effect: '+0.5칸', gain: 0.5, weight: 0.5, bounty: 5 }),
-  powerbank: Object.freeze({ label: '보조배터리 드론', effect: '+1칸', gain: 1, weight: 0.15, bounty: 10 }),
-  eco: Object.freeze({ label: '저전력 모드', effect: '내 방전 4초 감속', gain: 0, weight: 0.12, bounty: 10 }),
-  heat: Object.freeze({ label: '발열 폭탄', effect: '상대 방전 4초 가속', gain: 0, weight: 0.12, bounty: 10 }),
-  blackout: Object.freeze({ label: '화면 꺼짐', effect: '상대 3초 정지', gain: 0, weight: 0.11, bounty: 10 }),
-  // ---------- 덱 전용 새 아이템(덱에 넣어야 나온다) ----------
-  reflect: Object.freeze({ label: '반사 방패', effect: '다음에 뺏기는 걸 막고(희귀부터 되돌림)', gain: 0, weight: 0.12, bounty: 10 }),
-  obfuscate: Object.freeze({ label: '난독화', effect: '상대 낱말 6초 길게', gain: 0, weight: 0.12, bounty: 10 }),
-  magnet: Object.freeze({ label: '셀 자석', effect: '다음에 화면에 들어오는 셀 몇 개 자동 획득', gain: 0, weight: 0.1, bounty: 10 }),
-  overclock: Object.freeze({ label: '오버클럭', effect: '6초간 뺏는 양 2배', gain: 0, weight: 0.11, bounty: 10 }),
-  cleanse: Object.freeze({ label: '백신 패치', effect: '나쁜 효과 지우고 잠깐 뺏기·방해 면역', gain: 0, weight: 0.1, bounty: 10 }),
-  trap: Object.freeze({ label: '함정 셀', effect: '가짜 셀을 띄움(상대가 먹으면 손해)', gain: 0, weight: 0.11, bounty: 10 }),
-  lucky: Object.freeze({ label: '행운 낚시', effect: '잠깐 동안 내가 잡는 셀 2배', gain: 0, weight: 0.1, bounty: 10 })
+  cell: Object.freeze({ label: '배터리 셀', hint: '셀 +0.5', about: '내 배터리 +반 칸', effect: '+0.5칸', gain: 0.5, weight: 0.5, bounty: 5 }),
+  powerbank: Object.freeze({ label: '보조배터리 드론', hint: '+1칸', about: '내 배터리 +한 칸 넘게', effect: '+1칸', gain: 1, weight: 0.15, bounty: 10 }),
+  eco: Object.freeze({ label: '저전력 모드', hint: '내 방전↓', about: '잠깐 내 배터리가 천천히 닳음', effect: '내 방전 4초 감속', gain: 0, weight: 0.12, bounty: 10 }),
+  heat: Object.freeze({ label: '발열 폭탄', hint: '상대 방전↑', about: '잠깐 상대 배터리가 빨리 닳음', effect: '상대 방전 4초 가속', gain: 0, weight: 0.12, bounty: 10 }),
+  blackout: Object.freeze({ label: '화면 꺼짐', hint: '상대 정지', about: '상대 화면이 잠깐 꺼짐', effect: '상대 3초 정지', gain: 0, weight: 0.11, bounty: 10 }),
+  reflect: Object.freeze({ label: '반사 방패', hint: '공격 막기', about: '뺏기는 걸 한 번 막아 줌', effect: '다음에 뺏기는 걸 막고(희귀부터 되돌림)', gain: 0, weight: 0.12, bounty: 10 }),
+  obfuscate: Object.freeze({ label: '난독화', hint: '상대 낱말↑', about: '잠깐 상대 낱말이 길어짐', effect: '상대 낱말 6초 길게', gain: 0, weight: 0.12, bounty: 10 }),
+  magnet: Object.freeze({ label: '셀 자석', hint: '셀 자동', about: '다음 셀 몇 개를 자동으로 먹음', effect: '다음에 화면에 들어오는 셀 몇 개 자동 획득', gain: 0, weight: 0.1, bounty: 10 }),
+  overclock: Object.freeze({ label: '오버클럭', hint: '뺏기 ×2', about: '잠깐 뺏는 양이 두 배', effect: '6초간 뺏는 양 2배', gain: 0, weight: 0.11, bounty: 10 }),
+  cleanse: Object.freeze({ label: '백신 패치', hint: '해로운 효과 제거', about: '나쁜 효과를 지우고 잠깐 보호', effect: '나쁜 효과 지우고 잠깐 뺏기·방해 면역', gain: 0, weight: 0.1, bounty: 10 }),
+  trap: Object.freeze({ label: '함정 셀', hint: '가짜 셀', about: '가짜 셀로 상대를 속임', effect: '가짜 셀을 띄움(상대가 먹으면 손해)', gain: 0, weight: 0.11, bounty: 10 }),
+  lucky: Object.freeze({ label: '행운 낚시', hint: '셀 ×2', about: '잠깐 먹는 셀이 두 배', effect: '잠깐 동안 내가 잡는 셀 2배', gain: 0, weight: 0.1, bounty: 10 })
 });
-// 원래 다섯 종(덱을 안 고르면, 그리고 대전 모드는 이것만)
+// hint = 바다 위 아이템 머리에 붙는 짧은 설명, about = 준비 화면 아이템 목록의 한 줄 설명
+// 원래 다섯 종(대전 모드는 이것만). 혼자 하기는 12종 전부가 무작위로 나온다
 export const CLASSIC_ITEMS = Object.freeze(['cell', 'powerbank', 'eco', 'heat', 'blackout']);
+export const ALL_ITEMS = Object.freeze(Object.keys(BATTERY_ITEMS));
+// 셀 말고 특수 아이템 몫(가중치 합). 종류가 몇 개든 셀:특수 ≈ 0.5:0.5를 유지해 충전 속도가 덱 크기에 휘둘리지 않게 한다
+export const SPECIAL_ITEM_SHARE = 0.5;
 export const ITEM_EFFECTS = Object.freeze({
   obfuscateFactor: 2.5, obfuscateMinLength: 8,
   overclockFactor: 2, trapFoolChance: 1, luckyCellFactor: 3,
@@ -119,12 +122,13 @@ function createSide(cells = BATTERY_RULES.startCells) {
 export class BatteryEngine extends TargetGameEngine {
   constructor(options) {
     super({ ...options, mode: 'battery' });
-    // 혼자 하기 판 꾸미기(없으면 예전 그대로): persona = 방전봇 성격, deck = 셀 말고 나올 아이템, weather = 바다 날씨
+    // 혼자 하기 판 꾸미기: persona = 방전봇 성격, weather = 바다 날씨. 아이템은 혼자 하기면 12종 무작위, 대전이면 원래 5종
+    // deck(선택)은 시험·재현용으로만 남겨 둔 고정 목록
     this.persona = PERSONAS[options.persona] ? options.persona : null;
     this.personaAi = this.persona ? PERSONAS[this.persona].ai : null;
     this.mirror = this.personaAi?.mirror ? (options.mirrorProfile ?? mirrorProfile(null)) : null;
     const deck = Array.isArray(options.deck) ? options.deck.filter(key => BATTERY_ITEMS[key] && key !== BASE_ITEM).slice(0, DECK_SIZE) : null;
-    this.itemPool = deck?.length ? [BASE_ITEM, ...deck] : [...CLASSIC_ITEMS];
+    this.itemPool = deck?.length ? [BASE_ITEM, ...deck] : this.persona ? [...ALL_ITEMS] : [...CLASSIC_ITEMS];
     this.weather = WEATHERS[options.weather] ? options.weather : 'calm';
     this.nextWaveAt = this.weather === 'waves' ? WEATHERS.waves.every : Infinity;
     this.waveUntil = 0;
@@ -283,14 +287,21 @@ export class BatteryEngine extends TargetGameEngine {
   }
 
   // ---------- 아이템 ----------
+  // 가중 무작위. 특수 아이템 가중치는 합이 SPECIAL_ITEM_SHARE가 되게 맞춘다(종류 비율은 그대로). O(아이템 종류)
   chooseItemType() {
-    const entries = this.itemPool.map(key => [key, BATTERY_ITEMS[key]]);
-    let roll = this.random() * entries.reduce((sum, [, item]) => sum + item.weight, 0);
-    for (const [key, item] of entries) {
-      roll -= item.weight;
+    const specials = this.itemPool.filter(key => key !== BASE_ITEM && BATTERY_ITEMS[key]);
+    const specialTotal = specials.reduce((sum, key) => sum + BATTERY_ITEMS[key].weight, 0);
+    const scale = specialTotal > 0 ? SPECIAL_ITEM_SHARE / specialTotal : 0;
+    const entries = [
+      ...(this.itemPool.includes(BASE_ITEM) ? [[BASE_ITEM, BATTERY_ITEMS[BASE_ITEM].weight]] : []),
+      ...specials.map(key => [key, BATTERY_ITEMS[key].weight * scale])
+    ];
+    let roll = this.random() * entries.reduce((sum, [, weight]) => sum + weight, 0);
+    for (const [key, weight] of entries) {
+      roll -= weight;
       if (roll <= 0) return key;
     }
-    return 'cell';
+    return BASE_ITEM;
   }
 
   chooseItemY() {

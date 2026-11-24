@@ -3,9 +3,9 @@
 // apply = mods를 바꾸는 효과, instant = 고르는 순간 엔진에 바로 일어나는 효과. max = 이번 판에 고를 수 있는 최대 횟수
 
 export const CARD_RULES = Object.freeze({
-  every: 3,          // 이 웨이브 수마다(3, 6, 9, …) 웨이브를 막은 뒤 카드를 고른다
-  choices: 3,
-  rarityWeight: Object.freeze({ common: 56, rare: 28, epic: 12, legendary: 4 })
+  every: 5,          // 이 웨이브 수마다(5, 10, 15, 20) 웨이브를 막은 뒤 카드를 고른다
+  choices: 4,        // 5웨이브마다로 줄어든 만큼 한 장 더 보여 주고, 등급 가중치도 높은 쪽으로 옮겼다
+  rarityWeight: Object.freeze({ common: 46, rare: 32, epic: 16, legendary: 6 })
 });
 
 export const CARD_RARITIES = Object.freeze(['common', 'rare', 'epic', 'legendary']);
@@ -15,8 +15,8 @@ export const CARD_RARITY_LABELS = Object.freeze({ common: '일반', rare: '희�
 export function baseMods() {
   return {
     towerDamage: 1, towerCooldown: 1, towerRange: 0,
-    typeDamage: { firewall: 1, honeypot: 1, antivirus: 1, emp: 1, interceptor: 1 },
-    typeShots: { firewall: 0, honeypot: 0, antivirus: 0, emp: 0, interceptor: 0 },
+    typeDamage: { firewall: 1, honeypot: 1, antivirus: 1, emp: 1, interceptor: 1, railgun: 1 },
+    typeShots: { firewall: 0, honeypot: 0, antivirus: 0, emp: 0, interceptor: 0, railgun: 0 },
     burn: 1, puddleSeconds: 1, splash: 1, airDamage: 1,
     wordCoins: 1, killCoins: 1, waveBonus: 1, interest: 0, comboBoost: 1, jackpot: 0, scoreBonus: 1,
     buildPrice: 1, upgradePrice: 1, repairPrice: 1, sellRefund: 0, freeBuilds: 0, extraTowers: 0,
@@ -77,10 +77,10 @@ export const DEFENSE_CARDS = Object.freeze([
   { id: 'freebie', icon: '🎟', name: '무료 설치권', rarity: 'epic', max: 2, effect: 'freeBuilds', text: '다음 새 타워 두 개 공짜', apply: mods => { mods.freeBuilds += 2; } },
   { id: 'expansion', icon: '🧩', name: '랙 증설', rarity: 'epic', max: 1, effect: 'extraTowers', text: '타워 최대 개수 +6', apply: mods => { mods.extraTowers += 6; } },
   { id: 'early-bot', icon: '🤖', name: '조기 출동', rarity: 'legendary', max: 1, effect: 'instant:guardian', text: '가디언 봇이 지금 바로 출동', instant: engine => engine.deployGuardianEarly() },
-  { id: 'wide-hand', icon: '🃏', name: '선택지 확장', rarity: 'epic', max: 1, effect: 'extraChoices', text: '앞으로 카드를 4장 중에서 고름', apply: mods => { mods.extraChoices += 1; } },
+  { id: 'wide-hand', icon: '🃏', name: '선택지 확장', rarity: 'epic', max: 1, effect: 'extraChoices', text: '앞으로 카드를 한 장 더 보고 고름', apply: mods => { mods.extraChoices += 1; } },
   // ---------- 전설 ----------
   { id: 'root-access', icon: '👑', name: '루트 권한', rarity: 'legendary', max: 1, effect: 'instant:computerLevel', text: '컴퓨터 강화 2단계 공짜', instant: engine => { engine.freeComputerUpgrade(); engine.freeComputerUpgrade(); } },
-  { id: 'hotfix', icon: '🛠', name: '전체 핫픽스', rarity: 'epic', max: 1, effect: 'instant:towerLevels', text: '지금 있는 모든 타워 강화 +2 공짜', instant: engine => { engine.upgradeAllTowers(); engine.upgradeAllTowers(); } },
+  { id: 'hotfix', icon: '🛠', name: '집중 핫픽스', rarity: 'epic', max: 1, effect: 'instant:towerLevels', text: '타워 2개를 골라 각각 강화 +2 공짜', instant: engine => engine.beginTowerPick({ picks: 2, levels: 2 }) },
   { id: 'breakpoint', icon: '⏸', name: '브레이크포인트', rarity: 'legendary', max: 1, effect: 'waveFreeze', text: '웨이브마다 두 번(보스 웨이브는 한 번은 보스에게), 적이 길 절반 가까이 오면 모든 적 14초 멈춤(멈춘 적은 피해 2배)', apply: mods => { mods.waveFreeze += 14; } },
   { id: 'jackpot', icon: '🎰', name: '잭팟 커밋', rarity: 'legendary', max: 1, effect: 'jackpot', text: '낱말을 칠 때 25% 확률로 코인 8배', apply: mods => { mods.jackpot += 0.25; } },
   { id: 'lucky', icon: '🍀', name: '행운의 머지', rarity: 'legendary', max: 1, effect: 'luck', text: '앞으로 높은 등급 카드가 훨씬 잘 나옴', apply: mods => { mods.luck += 2; } }

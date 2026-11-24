@@ -5,7 +5,7 @@ import { LANGUAGES, getTokenPool } from './tokens.js';
 import { ThrowEngine, ROBOT_TYPES, BOSS_SKILLS, FORMATIONS } from './throw-engine.js';
 import { BatteryEngine, BATTERY_ITEMS, itemEffectText } from './battery-engine.js';
 import { ITEM_RARITIES, RARITY_ORDER } from './item-rarity.js';
-import { PERSONAS, PERSONA_ORDER, WEATHERS, DECK_SIZE, BASE_ITEM, DEFAULT_DECK, ITEM_LOOKS, mirrorProfile, pickWeather } from './battery-modes.js';
+import { PERSONAS, PERSONA_ORDER, WEATHERS, BASE_ITEM, ITEM_LOOKS, mirrorProfile, pickWeather } from './battery-modes.js';
 import { BatteryPvpHostEngine, BatteryPvpGuestEngine, PVP_RULES, PVP_PROTOCOL_VERSION } from './battery-pvp.js';
 import { hostRoom, joinRoom } from './pvp-connection.js';
 import { createPvpLobby } from './pvp-lobby.js';
@@ -110,7 +110,22 @@ const isTimeAttack = () => settings.mode === 'practice' && settings.practiceVari
 const boardMode = () => (isTimeAttack() ? 'timeattack' : settings.mode);
 // 휴대폰 던지기·배터리 구조는 난이도마다 랭킹이 따로다(그 외 모드는 null)
 const LEVELED_BOARDS = Object.freeze(['throw', 'battery', 'defense']);
-const boardLevel = (mode = boardMode()) => (LEVELED_BOARDS.includes(mode) ? settings.level : null);
+// 랭킹 등록은 가장 어려운 난이도만: 던지기·배터리·디펜스는 Lv.4(최상), 리듬은 EXPERT. 연습(시간 고정·연장)은 난이도가 없어 그대로
+const RANKED_LEVEL = 4;
+const RANKED_RHYTHM_DIFFICULTY = 'expert';
+// 이번 판 난이도(세션에 서명되는 값)
+const playLevel = (mode = boardMode()) => (LEVELED_BOARDS.includes(mode) ? settings.level : null);
+// 랭킹 보드는 늘 등록 가능한 난이도의 보드를 보여 준다
+const boardLevel = (mode = boardMode()) => (LEVELED_BOARDS.includes(mode) ? RANKED_LEVEL : null);
+// 이번 판을 랭킹에 올릴 수 있는가
+function isRankedRun(mode = boardMode()) {
+  if (LEVELED_BOARDS.includes(mode)) return settings.level === RANKED_LEVEL;
+  if (mode === 'rhythm') return settings.rhythmDifficulty === RANKED_RHYTHM_DIFFICULTY;
+  return true;
+}
+const UNRANKED_NOTE = mode => (mode === 'rhythm'
+  ? '랭킹은 EXPERT 난이도만 등록돼요. 포인트·개인 기록은 그대로 쌓여요.'
+  : `랭킹은 ${DIFFICULTY_LEVELS[RANKED_LEVEL]?.label ?? 'Lv.4'}(Lv.4)만 등록돼요. 포인트·개인 기록은 그대로 쌓여요.`);
 // 랭킹은 언어마다 따로다: 제목에 언어도 붙인다
 const boardLabel = (mode = boardMode(), level = boardLevel(mode), language = settings.languageKey) => {
   const parts = [BOARD_LABELS[mode] ?? mode, LANGUAGES[language]?.label ?? language];
@@ -438,8 +453,9 @@ const throwItemLog = payload => {
 // ---------- 세션 · 제출 ----------
 function startSession(generation) {
   const mode = boardMode();
-  const level = boardLevel(mode);
-  return requestSession({ mode, language: settings.languageKey, ...(mode === 'practice' ? { durationSeconds: settings.durationSeconds } : {}), ...(level ? { level } : {}) }).catch(error => {
+  const level = playLevel(mode);
+  const difficulty = mode === 'rhythm' ? settings.rhythmDifficulty : undefined;
+  return requestSession({ mode, language: settings.languageKey, ...(mode === 'practice' ? { durationSeconds: settings.durationSeconds } : {}), ...(level ? { level } : {}), ...(difficulty ? { difficulty } : {}) }).catch(error => {
     if (generation === run.generation) ui.log('warn', `session 발급 실패 (${error.message}) — 이번 판은 로컬 랭킹에만 저장`);
     return null;
   });
@@ -457,6 +473,10 @@ async function handleSave(event) {
   event.preventDefault();
   const engine = run.engine;
   if (!engine || engine.status !== 'finished' || run.submitted || engine.score <= 0) return;
+  if (!isRankedRun()) {
+    ui.setSaveStatus(UNRANKED_NOTE(boardMode()), 'warn');
+    return;
+  }
   const generation = run.generation;
   const mode = boardMode();
   const level = boardLevel(mode);
@@ -573,6 +593,13 @@ function resultHeading(summary) {
   return {};
 }
 
+// 결과창 머리 + 랭킹 등록 가능 여부(가장 어려운 난이도가 아니면 등록 폼을 숨기고 안내)
+function resultOptions(summary) {
+  const heading = resultHeading(summary);
+  if (heading.saveable === false || isRankedRun()) return heading;
+  return { ...heading, saveable: false, unsavedNote: UNRANKED_NOTE(boardMode()) };
+}
+
 // 모드별 개인 최고 점수를 기기에 저장하고, 이번 판이 그 기록을 넘었는지 돌려준다(첫 판은 0점이 아니면 기록)
 function recordPersonalBest(summary) {
   const key = `best:${summary.mode}`;
@@ -657,7 +684,7 @@ function handleFinish(summary) {
   // 결과창은 무슨 일이 있어도 띄운다: 제목·포인트 계산에서 오류가 나도 기본 결과로 보여 준다
   let heading = {};
   try {
-    heading = resultHeading(summary);
+    heading = resultOptions(summary);
   } catch (error) {
     console.error(error);
   }
@@ -761,7 +788,7 @@ function bindDefensePointer(canvas) {
     const rect = canvas.getBoundingClientRect();
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   };
-  const activeRenderer = () => (settings.mode === 'defense' && (run.engine?.buildMode || run.engine?.phase === 'draft') && run.engine.status === 'running' ? renderers.defense : null);
+  const activeRenderer = () => (settings.mode === 'defense' && (run.engine?.buildMode || run.engine?.phase === 'draft' || run.engine?.phase === 'tower-pick' || renderers.defense?.deckRect) && run.engine.status === 'running' ? renderers.defense : null);
   canvas.addEventListener('pointermove', event => {
     const renderer = activeRenderer();
     const point = renderer ? localPoint(event) : null;
@@ -777,6 +804,23 @@ function bindDefensePointer(canvas) {
   canvas.addEventListener('pointerdown', event => {
     if (settings.mode !== 'defense' || run.engine?.status !== 'running') return;
     const point = localPoint(event);
+    // 오른쪽 위 카드 덱: 누르면 고른 카드 목록을 열고 닫는다. 열려 있을 때 다른 곳을 누르면 닫기만 한다
+    const deckRenderer = renderers.defense;
+    if (deckRenderer?.deckButtonAt(point.x, point.y) || deckRenderer?.deckOpen) {
+      event.preventDefault();
+      const open = deckRenderer.deckButtonAt(point.x, point.y) ? deckRenderer.toggleDeck() : deckRenderer.toggleDeck(false);
+      sound.play(open ? 'cardHover' : 'uiClick');
+      ui.elements.hiddenInput?.focus({ preventScroll: true });
+      return;
+    }
+    // 집중 핫픽스: 타워를 누르면 그 타워 +2(고를 수 없는 타워면 안내)
+    if (run.engine.phase === 'tower-pick') {
+      event.preventDefault();
+      const tower = run.engine.towerAt(deckRenderer?.toField(point.x, point.y));
+      if (tower) run.engine.pickTower(tower);
+      ui.elements.hiddenInput?.focus({ preventScroll: true });
+      return;
+    }
     // 강화 카드 고르기 중: 카드를 누르면 그 카드, 다른 곳은 무시
     if (run.engine.phase === 'draft') {
       event.preventDefault();
@@ -841,11 +885,12 @@ function bindDefensePointer(canvas) {
   });
 }
 
-// 타워 발사음: 방화벽 = 화르륵, 허니팟 = (puddle 이벤트에서), 백신 = 레이저, EMP = 충전, 요격포 = 미사일 발사 → 0.18초 뒤 폭발
+// 타워 발사음: 방화벽 = 화르륵, 허니팟 = (puddle 이벤트에서), 백신 = 레이저, EMP = 충전, 요격포 = 미사일 발사 → 0.18초 뒤 폭발, 관통 = 충전 후 긴 광선
 function playTowerShotSound(tower) {
   const type = tower?.type;
   if (type === 'firewall') sound.play('ignite');
   else if (type === 'antivirus') sound.play('laserShot');
+  else if (type === 'railgun') sound.play('railShot');
   else if (type === 'emp') sound.play('empCharge');
   else if (type === 'interceptor') {
     sound.play('missileLaunch');
@@ -901,6 +946,18 @@ function handleDefenseEvent(type, payload) {
       ui.log('info', `🃏 WAVE ${payload.wave} 돌파 — 강화 카드 ${payload.hand.length}장 중 1장을 고르세요`);
       return true;
     }
+    case 'tower-pick':
+      sound.play('cardReveal', { rarity: 2 });
+      ui.log('info', `🛠 집중 핫픽스 — 강화할 타워 ${payload.remaining}개를 누르거나 번호 키로 고르세요(각각 +${payload.levels})`);
+      return true;
+    case 'tower-pick-denied':
+      sound.play('error');
+      return true;
+    case 'tower-pick-done':
+      ui.log('info', '🛠 집중 핫픽스 완료');
+      return true;
+    case 'pierce':
+      return true;
     case 'card-picked': {
       const card = cardById(payload.card);
       sound.play('cardPick', { rarity: Math.max(0, CARD_RARITY_ORDER.indexOf(payload.rarity)) });
@@ -1106,23 +1163,17 @@ function startMusic() {
 }
 
 // ---------- 배터리 구조 판 준비(혼자 하기) ----------
-// 상대는 라인업 순서대로(이기면 다음 상대), 날씨는 판마다 무작위(같은 날씨 연속 없음), 덱은 고른 대로 저장
+// 상대는 라인업 순서대로(이기면 다음 상대), 날씨는 판마다 무작위(같은 날씨 연속 없음), 아이템은 12종 무작위
 const batteryPrep = {
   ladder: Math.max(0, Number(preferences.get('batteryLadder', 0)) || 0),
-  deck: sanitizeDeck(preferences.get('batteryDeck', DEFAULT_DECK)),
   mirror: preferences.get('batteryMirror', null),
   weather: pickWeather(Math.random, preferences.get('batteryWeather', null))
 };
 
-function sanitizeDeck(deck) {
-  const valid = (Array.isArray(deck) ? deck : []).filter(key => BATTERY_ITEMS[key] && key !== BASE_ITEM);
-  return [...new Set(valid)].slice(0, DECK_SIZE);
-}
-
 const currentPersona = () => PERSONA_ORDER[batteryPrep.ladder % PERSONA_ORDER.length];
 
 function batteryMatchOptions() {
-  return { persona: currentPersona(), deck: batteryPrep.deck, weather: batteryPrep.weather, mirrorProfile: batteryPrep.mirror ?? undefined };
+  return { persona: currentPersona(), weather: batteryPrep.weather, mirrorProfile: batteryPrep.mirror ?? undefined };
 }
 
 // 배터리 판 꾸미기 이벤트(성격 대사·날씨·새 아이템). 소리·기록만, 그림은 화면(BatteryRenderer)이 한다. 처리했으면 true
@@ -1200,38 +1251,25 @@ function updateBatteryPrep() {
     Object.assign(document.createElement('b'), { textContent: `날씨 · ${weather.name}` }),
     Object.assign(document.createElement('small'), { textContent: weather.blurb })
   );
-  document.getElementById('prepDeckCount').textContent = `${batteryPrep.deck.length}/${DECK_SIZE}`;
-  const chips = document.getElementById('prepDeck');
-  chips.replaceChildren(...Object.entries(BATTERY_ITEMS).filter(([key]) => key !== BASE_ITEM).map(([key, item]) => {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'prep-chip';
-    chip.dataset.item = key;
-    chip.title = `${item.label} — 등급이 높을수록 세져요\n${RARITY_ORDER.map(rarity => `${ITEM_RARITIES[rarity].label}: ${itemEffectText(key, rarity)}`).join('\n')}`;
-    chip.style.setProperty('--chip', ITEM_LOOKS[key]?.color ?? '#36e2ff');
-    chip.setAttribute('aria-pressed', String(batteryPrep.deck.includes(key)));
-    chip.textContent = `${ITEM_LOOKS[key]?.icon ?? ''} ${item.label}`;
-    return chip;
-  }));
+  document.getElementById('prepItems')?.replaceChildren(...batteryItemGuide());
 }
 
-// 덱 칩 누르기: 넣기/빼기(꽉 차 있으면 흔들기). 아직 시작 전이라 판을 새 덱으로 다시 만든다
-function toggleDeckItem(key) {
-  const deck = batteryPrep.deck;
-  if (deck.includes(key)) batteryPrep.deck = deck.filter(entry => entry !== key);
-  else if (deck.length >= DECK_SIZE) {
-    const chip = document.querySelector(`.prep-chip[data-item="${key}"]`);
-    chip?.classList.remove('full');
-    void chip?.offsetWidth;
-    chip?.classList.add('full');
-    sound.play('error');
-    ui.log('warn', `덱은 ${DECK_SIZE}종까지예요 — 하나를 빼고 넣으세요`);
-    return;
-  } else batteryPrep.deck = [...deck, key];
-  preferences.set('batteryDeck', batteryPrep.deck);
-  sound.play('uiClick');
-  if (run.engine?.status === 'ready') resetGame();
-  else updateBatteryPrep();
+// 준비 화면 아이템 목록: 아이콘 · 이름 · 한 줄 설명(등급별 수치는 마우스를 올리면 보인다). O(아이템 종류)
+function batteryItemGuide() {
+  return Object.entries(BATTERY_ITEMS).map(([key, item]) => {
+    const entry = document.createElement('li');
+    entry.className = 'prep-item';
+    entry.style.setProperty('--item', ITEM_LOOKS[key]?.color ?? '#36e2ff');
+    entry.title = key === BASE_ITEM
+      ? `${item.label} — ${item.about}`
+      : `${item.label} — 등급이 높을수록 세져요\n${RARITY_ORDER.map(rarity => `${ITEM_RARITIES[rarity].label}: ${itemEffectText(key, rarity)}`).join('\n')}`;
+    entry.append(
+      Object.assign(document.createElement('span'), { className: 'prep-item-icon', textContent: ITEM_LOOKS[key]?.icon ?? '•' }),
+      Object.assign(document.createElement('b'), { textContent: item.label }),
+      Object.assign(document.createElement('small'), { textContent: item.about ?? item.effect })
+    );
+    return entry;
+  });
 }
 
 function createEngine() {
@@ -1628,8 +1666,13 @@ function handleRhythmKeyUp(event) {
 function handleDefenseHotkey(event) {
   const engine = run.engine;
   if (settings.mode !== 'defense' || engine?.status !== 'running' || event.isComposing) return false;
+  if (event.key === 'Escape' && renderers.defense?.deckOpen) {
+    renderers.defense.toggleDeck(false);
+    event.preventDefault();
+    return true;
+  }
   if (event.key === 'Escape' && !engine.buildMode) return false;
-  if (engine.phase === 'draft' && /^[1-9]$/.test(event.key)) {
+  if ((engine.phase === 'draft' || engine.phase === 'tower-pick') && /^[1-9]$/.test(event.key)) {
     const picked = engine.hotkey(event.key);
     event.preventDefault();
     return picked || true;
@@ -2388,14 +2431,6 @@ function bindEvents() {
   elements.saveForm.addEventListener('submit', handleSave);
   elements.focusOverlay.addEventListener('click', focusTypingArea);
   elements.arcadeOverlay.addEventListener('click', focusTypingArea);
-  // 덱 칩: 누르는 순간 포커스를 뺏기지 않게(입력창 유지)
-  const prepDeck = document.getElementById('prepDeck');
-  prepDeck?.addEventListener('mousedown', event => event.preventDefault());
-  prepDeck?.addEventListener('click', event => {
-    const chip = event.target.closest('.prep-chip');
-    if (chip) toggleDeckItem(chip.dataset.item);
-    elements.hiddenInput?.focus({ preventScroll: true });
-  });
   elements.stage.addEventListener('click', focusTypingArea);
   elements.arcadeStage.addEventListener('click', focusTypingArea);
   bindDefensePointer(elements.arcadeCanvas);

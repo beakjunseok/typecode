@@ -67,6 +67,26 @@ export function resolveLevel(mode, rawLevel) {
   return level;
 }
 
+// 리듬 난이도(세션에 서명). 리듬이 아니면 null, 리듬인데 값이 없거나 모르는 값이면 null(= 랭킹 등록 불가)
+export const RHYTHM_DIFFICULTY_KEYS = Object.freeze(['easy', 'normal', 'hard', 'expert']);
+export function resolveDifficulty(mode, rawDifficulty) {
+  if (resolveMode(mode) !== 'rhythm') return null;
+  return RHYTHM_DIFFICULTY_KEYS.includes(rawDifficulty) ? rawDifficulty : null;
+}
+
+// 랭킹 등록은 가장 어려운 난이도만: 난이도별 모드는 Lv.4, 리듬은 expert. 난이도가 없는 연습 모드는 제한 없음
+export const RANKED_LEVEL = 4;
+export const RANKED_RHYTHM_DIFFICULTY = 'expert';
+export function assertRankedSession(mode, session) {
+  const resolved = resolveMode(mode);
+  if (MODES[resolved].leveled && Number(session.level) !== RANKED_LEVEL) {
+    throw new HttpError(403, 'unranked_level', '랭킹은 최상(Lv.4) 난이도만 등록할 수 있습니다');
+  }
+  if (resolved === 'rhythm' && session.difficulty !== RANKED_RHYTHM_DIFFICULTY) {
+    throw new HttpError(403, 'unranked_level', '리듬 랭킹은 EXPERT 난이도만 등록할 수 있습니다');
+  }
+}
+
 export class HttpError extends Error {
   constructor(status, code, message) {
     super(message);
@@ -111,8 +131,8 @@ function sign(payloadEncoded) {
   return createHmac('sha256', getSigningKey()).update(payloadEncoded).digest('base64url');
 }
 
-export function issueSessionToken({ language, durationSeconds = null, mode = 'practice', level = null }) {
-  const payload = { sid: randomBytes(9).toString('hex'), mode, language, durationSeconds, startedAt: Date.now(), ...(level ? { level } : {}) };
+export function issueSessionToken({ language, durationSeconds = null, mode = 'practice', level = null, difficulty = null }) {
+  const payload = { sid: randomBytes(9).toString('hex'), mode, language, durationSeconds, startedAt: Date.now(), ...(level ? { level } : {}), ...(difficulty ? { difficulty } : {}) };
   const payloadEncoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return { token: `${payloadEncoded}.${sign(payloadEncoded)}`, session: payload };
 }

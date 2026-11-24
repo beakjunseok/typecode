@@ -141,6 +141,24 @@ test('난이도별 랭킹: throw·battery만 레벨을 받고, Lv.2는 예전 �
   assert.equal(bad.status, 422);
 });
 
+test('랭킹 등록은 가장 어려운 난이도만: Lv.4·EXPERT만 통과, 연습은 제한 없음', async () => {
+  const blocked = error => error.status === 403 && error.code === 'unranked_level';
+  assert.throws(() => lib.assertRankedSession('battery', { level: 3 }), blocked);
+  assert.throws(() => lib.assertRankedSession('defense', {}), blocked, '레벨 없는 예전 세션도 막는다');
+  assert.doesNotThrow(() => lib.assertRankedSession('throw', { level: 4 }));
+  assert.throws(() => lib.assertRankedSession('rhythm', { difficulty: 'hard' }), blocked);
+  assert.throws(() => lib.assertRankedSession('rhythm', {}), blocked);
+  assert.doesNotThrow(() => lib.assertRankedSession('rhythm', { difficulty: 'expert' }));
+  assert.doesNotThrow(() => lib.assertRankedSession('practice', {}));
+  assert.doesNotThrow(() => lib.assertRankedSession('timeattack', {}));
+
+  const response = await sessionRoute.POST(post({ mode: 'rhythm', language: 'go', difficulty: 'expert' }));
+  const body = await response.json();
+  assert.equal(lib.verifySessionToken(body.token).difficulty, 'expert', '리듬 난이도는 서명된 세션에 들어간다');
+  const unknown = await (await sessionRoute.POST(post({ mode: 'rhythm', language: 'go', difficulty: 'godlike' }))).json();
+  assert.equal(lib.verifySessionToken(unknown.token).difficulty, undefined);
+});
+
 test('언어별 랭킹: 언어 값 검증과 언어로 거르기(예전 기록도 language로 나뉜다)', () => {
   assert.equal(lib.resolveLanguage(undefined), null);
   assert.equal(lib.resolveLanguage('python'), 'python');
